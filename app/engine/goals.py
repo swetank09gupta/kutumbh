@@ -39,6 +39,102 @@ def _months_between(start: date, end: date) -> int:
     return max(1, (end.year - start.year) * 12 + (end.month - start.month))
 
 
+# ── Age-based target date overrides ───────────────────────────────────────────
+# Standard Indian financial-planning milestones. Override per child via
+# `children:` block in config/accounts.yml.
+_DEFAULT_EDUCATION_AGE = 18
+_DEFAULT_MARRIAGE_AGE  = 25
+
+
+def _load_children_from_config() -> list[dict]:
+    """
+    Read optional children profiles from config/accounts.yml.
+
+    Schema:
+      children:
+        - id: "child1"
+          name: "Aarav"
+          dob: "2020-04-15"
+          education_age: 18      # optional, default 18
+          marriage_age: 25       # optional, default 25
+    """
+    try:
+        import yaml
+        from pathlib import Path
+        p = Path("config/accounts.yml")
+        if not p.exists():
+            return []
+        data = yaml.safe_load(p.read_text()) or {}
+        return data.get("children", []) or []
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).debug("children config load failed: %s", exc)
+        return []
+
+
+def _add_years(d: date, years: int) -> date:
+    """Add `years` to a date, clamping Feb-29 to Feb-28 when needed."""
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:
+        return d.replace(year=d.year + years, day=28)
+
+
+def _age_target_date(goal: Goal, db: Session) -> date:
+    """
+    Return the age-implied target_date for a goal, overriding the stored
+    target_date when an owner's DOB + retirement_age (for retirement goals)
+    or a child's DOB + milestone age (for child_*) is available.
+
+    Falls back to goal.target_date when no profile data exists.
+    """
+    from app.models.schemas import Owner
+
+    stored = goal.target_date
+    gt = (goal.goal_type or "").lower()
+
+    if gt == "retirement":
+        owner = db.get(Owner, goal.owner_id) if goal.owner_id else None
+        if owner and owner.birth_date and owner.retirement_age:
+            try:
+                ret_age = int(owner.retirement_age)
+                implied = _add_years(owner.birth_date, ret_age)
+                return implied
+            except (ValueError, TypeError):
+                pass
+        return stored
+
+    if gt in ("child_education", "child_marriage"):
+        children = _load_children_from_config()
+        if children:
+            # If multiple children, take the OLDEST one (their milestone comes
+            # first → drives earliest funding need). Override later by adding
+            # one Goal row per child with the child's id in `notes`.
+            from datetime import datetime as _dt
+            def _parse_dob(c):
+                v = c.get("dob")
+                if isinstance(v, date):
+                    return v
+                try:
+                    return _dt.strptime(str(v), "%Y-%m-%d").date()
+                except Exception:
+                    return None
+            with_dob = [(c, _parse_dob(c)) for c in children]
+            with_dob = [(c, d) for c, d in with_dob if d]
+            if with_dob:
+                with_dob.sort(key=lambda cd: cd[1])  # oldest first
+                child, dob = with_dob[0]
+                age = (
+                    int(child.get("education_age", _DEFAULT_EDUCATION_AGE))
+                    if gt == "child_education"
+                    else int(child.get("marriage_age", _DEFAULT_MARRIAGE_AGE))
+                )
+                return _add_years(dob, age)
+        return stored
+
+    return stored
+
+
 def _future_value_lump_sum(present_value: float, annual_rate: float, months: int) -> float:
     """FV of a lump sum."""
     r = annual_rate / 12 / 100
@@ -72,9 +168,16 @@ def _inflation_adjusted_target(nominal_target: float, inflation_rate: float,
     return nominal_target * ((1 + inflation_rate / 100) ** years)
 
 
-def project_goal(goal: Goal, current_monthly_sip: float = 0) -> GoalProjection:
+def project_goal(goal: Goal, current_monthly_sip: float = 0,
+                 db: Session | None = None) -> GoalProjection:
     today      = date.today()
-    months     = _months_between(today, goal.target_date)
+    # Prefer age-implied target_date when owner DOB + retirement_age or child
+    # DOB are available — the static target_date in the goal row may be
+    # arbitrary or out of sync with the actual life stage.
+    effective_target = _age_target_date(goal, db) if db is not None else goal.target_date
+    if effective_target is None:
+        effective_target = goal.target_date
+    months     = _months_between(today, effective_target)
     years      = months / 12
 
     pv         = float(goal.current_corpus or 0)
@@ -106,7 +209,7 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0) -> GoalProjection:
         goal_id=str(goal.id),
         name=goal.name,
         goal_type=goal.goal_type or "custom",
-        target_date=goal.target_date,
+        target_date=effective_target,
         inflation_adj_target=round(inf_adj_target, 2),
         current_corpus=pv,
         monthly_sip_needed=round(max(0, sip_needed), 2),
@@ -380,7 +483,7 @@ def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProj
 
     projections = []
     for goal in goals:
-        projections.append(project_goal(goal, _actual_for(goal)))
+        projections.append(project_goal(goal, _actual_for(goal), db))
 
     return projections
 
@@ -390,6 +493,6 @@ def update_goal_sip(db: Session, goal_id: str) -> None:
     goal = db.query(Goal).filter_by(id=goal_id).first()
     if not goal:
         return
-    proj = project_goal(goal)
+    proj = project_goal(goal, 0, db)
     goal.monthly_sip_needed = Decimal(str(proj.monthly_sip_needed))
     db.commit()
