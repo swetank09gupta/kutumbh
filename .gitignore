@@ -4,6 +4,9 @@ config/accounts.yml
 data/raw/
 data/processed/
 data/cache/
+data/metal_prices_cache.json
+data/metal_history_cache.json
+data/hdfc_pending.json
 *.txt.cache
 
 # Python
