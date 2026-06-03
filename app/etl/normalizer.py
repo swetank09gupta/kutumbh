@@ -364,6 +364,18 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     from app.engine.holding_tagger import auto_tag_holdings
     auto_tag_holdings(db, owner_id)
 
+    # ── Sync synthetic PPF assets from bank transfer debits ─────────────────
+    # If the owner funds their PPF from a bank savings account that we DO
+    # parse (e.g. Union Bank), each transfer-to-PPF debit becomes a contribution
+    # on a synthetic ManualAsset row. This means a PPF that never sends its
+    # own e-statement still shows up in net-worth + retirement corpus.
+    try:
+        from app.engine.ppf_from_transfers import sync_ppf_from_transfers
+        sync_ppf_from_transfers(db)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("PPF transfer sync failed: %s", exc)
+
     # ── Refresh goal corpora from latest tagged holdings ────────────────────
     # Previously the goal page only updated when the user manually clicked
     # "Sync Corpus". Run it after every persist so corpus + on-track % always
