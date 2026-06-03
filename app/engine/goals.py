@@ -289,17 +289,98 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
     return updated
 
 
+def _recent_investing_rate(
+    db: Session, owner_ids: list[str], lookback_months: int = 6,
+    today: date | None = None,
+) -> float:
+    """
+    Actual investing rate (₹/month) over the last `lookback_months`.
+
+    Sums:
+      - Debit transactions on investment accounts (stocks / mutual_fund / demat),
+        skipping the Zerodha monthly-demat unit-count rows (description begins
+        with "DEMAT ").
+      - ManualAssetContribution rows (PPF / NPS / RD installments) in the
+        same window.
+
+    Used as the *real* current_monthly_sip in goal projections so on_track and
+    gap reflect what the user is actually doing, not the SIP that would make
+    every goal on-track by construction.
+    """
+    from datetime import timedelta
+    from sqlalchemy import func as _f
+    from app.models.schemas import (
+        Account, Transaction, ManualAsset, ManualAssetContribution,
+    )
+
+    today  = today or date.today()
+    cutoff = today - timedelta(days=int(30.44 * lookback_months))
+
+    inv_debits = (
+        db.query(_f.coalesce(_f.sum(Transaction.amount), 0))
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Account.owner_id.in_(owner_ids),
+            Account.account_type.in_(("stocks", "mutual_fund", "demat")),
+            Transaction.transaction_type == "debit",
+            Transaction.date >= cutoff,
+            ~Transaction.description.ilike("DEMAT %"),
+        )
+        .scalar()
+    ) or 0
+
+    contribs = (
+        db.query(_f.coalesce(_f.sum(ManualAssetContribution.amount), 0))
+        .join(ManualAsset, ManualAsset.id == ManualAssetContribution.asset_id)
+        .filter(
+            ManualAsset.owner_id.in_(owner_ids),
+            ManualAssetContribution.date >= cutoff,
+        )
+        .scalar()
+    ) or 0
+
+    months = max(1, lookback_months)
+    return float(inv_debits + contribs) / months
+
+
 def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProjection]:
+    from app.models.schemas import Owner
+
     q = db.query(Goal)
-    if owner_id:
+    # "family" should show every household member's goals (Your + Wife's
+    # Retirement are owned by user/wife, not literal "family"), so we expand
+    # rather than filter on the literal owner_id.
+    if owner_id and owner_id != "family":
         q = q.filter(Goal.owner_id.in_([owner_id, "family"]))
     goals = q.all()
 
+    # Resolve owner_ids for the actual-investing calculation. "family" expands
+    # to every real owner so the family's combined SIPs feed every goal.
+    if owner_id == "family" or owner_id is None:
+        owner_ids = [r[0] for r in db.query(Owner.id).filter(Owner.id != "family").all()]
+    else:
+        owner_ids = [owner_id]
+
+    actual_monthly = _recent_investing_rate(db, owner_ids, lookback_months=6)
+
+    # Distribute the family's actual investing across investment goals in
+    # proportion to each goal's prescribed monthly_sip_needed. This answers
+    # "given how I'm actually splitting my SIPs, where am I headed?" rather
+    # than the trivially-circular "if I pay the prescribed SIP, am I on track?".
+    investment_goals = [g for g in goals if (g.goal_type or "") not in ("emergency", "custom")]
+    total_needed = sum(float(g.monthly_sip_needed or 0) for g in investment_goals)
+
+    def _actual_for(goal: Goal) -> float:
+        if total_needed <= 0 or actual_monthly <= 0:
+            return 0.0
+        if (goal.goal_type or "") in ("emergency", "custom"):
+            return 0.0  # emergency fund isn't where SIPs go
+        share = float(goal.monthly_sip_needed or 0) / total_needed
+        return actual_monthly * share
+
     projections = []
     for goal in goals:
-        # Rough current SIP from monthly SIP needed stored in goal
-        current_sip = float(goal.monthly_sip_needed or 0)
-        projections.append(project_goal(goal, current_sip))
+        projections.append(project_goal(goal, _actual_for(goal)))
 
     return projections
 

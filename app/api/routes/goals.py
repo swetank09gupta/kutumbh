@@ -133,6 +133,7 @@ def goal_projections(
             "gap":                  p.gap,
             "months_to_goal":       p.months_to_goal,
             "on_track":             p.on_track,
+            "current_monthly_sip":  p.current_monthly_sip,
         }
         for p in projections
     ]
