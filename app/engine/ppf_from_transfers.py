@@ -7,7 +7,7 @@ is ever emailed. The savings statement, however, contains every monthly /
 ad-hoc transfer to the PPF account, e.g.:
 
     "MOBFT to: SUN DEP- ONLINE PPF /430623373587"
-    "eTXN/To:317902840074000/PPF/3 5270PPF000000000281"
+    "eTXN/To:<PPF_ACCT_NUM>/PPF/3 <REF_CODE>"
 
 This module:
   1. Scans each owner's bank transactions for debits whose description matches
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 # Matches descriptions like:
 #   "MOBFT to: SUN DEP- ONLINE PPF /430623373587"
-#   "eTXN/To:317902840074000/PPF/3 5270PPF000000000281"
+#   "eTXN/To:<PPF_ACCT_NUM>/PPF/3 <REF_CODE>"
 #   "TRF TO PPF A/C 317902..."
 _PPF_TRANSFER_RE = re.compile(
     r"\bPPF\b(?:\s*A/?C)?|\bPUBLIC\s+PROVIDENT\b|/PPF/|SUN\s+DEP[- ]+ONLINE\s+PPF",

@@ -214,7 +214,7 @@ def _derive_pdf_password(owner_id: str, institution: str) -> str:
         if mobile and len(mobile) >= 5 and dob_dd and dob_mm and dob_yy:
             return mobile[-5:] + dob_dd + dob_mm + dob_yy
     elif "axis" in inst:
-        # Axis: NAME4 + DDMM  (e.g. AKAN2808 for Akanksha Arya, dob 28/08/1991)
+        # Axis: NAME4 + DDMM  (first 4 letters of name + DDMM of DOB)
         if name4 and dob_dd and dob_mm:
             return name4 + dob_dd + dob_mm
     elif "union" in inst:
