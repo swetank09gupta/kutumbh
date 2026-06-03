@@ -342,8 +342,8 @@
       <!-- Owner toggle -->
       <div class="tab-row" style="width:fit-content;margin-bottom:20px">
         <div class="tab active" id="tab-family" onclick="switchOwner('family')">Family</div>
-        <div class="tab" id="tab-user"   onclick="switchOwner('user')">Swetank</div>
-        <div class="tab" id="tab-wife"   onclick="switchOwner('wife')">Akanksha</div>
+        <div class="tab" id="tab-user"   onclick="switchOwner('user')">Self</div>
+        <div class="tab" id="tab-wife"   onclick="switchOwner('wife')">Spouse</div>
       </div>
 
       <div id="nw-cards" class="metric-grid">
@@ -470,8 +470,8 @@
         </div>
         <select style="font-size:12px;width:120px" onchange="setGOwner('transactions',this.value||'family')">
           <option value="">All</option>
-          <option value="user">Swetank</option>
-          <option value="wife">Akanksha</option>
+          <option value="user">Self</option>
+          <option value="wife">Spouse</option>
         </select>
       </div>
 
@@ -490,7 +490,7 @@
           <div style="display:none">
             <input type="date" id="exp-from"/>
             <input type="date" id="exp-to"/>
-            <select id="exp-owner"><option value="">All</option><option value="user">Swetank</option><option value="wife">Akanksha</option></select>
+            <select id="exp-owner"><option value="">All</option><option value="user">Self</option><option value="wife">Spouse</option></select>
           </div>
         </div>
 
@@ -511,7 +511,7 @@
 
       <!-- Filters (hidden: owner+dates driven by unified page filter above) -->
       <div style="display:none">
-        <select id="tx-owner"><option value="">All</option><option value="user">Swetank</option><option value="wife">Akanksha</option></select>
+        <select id="tx-owner"><option value="">All</option><option value="user">Self</option><option value="wife">Spouse</option></select>
         <input type="date" id="tx-from"/>
         <input type="date" id="tx-to"/>
       </div>
@@ -605,8 +605,8 @@
         </div>
         <select style="font-size:12px;width:120px" onchange="setGOwner('investments',this.value)">
           <option value="family">Family</option>
-          <option value="user">Swetank</option>
-          <option value="wife">Akanksha</option>
+          <option value="user">Self</option>
+          <option value="wife">Spouse</option>
         </select>
       </div>
 
@@ -896,8 +896,8 @@
         <label>Owner</label>
         <select id="goal-owner">
           <option value="family">Family</option>
-          <option value="user">Swetank</option>
-          <option value="wife">Akanksha</option>
+          <option value="user">Self</option>
+          <option value="wife">Spouse</option>
         </select>
       </div>
       <div class="field">
@@ -957,8 +957,8 @@
       <div class="field">
         <label>Owner</label>
         <select id="asset-owner">
-          <option value="user">Swetank</option>
-          <option value="wife">Akanksha</option>
+          <option value="user">Self</option>
+          <option value="wife">Spouse</option>
           <option value="family">Family</option>
         </select>
       </div>
