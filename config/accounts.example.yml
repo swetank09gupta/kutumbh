@@ -56,9 +56,25 @@ owners:
     pan:    ""
     mobile: ""
 
+# ── Children (used to compute age-based goal target dates) ────────────
+# Goals of type child_education / child_marriage use the OLDEST child's
+# DOB + milestone age. List one entry per child. Leave the block out
+# entirely if you have no children — child goals will use their stored
+# target_date as a fallback.
+children:
+  - id:            "child1"
+    name:          "Child Name"
+    dob:           "2020-04-15"     # YYYY-MM-DD
+    education_age: 18                # higher education starts at age 18
+    marriage_age:  25                # marriage planning at age 25
+  # Add more children below as needed (oldest drives the milestone)
+
 # ── Goals (seeded into DB on first startup) ────────────
 # Adjust amounts and dates to match your family situation.
 # target_amount is in TODAY'S money — inflation adjustment is automatic.
+# For child_education / child_marriage / retirement goals the target_date
+# below is overridden by the age-based date derived from `children` /
+# `owners[].birth_date + retirement_age` when those are set.
 goals:
   - owner_id:             "family"
     name:                 "Child Higher Education"
