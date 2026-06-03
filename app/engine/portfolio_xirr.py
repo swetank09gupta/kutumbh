@@ -319,17 +319,31 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
         inv   = class_invested[cls]
         cur   = class_current[cls]
         years = _years_from_first_cf(cfs, today)
+        # A class with no cost basis (e.g. Zerodha equity where buys live only in
+        # monthly-demat statements that carry share *counts*, not rupees) has just
+        # a terminal positive cashflow. Including it in the total stream creates a
+        # phantom inflow with no matching outflow, inflating overall XIRR.
+        # Show the class with null returns and EXCLUDE it from totals.
+        no_cost_basis = (inv <= ZERO)
         by_class.append({
             "class":     cls,
             "count":     class_count[cls],
             "invested":  float(inv),
             "current":   float(cur),
-            "gain":      float(cur - inv),
+            "gain":      float(cur - inv) if not no_cost_basis else None,
             "gain_pct":  round(float((cur - inv) / inv * 100), 2) if inv > 0 else None,
             "years":     round(years, 2),
-            "xirr_pct":  xirr(cfs),
+            "xirr_pct":  None if no_cost_basis else xirr(cfs),
             "cagr_pct":  cagr(float(inv), float(cur), years) if inv > 0 else None,
+            "excluded_from_total": no_cost_basis,
+            "exclusion_reason":    "no cost basis (missing purchase cashflows)" if no_cost_basis else None,
         })
+        if no_cost_basis:
+            skipped.append({
+                "kind": "class", "name": cls,
+                "reason": f"no cost basis — current ₹{float(cur):,.0f} excluded from total XIRR",
+            })
+            continue
         total_cfs.extend(cfs)
         total_invested += inv
         total_current  += cur
