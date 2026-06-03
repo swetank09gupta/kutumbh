@@ -18,3 +18,5 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0012](0012-idempotency-natural-keys.md) | Idempotent ingestion via natural keys | Accepted |
 | [0013](0013-custom-xirr.md) | Custom XIRR (Newton–Raphson) over numpy-financial | Accepted |
 | [0014](0014-deployment-compose.md) | Deployment: docker-compose on a single host | Accepted |
+| [0015](0015-synthetic-cashflows.md) | Synthesize cashflows for SGB / PPF holdings without traced purchases | Accepted |
+| [0016](0016-age-based-goal-dates.md) | Age-based goal target dates from owner/child DOB | Accepted |

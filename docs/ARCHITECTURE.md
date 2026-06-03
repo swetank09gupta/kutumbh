@@ -80,12 +80,42 @@ Five containers, all on one Docker network:
 | Engine | Output |
 |---|---|
 | `networth.py` | Daily snapshots per owner + family roll-up, written to `networth_snapshots`. |
-| `holdings_view.py` | Current holdings, last price, market value. |
-| `portfolio_xirr.py` | XIRR per instrument / asset class / owner / family from cashflow stream. |
-| `goals.py` | Inflation-adjusted corpus target + SIP needed. |
+| `holdings_view.py` | Current holdings, last price, market value (deduped per-ISIN across CDSL + broker mirrors). |
+| `portfolio_xirr.py` | XIRR per instrument / asset class / owner / family. Per-ISIN bucketing for mixed accounts; synthesizes SGB and PPF purchase cashflows when statements don't expose them (see §3.6). |
+| `goals.py` | Inflation-adjusted corpus target + SIP needed. Age-derived target dates for retirement (owner DOB + `retirement_age`) and child goals (child DOB + education/marriage milestone). |
+| `holding_tagger.py` | Auto-tags holdings to goals from a per-ISIN map + fund-name regex + holding-type fallback. Runs on every sync and on a daily 00:15 IST scheduler sweep. |
+| `ppf_from_transfers.py` | Synthesises PPF as a `ManualAsset` from bank-savings debits matching PPF-transfer patterns (Union Bank etc.). |
+| `metal_prices.py` | Live gold/silver spot via Yahoo Finance, used to mark SGB holdings to market. |
 | `recommendations.py` | Rule-based nudges (emergency-fund gap, EMI-to-income, asset allocation drift, PPF top-up). |
 
 All engines are pure functions over the DB — re-running them is safe and idempotent.
+
+### 3.6 Synthetic cashflows
+
+Some holdings show up on a depository statement without a corresponding purchase transaction we can trace — typically SGBs (subscribed via a bank SGB application, not via the broker) and PPF (no e-statement at all). For these, the XIRR engine synthesises cashflows so the returns aren't either bogus (terminal-only inflow with no outflow) or trivially zero.
+
+| Asset | Source of issue date | Source of cost basis | Source of current value |
+|---|---|---|---|
+| SGB (Sovereign Gold Bond) | RBI issuance calendar (`_SGB_TRANCHES` lookup); falls back to `maturity_year − 8 years` when ISIN unknown. | RBI tranche issue price per gram. | Live spot from `metal_prices.get_metal_prices()`. |
+| PPF (via bank transfers) | Earliest detected transfer-to-PPF debit. | Sum of all detected transfer debits → individual `ManualAssetContribution` rows. | Compound the contributions at 7.1% quarterly to today. |
+
+Both are owner-scoped (PPF lands in the owner whose bank account funds it; SGB inherits the broker account's owner) and bypassed entirely when a real statement-derived row exists for the same ISIN / institution.
+
+### 3.7 Goal engine specifics
+
+- **Age-derived target dates.** For `retirement` goals, `target_date = owner.birth_date + owner.retirement_age`. For `child_education` / `child_marriage` goals, `target_date = child.dob + education_age|marriage_age` from the optional `children:` block in `config/accounts.yml`. The stored `goal.target_date` is a fallback used only when the relevant profile data is missing.
+- **Per-owner corpus.** Retirement corpus = owner's tagged-holdings sum + that owner's PPF. Earlier the family-aggregated PPF was added to every retirement goal — fixed in [ADR-0015](adr/0015-synthetic-cashflows.md).
+- **Actual investing rate.** "On track" is computed against the family's real last-6-month investing rate (investment-account debits + ManualAssetContributions) distributed across investment goals in proportion to each goal's prescribed SIP. Previously the prescribed SIP itself was passed as the actual SIP, making every goal trivially on-track.
+
+### 3.8 Caches
+
+| Cache | Purpose | Location | Invalidation |
+|---|---|---|---|
+| `ParseResult` pickle | Skip pdfplumber on unchanged statements | `data/cache/parsed/` | `sha1(file_bytes)` changes, or `BaseParser._CACHE_SCHEMA` bump. |
+| LLM response | Skip Ollama calls on identical prompt+input | `data/cache/llm/` | `sha1(model + prompt + input)` changes. |
+| PDF text sidecar | `.txt.cache` next to each PDF for whole-doc-text parsers | next to source PDF | Source PDF mtime newer than sidecar. |
+
+All caches honour an env-var off-switch (`PARSE_RESULT_CACHE=0`, `LLM_CACHE=0`, `PDF_TEXT_CACHE=0`). Numbers in [BENCHMARKS.md](BENCHMARKS.md) and [PERFORMANCE.md](PERFORMANCE.md).
 
 ### 3.4 API
 

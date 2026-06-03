@@ -21,5 +21,7 @@ A reading-order summary of the trade-offs. For full context per decision, see `d
 | 15 | Observability | Postgres logs + FastAPI access logs + Grafana itself | OpenTelemetry, Prometheus stack | For a personal tool, dashboards on the data are more useful than dashboards on the dashboards. |
 | 16 | XIRR engine | Custom Newton-Raphson over cashflows | numpy-financial, scipy.optimize | Avoids a heavy dep; matches Excel XIRR to 6 decimals on test cashflows. |
 | 17 | Manual assets API | Plain REST writes | Spreadsheet import | PPF/FD update quarterly — a one-line curl is faster than maintaining a CSV. |
+| 18 | Untraceable cost basis | Synthesize cashflows on the fly (SGB tranche table, PPF transfer detection) | Persist fake transactions; require manual cost entry | Keeps the rebuild-from-emails invariant intact while still letting XIRR include real returns. See [ADR-0015](adr/0015-synthetic-cashflows.md). |
+| 19 | Goal target dates | Derive from owner DOB + `retirement_age` / child DOB + milestone | Trust the user's static `target_date` | Static dates rot the moment the user's life changes. Derivation keeps SIP honest without manual edits. See [ADR-0016](adr/0016-age-based-goal-dates.md). |
 
 Each row above is expanded in its own ADR under `docs/adr/`.

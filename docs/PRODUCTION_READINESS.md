@@ -78,6 +78,9 @@ No performance work is required for the target deployment size. Documented anywa
 3. **Recommendations engine is rules-only.** Good enough for the four scenarios shipped (emergency fund, EMI ratio, allocation drift, PPF top-up). A fifth rule will demand a small DSL.
 4. **No multi-currency.** Everything is INR. Adding USD/EUR would need a `currency` column on every monetary table and a daily FX feed.
 5. **Coin per-instrument XIRR has a gap.** Coin emails lack ISIN; AMFI lookup table integration would close it. Tracked in code as a TODO.
+6. **CDSL demat ≈ broker mirror, partial cost basis.** The CDSL eCAS statement is a position-only snapshot of the same equity that the Zerodha demat broker view also shows. Only Zerodha-side contract notes give us cost basis; pre-archived buys (older than the e-mailed contract-note window) carry no recorded cost. The `demat` class is excluded from total XIRR with reason "no cost basis". Closing this needs older contract notes ingested or a one-time manual cost-basis import.
+7. **PPF "synth from transfers" missing pre-window balance.** When PPF is reconstructed from bank-savings transfer debits, the opening balance prior to the earliest detected transfer is not captured. The synthetic corpus under-states reality if the PPF account is older than the bank-statement window. Fix path: opt-in `ppf_opening_balance` + `ppf_opening_date` in `accounts.yml`, OR ingest the annual PPF statement when a parser exists.
+8. **Stale account stubs.** Some parsers create placeholder `Account` rows with `account_ref='unknown'` and never link real txns. Cleanable with a single SQL prune (`delete from accounts where (txns,hldgs,bals)=(0,0,0)`); not yet automated.
 
 ## 8. Definition of "ready" for this project
 
