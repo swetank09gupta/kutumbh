@@ -52,17 +52,23 @@ def _networth_snapshot_job():
 
 
 def _holdings_autotag_job():
-    """Daily sweep — tag any holdings that slipped through without a goal_tag."""
+    """Daily sweep — tag any holdings that slipped through without a goal_tag,
+    then refresh every goal's current_corpus from those tags."""
     logger.info("Holdings auto-tag sweep: starting")
     from app.models.database import SessionLocal
     from app.engine.holding_tagger import auto_tag_holdings
+    from app.engine.goals import refresh_corpus_from_networth
 
     db = SessionLocal()
     try:
         n = auto_tag_holdings(db)
         logger.info("Holdings auto-tag sweep: tagged %d", n)
+        # Always refresh corpus, even if no new tags — net worth / holdings
+        # values change daily and the goal page should reflect that.
+        m = refresh_corpus_from_networth(db, "family")
+        logger.info("Goal corpus refresh: updated %d goals", m)
     except Exception as exc:
-        logger.error("Holdings auto-tag failed: %s", exc, exc_info=True)
+        logger.error("Holdings auto-tag/corpus refresh failed: %s", exc, exc_info=True)
     finally:
         db.close()
 

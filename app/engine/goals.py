@@ -169,47 +169,29 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
         .scalar() or 0
     )
 
-    # ── Tagged holdings: each goal_tag bucket sums to that goal's corpus ──────
-    max_snap = (
-        db.query(func.max(Holding.snapshot_date))
-        .join(Account, Holding.account_id == Account.id)
-        .filter(Account.owner_id.in_(all_owner_ids))
-        .scalar()
-    )
+    # ── Tagged holdings: sourced from the deduped latest-holdings VIEW ────────
+    # The view already handles per-account latest snapshot and dedups the same
+    # ISIN appearing in multiple accounts (CDSL + Zerodha mirror each other).
+    # Earlier this used a single global max_snapshot_date, which silently
+    # excluded any account whose latest snapshot was older than the global max.
+    from app.engine.holdings_view import latest_holdings as _latest_holdings
+    holdings_rows = _latest_holdings(db, owner_ids=all_owner_ids)
+
     tagged_corpus: dict[str, float] = {}
-    if max_snap:
-        rows = (
-            db.query(Holding.goal_tag, func.sum(Holding.current_value))
-            .join(Account, Holding.account_id == Account.id)
-            .filter(
-                Account.owner_id.in_(all_owner_ids),
-                Holding.snapshot_date == max_snap,
-                Holding.goal_tag.isnot(None),
-            )
-            .group_by(Holding.goal_tag)
-            .all()
-        )
-        tagged_corpus = {row[0]: float(row[1] or 0) for row in rows}
+    untagged_equity = 0.0
+    untagged_mf     = 0.0
+    for h in holdings_rows:
+        val = float(h.current_value or 0)
+        if h.goal_tag:
+            tagged_corpus[h.goal_tag] = tagged_corpus.get(h.goal_tag, 0.0) + val
+        else:
+            ht = (h.holding_type or "").lower()
+            if ht == "equity":
+                untagged_equity += val
+            elif ht == "mutual_fund":
+                untagged_mf += val
 
-    # ── Untagged holdings totals ───────────────────────────────────────────────
-    untagged: dict[str, float] = {"equity": 0.0, "mf": 0.0}
-    if max_snap:
-        for htype in ("equity", "mutual_fund"):
-            val = (
-                db.query(func.sum(Holding.current_value))
-                .join(Account, Holding.account_id == Account.id)
-                .filter(
-                    Account.owner_id.in_(all_owner_ids),
-                    Holding.snapshot_date == max_snap,
-                    Holding.goal_tag.is_(None),
-                    Holding.holding_type == htype,
-                )
-                .scalar()
-            )
-            key = "equity" if htype == "equity" else "mf"
-            untagged[key] = float(val or 0)
-
-    untagged_pool = untagged["equity"] + untagged["mf"]
+    untagged_pool = untagged_equity + untagged_mf
 
     # ── Goals eligible for auto-refresh ───────────────────────────────────────
     # Goals are stored under "family" owner_id in config, so always include it
@@ -229,16 +211,35 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
             share = 1.0 / len(invest_goals)
         return round(untagged_pool * share, 2)
 
+    def _candidate_tags(goal: Goal) -> list[str]:
+        """
+        Map a goal to the goal_tag(s) that should contribute to its corpus.
+        Distinguishes Your Retirement (owner=user → tag "retirement") from
+        Wife's Retirement (owner=wife → tag "wife_retirement"); without this
+        both retirement goals previously pulled the same tagged_corpus key
+        and the dedicated wife_retirement tag was orphaned.
+        """
+        gt = goal.goal_type
+        owner = (goal.owner_id or "").lower()
+        if gt == "retirement":
+            # Heuristic: any non-primary-user owner with a retirement goal
+            # gets the wife_retirement tag pool.
+            if owner in ("wife", "spouse", "partner") or "wife" in (goal.name or "").lower():
+                return ["wife_retirement"]
+            return ["retirement"]
+        return [gt]
+
     updated = 0
     for g in goals:
         gt = g.goal_type
         if gt == "custom":
             continue  # user manages manually
 
-        if gt in tagged_corpus:
-            # Holding explicitly tagged to this goal — use that exact value
-            # plus PPF if it's a retirement goal
-            base = tagged_corpus[gt]
+        tags = _candidate_tags(g)
+        tag_sum = sum(tagged_corpus.get(t, 0.0) for t in tags)
+
+        if tag_sum > 0:
+            base = tag_sum
             if gt == "retirement":
                 base += ppf
             new_corpus = Decimal(str(round(base, 2)))

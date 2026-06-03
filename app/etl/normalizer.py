@@ -364,6 +364,17 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     from app.engine.holding_tagger import auto_tag_holdings
     auto_tag_holdings(db, owner_id)
 
+    # ── Refresh goal corpora from latest tagged holdings ────────────────────
+    # Previously the goal page only updated when the user manually clicked
+    # "Sync Corpus". Run it after every persist so corpus + on-track % always
+    # reflect the most recent holdings snapshot.
+    try:
+        from app.engine.goals import refresh_corpus_from_networth
+        refresh_corpus_from_networth(db, "family")
+    except Exception as exc:  # never let goal refresh break ETL
+        import logging
+        logging.getLogger(__name__).warning("Goal corpus refresh failed: %s", exc)
+
     db.commit()
     return {"transactions": txn_count, "holdings": holding_count, "manual_assets": manual_count}
 
