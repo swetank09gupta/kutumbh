@@ -99,16 +99,42 @@ _NAME_RULES: list[tuple[re.Pattern, str | None]] = [
 ]
 
 
-def suggest_goal_tag(isin: str | None, instrument_name: str | None) -> str | None:
-    """Return the suggested goal_tag for a holding, or None if no rule matches."""
+def suggest_goal_tag(
+    isin: str | None,
+    instrument_name: str | None,
+    holding_type: str | None = None,
+) -> str | None:
+    """
+    Return the suggested goal_tag for a holding, or None if no rule matches.
+
+    Resolution order:
+      1. Per-ISIN map (highest confidence)
+      2. Regex rules over instrument_name
+      3. Holding-type fallback:
+           - equity → retirement (blue-chip direct equity, default convention)
+           - bonds  → child_marriage (SGB / gold-linked)
+      4. None
+    """
     if isin and isin in ISIN_GOAL_MAP:
         return ISIN_GOAL_MAP[isin]
     name = (instrument_name or "").strip()
-    if not name:
-        return None
-    for pat, tag in _NAME_RULES:
-        if pat.search(name):
-            return tag
+    ht = (holding_type or "").lower()
+    if name:
+        for pat, tag in _NAME_RULES:
+            if pat.search(name):
+                # The "→ None" rules (sectoral / debt) are MF-specific. Don't
+                # let "BANK"/"PHARMA"/"FMCG" wipe out direct-equity bank stocks
+                # like HDFC BANK or direct telecom shares like BHARTI AIRTEL.
+                if tag is None and ht == "equity":
+                    continue
+                return tag
+    # Holding-type fallback — keeps untagged ratio low without forcing the user
+    # to extend ISIN_GOAL_MAP for every new direct-equity buy.
+    ht = (holding_type or "").lower()
+    if ht == "equity":
+        return "retirement"
+    if ht == "bonds":
+        return "child_marriage"
     return None
 
 
@@ -129,7 +155,7 @@ def auto_tag_holdings(db, owner_id: str | None = None) -> int:
 
     updated = 0
     for h in q.all():
-        tag = suggest_goal_tag(h.isin, h.instrument_name)
+        tag = suggest_goal_tag(h.isin, h.instrument_name, h.holding_type)
         if tag is not None:           # explicit None means "leave untagged"
             h.goal_tag = tag
             updated += 1

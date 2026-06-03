@@ -51,6 +51,22 @@ def _networth_snapshot_job():
         db.close()
 
 
+def _holdings_autotag_job():
+    """Daily sweep — tag any holdings that slipped through without a goal_tag."""
+    logger.info("Holdings auto-tag sweep: starting")
+    from app.models.database import SessionLocal
+    from app.engine.holding_tagger import auto_tag_holdings
+
+    db = SessionLocal()
+    try:
+        n = auto_tag_holdings(db)
+        logger.info("Holdings auto-tag sweep: tagged %d", n)
+    except Exception as exc:
+        logger.error("Holdings auto-tag failed: %s", exc, exc_info=True)
+    finally:
+        db.close()
+
+
 def _goal_update_job():
     logger.info("Weekly goal SIP recalculation: starting")
     from app.models.database import SessionLocal
@@ -86,6 +102,13 @@ def start_scheduler():
         CronTrigger(hour=0, minute=5),
         id="networth_snapshot",
         name="Daily net-worth snapshot",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _holdings_autotag_job,
+        CronTrigger(hour=0, minute=15),
+        id="holdings_autotag",
+        name="Daily holdings auto-tag sweep",
         replace_existing=True,
     )
     _scheduler.add_job(

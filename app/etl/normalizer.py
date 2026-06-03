@@ -357,10 +357,12 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     # ── Manual assets (FDs, PPF from SBI statements) ─────────────────────────
     manual_count = _persist_manual_assets(result, owner_id, db)
 
-    # ── Auto-tag new holdings with goal assignments ────────────────────────────
-    if holding_count > 0:
-        from app.engine.holding_tagger import auto_tag_holdings
-        auto_tag_holdings(db, owner_id)
+    # ── Auto-tag holdings with goal assignments ──────────────────────────────
+    # Run unconditionally — sweeps up any orphan holdings whose tags were never
+    # set (older imports, holdings inserted before tag rules existed, etc.).
+    # Manually-tagged holdings are preserved (only NULL goal_tag rows are touched).
+    from app.engine.holding_tagger import auto_tag_holdings
+    auto_tag_holdings(db, owner_id)
 
     db.commit()
     return {"transactions": txn_count, "holdings": holding_count, "manual_assets": manual_count}
