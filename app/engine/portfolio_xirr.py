@@ -182,6 +182,86 @@ def _manual_asset_cashflows(
     return cfs, invested, current
 
 
+def _account_cashflows_by_bucket(
+    db: Session, account: Account, today: date,
+) -> dict[str, tuple[list[tuple[date, float]], Decimal, Decimal]]:
+    """
+    Per-bucket cashflow / invested / current breakdown for one account.
+
+    Each transaction is routed to a bucket via its ISIN's holding_type in the
+    latest holdings snapshot. Transactions without an ISIN fall back to the
+    account's majority bucket (by current_value).
+
+    Returns: { bucket_name -> (cfs, invested, current_value) }
+
+    This is the per-ISIN-attribution path mentioned in the original comment —
+    it replaces the previous "dump everything into the majority bucket" logic
+    that caused Zerodha equity contract-note buys to be mis-attributed to MF.
+    """
+    # Latest holdings snapshot — used both for ISIN→holding_type lookup and
+    # to know current value per bucket.
+    latest = (
+        db.query(func.max(Holding.snapshot_date))
+        .filter(Holding.account_id == account.id)
+        .scalar()
+    )
+    isin_to_type: dict[str, str] = {}
+    type_value:   dict[str, Decimal] = {}
+    if latest:
+        rows = (
+            db.query(Holding)
+            .filter(Holding.account_id == account.id, Holding.snapshot_date == latest)
+            .all()
+        )
+        for h in rows:
+            ht = (h.holding_type or "equity")
+            type_value[ht] = type_value.get(ht, ZERO) + (h.current_value or ZERO)
+            if h.isin:
+                isin_to_type[h.isin] = ht
+
+    # Majority bucket — fallback for txns without an ISIN.
+    majority = (
+        max(type_value.items(), key=lambda kv: kv[1])[0]
+        if type_value else "equity"
+    )
+
+    txns = (
+        db.query(Transaction)
+        .filter(Transaction.account_id == account.id)
+        .order_by(Transaction.date)
+        .all()
+    )
+
+    per_bucket: dict[str, dict] = defaultdict(lambda: {"cfs": [], "invested": ZERO})
+    for t in txns:
+        amt = float(t.amount or 0)
+        if amt <= 0:
+            continue
+        desc = (t.description or "").upper()
+        # Zerodha monthly-demat statements emit transactions where `amount`
+        # is the share/unit COUNT, not rupees. Exclude.
+        if desc.startswith("DEMAT "):
+            continue
+        bucket = isin_to_type.get(t.isin or "", majority) if t.isin else majority
+        if t.transaction_type == "debit":
+            per_bucket[bucket]["cfs"].append((t.date, -amt))
+            per_bucket[bucket]["invested"] += Decimal(str(amt))
+        elif t.transaction_type == "credit":
+            per_bucket[bucket]["cfs"].append((t.date, amt))
+
+    # Stitch in current-value terminal inflow per bucket.
+    all_buckets = set(per_bucket.keys()) | set(type_value.keys())
+    result: dict[str, tuple[list[tuple[date, float]], Decimal, Decimal]] = {}
+    for bucket in all_buckets:
+        cfs = list(per_bucket.get(bucket, {}).get("cfs", []))
+        inv = per_bucket.get(bucket, {}).get("invested", ZERO)
+        cur = type_value.get(bucket, ZERO)
+        if cur > 0:
+            cfs.append((today, float(cur)))
+        result[bucket] = (cfs, inv, cur)
+    return result
+
+
 def _bucket_for_account(account: Account, holding_types: dict[str, Decimal]) -> str:
     """Label an account's contribution by asset class for the breakdown view."""
     if account.account_type == "stocks":
@@ -263,19 +343,33 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
     for acc in accounts:
         if acc.account_type not in _INVESTING_ACCOUNT_TYPES:
             continue
+
+        # Mixed account (Zerodha stocks holds equity + MF + bonds): split
+        # cashflows per-ISIN across buckets so contract-note equity buys land
+        # in "equity" and Coin SIPs land in "mutual_fund" rather than getting
+        # collapsed into a single majority bucket.
+        if acc.account_type == "stocks":
+            per_bucket = _account_cashflows_by_bucket(db, acc, today)
+            if not per_bucket:
+                skipped.append({"kind": "account", "name": f"{acc.institution} ({acc.account_type})",
+                                "reason": "no cashflows"})
+                continue
+            for bucket, (cfs, invested, current) in per_bucket.items():
+                if not cfs:
+                    continue
+                class_cfs[bucket].extend(cfs)
+                class_invested[bucket] += invested
+                class_current[bucket]  += current
+                class_count[bucket]    += 1
+            continue
+
+        # Single-type accounts (e.g. CDSL demat = pure equity snapshot, or
+        # dedicated MF accounts) keep the old single-bucket path.
         cfs, invested, current = _account_cashflows(db, acc, today)
         if not cfs:
             skipped.append({"kind": "account", "name": f"{acc.institution} ({acc.account_type})",
                             "reason": "no cashflows"})
             continue
-
-        # If the Zerodha "stocks" account holds a mix (equity + MF + bonds), split
-        # the current value across holding_types and emit a synthetic "block" per
-        # type that share the same account-level cashflows. This is an approximation
-        # — proper per-ISIN attribution requires per-ISIN cashflows, which we don't
-        # have without the Coin tradebook split — but it's good enough for a
-        # breakdown view. Total-portfolio XIRR is unaffected since we just feed
-        # the raw cashflows once into the global stream.
         types = _holding_type_split(db, acc.id)
         primary = _bucket_for_account(acc, types)
         class_cfs[primary].extend(cfs)
