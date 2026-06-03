@@ -182,6 +182,153 @@ def _manual_asset_cashflows(
     return cfs, invested, current
 
 
+# ── SGB tranche calendar ──────────────────────────────────────────────────────
+# Sovereign Gold Bonds have an 8-year tenor with a known issue date per tranche.
+# For holdings whose buys aren't traceable to a bank/broker transaction (typical
+# when SGBs were subscribed via the bank's SGB application rather than via the
+# broker), we synthesize a purchase cashflow at the tranche's issue date using
+# the recorded avg_cost_nav × units as the rupee amount.
+#
+# Source: RBI issuance calendar. Keys = ISIN. Values = (issue_date, redemption_date).
+# When an ISIN is not in this table, we fall back to parsing the maturity year
+# from the instrument name and assume issue_date = redemption_date − 8 years.
+import re as _re_sgb
+from datetime import date as _date
+
+# Each entry: (issue_date, redemption_date, issue_price_per_gram_inr).
+# Issue prices include the ₹50/gram online subscription discount, sourced from
+# the RBI press release for each tranche.
+_SGB_TRANCHES: dict[str, tuple[_date, _date, float]] = {
+    # 2021-22 Series VII — issued 02-Nov-2021 @ ₹4,761/gm (online price)
+    "IN0020210178": (_date(2021, 11, 2),  _date(2029, 11, 2),  4761.0),
+    # 2022-23 Series III — issued 27-Dec-2022 @ ₹5,409/gm
+    "IN0020220110": (_date(2022, 12, 27), _date(2030, 12, 27), 5409.0),
+    # 2023-24 Series II — issued 14-Sep-2023 @ ₹5,873/gm
+    "IN0020230069": (_date(2023, 9, 14),  _date(2031, 9, 14),  5873.0),
+}
+
+
+def _sgb_issue_date(isin: str, instrument_name: str) -> Optional[_date]:
+    """Best-effort issue date for an SGB tranche."""
+    if isin in _SGB_TRANCHES:
+        return _SGB_TRANCHES[isin][0]
+    # Fallback: parse trailing maturity year from instrument name and subtract 8.
+    m = _re_sgb.search(r'\bSGB\b.*?\b(20\d{2})\b', instrument_name or "", _re_sgb.IGNORECASE)
+    if m:
+        maturity_year = int(m.group(1))
+        return _date(maturity_year - 8, 6, 1)
+    return None
+
+
+def _sgb_issue_price(isin: str) -> Optional[float]:
+    """Per-unit issue price (₹/gram) for known SGB tranches; None otherwise."""
+    if isin in _SGB_TRANCHES:
+        return _SGB_TRANCHES[isin][2]
+    return None
+
+
+def _live_sgb_price() -> Optional[float]:
+    """Current SGB market value per unit (₹/gram), via metal_prices feed."""
+    try:
+        from app.engine.metal_prices import get_metal_prices
+        p = get_metal_prices() or {}
+        v = p.get("sgb_inr_per_unit") or p.get("gold_24k_inr_per_gram")
+        return float(v) if v else None
+    except Exception as exc:
+        logger.debug("Live SGB price unavailable: %s", exc)
+        return None
+
+
+def _synthesize_bond_purchase_cfs(
+    db: Session, account: Account, per_bucket: dict, isin_to_type: dict[str, str],
+    type_value: dict[str, Decimal],
+) -> None:
+    """
+    For each SGB-style bond holding in this account that has no traced purchase
+    cashflows in `per_bucket`, append a synthetic outflow at the tranche's
+    issue date computed as units × avg_cost_nav.
+
+    Mutates `per_bucket` in place. No-op for holdings without avg_cost_nav.
+    """
+    latest = (
+        db.query(func.max(Holding.snapshot_date))
+        .filter(Holding.account_id == account.id)
+        .scalar()
+    )
+    if not latest:
+        return
+
+    bond_rows = (
+        db.query(Holding)
+        .filter(Holding.account_id == account.id,
+                Holding.snapshot_date == latest,
+                Holding.holding_type == "bonds")
+        .all()
+    )
+    if not bond_rows:
+        return
+
+    # Index existing per-bucket cashflows by approximate ISIN to detect "already
+    # traced". Since cashflows don't carry ISIN, we instead check whether the
+    # account already has *any* debit txns matching this ISIN.
+    isin_has_txn: dict[str, bool] = {}
+    txns_with_isin = (
+        db.query(Transaction.isin)
+        .filter(Transaction.account_id == account.id,
+                Transaction.isin.isnot(None),
+                Transaction.transaction_type == "debit")
+        .all()
+    )
+    for (isin,) in txns_with_isin:
+        if isin:
+            isin_has_txn[isin] = True
+
+    live_price = _live_sgb_price()
+    for h in bond_rows:
+        if not h.isin or isin_has_txn.get(h.isin):
+            continue
+        issue_dt = _sgb_issue_date(h.isin, h.instrument_name or "")
+        if not issue_dt:
+            continue
+        # Prefer the published RBI issue price; fall back to avg_cost_nav from
+        # the holdings row (which can be a current-value placeholder rather than
+        # a true purchase price — known issue with Zerodha demat statements).
+        unit_cost = _sgb_issue_price(h.isin)
+        cost_source = "RBI tranche"
+        if unit_cost is None and h.avg_cost_nav and h.avg_cost_nav > 0:
+            unit_cost = float(h.avg_cost_nav)
+            cost_source = "broker avg_cost"
+        if not unit_cost or unit_cost <= 0:
+            continue
+        units = float(h.units or 0)
+        cost  = units * unit_cost
+        if cost <= 0:
+            continue
+        bucket = isin_to_type.get(h.isin, "bonds")
+        slot = per_bucket.setdefault(bucket, {"cfs": [], "invested": ZERO})
+        slot["cfs"].append((issue_dt, -cost))
+        slot["invested"] = slot["invested"] + Decimal(f"{cost:.2f}")
+        logger.info(
+            "Synthesized SGB purchase: %s units=%s @ ₹%.2f/g (%s) on %s → cost ₹%.0f",
+            h.isin, h.units, unit_cost, cost_source, issue_dt, cost,
+        )
+        # Mark-to-market: override the stored current_value (which equals cost
+        # for SGB holdings on Zerodha statements — no real market price column)
+        # with the live SGB spot from the metal_prices feed.
+        if live_price and live_price > 0:
+            new_current = units * live_price
+            old_current = type_value.get(bucket, ZERO)
+            # Add the delta between live MTM and stored value to the bucket total
+            # so the per-class current / total_current reflect reality.
+            stored_for_this_holding = float(h.current_value or 0)
+            type_value[bucket] = old_current - Decimal(str(stored_for_this_holding)) \
+                                              + Decimal(f"{new_current:.2f}")
+            logger.info(
+                "SGB MTM: %s stored ₹%.0f → live ₹%.0f (×%s @ ₹%.2f)",
+                h.isin, stored_for_this_holding, new_current, units, live_price,
+            )
+
+
 def _account_cashflows_by_bucket(
     db: Session, account: Account, today: date,
 ) -> dict[str, tuple[list[tuple[date, float]], Decimal, Decimal]]:
@@ -248,6 +395,12 @@ def _account_cashflows_by_bucket(
             per_bucket[bucket]["invested"] += Decimal(str(amt))
         elif t.transaction_type == "credit":
             per_bucket[bucket]["cfs"].append((t.date, amt))
+
+    # Backfill SGB / bond purchases that never landed as transactions
+    # (typical for SGBs subscribed via bank SGB-application rather than via
+    # the broker). Uses the holding's avg_cost_nav × units at the tranche's
+    # known issue date.
+    _synthesize_bond_purchase_cfs(db, account, per_bucket, isin_to_type, type_value)
 
     # Stitch in current-value terminal inflow per bucket.
     all_buckets = set(per_bucket.keys()) | set(type_value.keys())
