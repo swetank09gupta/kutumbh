@@ -146,9 +146,32 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
         return 0
 
     bank  = float(nw.bank_balance or 0)
-    ppf   = float(nw.ppf_value    or 0)
+    ppf   = float(nw.ppf_value    or 0)   # family-aggregated; used only for legacy fallback
     fd    = float(nw.fd_value     or 0)
     other = float(nw.other_assets or 0)
+
+    # ── Per-owner latest net-worth snapshots ──────────────────────────────────
+    # Used so each owner's retirement goal adds ONLY that owner's PPF, instead
+    # of every retirement goal double-counting the family-aggregated total.
+    from sqlalchemy import func as _f
+    per_owner_nw: dict[str, NetWorthSnapshot] = {}
+    sub = (
+        db.query(NetWorthSnapshot.owner_id, _f.max(NetWorthSnapshot.snapshot_date).label("d"))
+        .group_by(NetWorthSnapshot.owner_id)
+        .subquery()
+    )
+    rows = (
+        db.query(NetWorthSnapshot)
+        .join(sub, (NetWorthSnapshot.owner_id == sub.c.owner_id) &
+                   (NetWorthSnapshot.snapshot_date == sub.c.d))
+        .all()
+    )
+    for r in rows:
+        per_owner_nw[r.owner_id] = r
+
+    def _ppf_for(owner: str) -> float:
+        nwr = per_owner_nw.get(owner)
+        return float(nwr.ppf_value or 0) if nwr else 0.0
 
     # When owner_id is "family" we want all individual owners, not just rows
     # literally tagged "family" (which don't exist on the accounts table).
@@ -241,12 +264,14 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
         if tag_sum > 0:
             base = tag_sum
             if gt == "retirement":
-                base += ppf
+                # Per-owner PPF — your retirement gets your PPF, wife's gets
+                # hers. If goal is family-owned (uncommon), use family total.
+                base += _ppf_for(g.owner_id or "family")
             new_corpus = Decimal(str(round(base, 2)))
         elif gt in ("retirement", "child_education", "child_marriage"):
             base = _untagged_share(g)
             if gt == "retirement":
-                base += ppf
+                base += _ppf_for(g.owner_id or "family")
             new_corpus = Decimal(str(round(base, 2)))
         elif gt in ("emergency_fund", "emergency"):
             new_corpus = Decimal(str(round(bank + liquid_extra, 2)))
