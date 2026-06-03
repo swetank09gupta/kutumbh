@@ -1,0 +1,47 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.13.3
+psycopg2-binary==2.9.9
+
+# Settings / validation
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+pyyaml==6.0.2
+
+# Email
+imapclient==3.0.1
+
+# PDF parsing (bank statements)
+pdfplumber==0.11.4
+
+# Data processing
+pandas==2.2.3
+numpy==2.1.2
+pyarrow==17.0.0
+
+# Note: casparser is installed separately in Dockerfile with --no-deps
+# to avoid pdfminer.six version conflict with pdfplumber
+
+# Scheduling
+apscheduler==3.10.4
+
+# HTTP client (for health checks + HDFC Smart Statement download)
+httpx==0.27.2
+requests==2.32.3
+
+# AES decryption for HDFC Smart Statement
+pycryptodome==3.21.0
+
+# HTML table parsing for HDFC Smart Statement (pd.read_html backend)
+lxml==5.3.0
+
+# Static files (SPA)
+aiofiles==24.1.0
+
+# Date utilities
+python-dateutil==2.9.0.post0

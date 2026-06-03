@@ -1,0 +1,113 @@
+# ══════════════════════════════════════════════════════
+#  Finance OS — Family Account Configuration
+#  Copy to: config/accounts.yml  (git-ignored for privacy)
+# ══════════════════════════════════════════════════════
+
+# ── Email accounts (passwords are resolved from .env) ──
+email_accounts:
+  - owner_id:    "user"
+    owner_name:  "Your Name"
+    address:     "${USER_GMAIL}"
+    app_password: "${USER_GMAIL_APP_PASSWORD}"
+    imap_host:   "imap.gmail.com"
+    imap_port:   993
+
+  - owner_id:    "user"
+    owner_name:  "Your Name"
+    address:     "${USER_YAHOO}"
+    app_password: "${USER_YAHOO_APP_PASSWORD}"
+    imap_host:   "imap.mail.yahoo.com"
+    imap_port:   993
+
+  - owner_id:    "wife"
+    owner_name:  "Wife's Name"
+    address:     "${WIFE_GMAIL}"
+    app_password: "${WIFE_GMAIL_APP_PASSWORD}"
+    imap_host:   "imap.gmail.com"
+    imap_port:   993
+
+  - owner_id:    "wife"
+    owner_name:  "Wife's Name"
+    address:     "${WIFE_YAHOO}"
+    app_password: "${WIFE_YAHOO_APP_PASSWORD}"
+    imap_host:   "imap.mail.yahoo.com"
+    imap_port:   993
+
+# ── Owners ─────────────────────────────────────────────
+# Personal info is used to DERIVE PDF passwords automatically at runtime.
+# Passwords are never stored — computed from dob + pan per institution.
+#   HDFC        → name[:4].upper() + DDMM           e.g. SWET1503
+#   SBI         → name[:4].upper() + DDMMYYYY       e.g. SWET15031990
+#   Axis        → name[:4].upper() + DDMMYYYY       e.g. SWET15031990
+#   Union Bank  → name[:4].upper() + DDMM           e.g. SWET1503
+#   Zerodha     → PAN uppercase                     e.g. ABCDE1234F
+#   CAMS / KFin → PAN uppercase                     e.g. ABCDE1234F
+#   CDSL        → PAN uppercase                     e.g. ABCDE1234F
+owners:
+  - id:     "user"
+    name:   "Your Name"
+    dob:    ""           # YYYY-MM-DD  e.g. 1990-03-15
+    pan:    ""           # PAN uppercase  e.g. ABCDE1234F
+    mobile: ""           # 10-digit mobile (last 4 used as SBI fallback)
+
+  - id:     "wife"
+    name:   "Wife's Name"
+    dob:    ""
+    pan:    ""
+    mobile: ""
+
+# ── Goals (seeded into DB on first startup) ────────────
+# Adjust amounts and dates to match your family situation.
+# target_amount is in TODAY'S money — inflation adjustment is automatic.
+goals:
+  - owner_id:             "family"
+    name:                 "Child Higher Education"
+    goal_type:            "child_education"
+    target_amount:        5000000        # ₹50 lakhs in today's value
+    target_date:          "2040-06-01"
+    expected_return_rate: 12.0           # % annual returns on investments
+    inflation_rate:       8.0            # education inflation is higher
+    notes:                "Engineering / Medical / MBA fund"
+
+  - owner_id:             "family"
+    name:                 "Child Marriage"
+    goal_type:            "child_marriage"
+    target_amount:        3000000        # ₹30 lakhs in today's value
+    target_date:          "2047-01-01"
+    expected_return_rate: 10.0
+    inflation_rate:       6.0
+
+  - owner_id:             "user"
+    name:                 "Your Retirement"
+    goal_type:            "retirement"
+    target_amount:        50000000       # ₹5 crore — sustains 25 years @ 4% withdrawal
+    target_date:          "2050-01-01"
+    expected_return_rate: 12.0
+    inflation_rate:       6.0
+    notes:                "Target: retire at 60, corpus to last till 85"
+
+  - owner_id:             "wife"
+    name:                 "Wife's Retirement"
+    goal_type:            "retirement"
+    target_amount:        30000000       # ₹3 crore
+    target_date:          "2052-01-01"
+    expected_return_rate: 12.0
+    inflation_rate:       6.0
+
+  - owner_id:             "family"
+    name:                 "Emergency Fund"
+    goal_type:            "emergency"
+    target_amount:        600000         # 6× monthly expenses — update after first sync
+    target_date:          "2025-12-31"
+    expected_return_rate: 6.5            # liquid MF / savings account
+    inflation_rate:       0.0
+    notes:                "Keep in liquid mutual fund or FD with instant redemption"
+
+  - owner_id:             "family"
+    name:                 "Health & Senior Care Fund"
+    goal_type:            "health"
+    target_amount:        2000000        # ₹20 lakhs
+    target_date:          "2040-01-01"
+    expected_return_rate: 8.0
+    inflation_rate:       10.0           # medical inflation is high
+    notes:                "Covers parents' senior care + major medical events"

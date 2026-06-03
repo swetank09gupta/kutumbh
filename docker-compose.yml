@@ -1,0 +1,99 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finance_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-financeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-financepass}
+      POSTGRES_DB: ${POSTGRES_DB:-financedb}
+      TZ: Asia/Kolkata
+      PGTZ: Asia/Kolkata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-financeuser} -d ${POSTGRES_DB:-financedb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama
+    container_name: finance_ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"   # keep model loaded permanently — avoids cold-start delay
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+
+  # Pulls the parse model once on first start; no-op if already present.
+  # Default: llama3.2:1b — fast on CPU (~30s/call). For better accuracy set
+  # OLLAMA_PARSE_MODEL=llama3.2 (3b) or qwen2.5:7b in .env (needs GPU or patience).
+  ollama-init:
+    image: ollama/ollama
+    container_name: finance_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command: "ollama pull ${OLLAMA_PARSE_MODEL:-llama3.2:1b} && echo 'Model ready.'"
+    restart: "no"
+
+  app:
+    build: .
+    container_name: finance_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-financeuser}:${POSTGRES_PASSWORD:-financepass}@postgres:5432/${POSTGRES_DB:-financedb}
+      TZ: Asia/Kolkata
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    ports:
+      - "8000:8000"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: finance_grafana
+    depends_on:
+      - postgres
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-financeadmin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+      GF_DEFAULT_UI_THEME: dark
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      TZ: Asia/Kolkata
+      # Passed through so grafana/provisioning/datasources/postgres.yml can use them
+      POSTGRES_USER: ${POSTGRES_USER:-financeuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-financepass}
+      POSTGRES_DB: ${POSTGRES_DB:-financedb}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  grafana_data:
+  ollama_data:

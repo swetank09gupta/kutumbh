@@ -1,0 +1,599 @@
+{
+  "gold": {
+    "history": [
+      {
+        "date": "2019-06",
+        "price_inr_per_gram": 3142.01
+      },
+      {
+        "date": "2019-07",
+        "price_inr_per_gram": 3167.21
+      },
+      {
+        "date": "2019-08",
+        "price_inr_per_gram": 3500.87
+      },
+      {
+        "date": "2019-10",
+        "price_inr_per_gram": 3449.59
+      },
+      {
+        "date": "2019-11",
+        "price_inr_per_gram": 3379.55
+      },
+      {
+        "date": "2020-01",
+        "price_inr_per_gram": 3645.86
+      },
+      {
+        "date": "2020-02",
+        "price_inr_per_gram": 3628.2
+      },
+      {
+        "date": "2020-04",
+        "price_inr_per_gram": 4075.12
+      },
+      {
+        "date": "2020-05",
+        "price_inr_per_gram": 4216.85
+      },
+      {
+        "date": "2020-06",
+        "price_inr_per_gram": 4363.82
+      },
+      {
+        "date": "2020-07",
+        "price_inr_per_gram": 4732.28
+      },
+      {
+        "date": "2020-08",
+        "price_inr_per_gram": 4626.08
+      },
+      {
+        "date": "2020-09",
+        "price_inr_per_gram": 4481.25
+      },
+      {
+        "date": "2020-10",
+        "price_inr_per_gram": 4482.56
+      },
+      {
+        "date": "2020-12",
+        "price_inr_per_gram": 4451.27
+      },
+      {
+        "date": "2021-01",
+        "price_inr_per_gram": 4330.07
+      },
+      {
+        "date": "2021-02",
+        "price_inr_per_gram": 4088.96
+      },
+      {
+        "date": "2021-03",
+        "price_inr_per_gram": 4046.83
+      },
+      {
+        "date": "2021-04",
+        "price_inr_per_gram": 4210.69
+      },
+      {
+        "date": "2021-05",
+        "price_inr_per_gram": 4428.08
+      },
+      {
+        "date": "2021-06",
+        "price_inr_per_gram": 4229.38
+      },
+      {
+        "date": "2021-07",
+        "price_inr_per_gram": 4327.14
+      },
+      {
+        "date": "2021-09",
+        "price_inr_per_gram": 4194.3
+      },
+      {
+        "date": "2021-10",
+        "price_inr_per_gram": 4287.73
+      },
+      {
+        "date": "2021-11",
+        "price_inr_per_gram": 4279.82
+      },
+      {
+        "date": "2021-12",
+        "price_inr_per_gram": 4373.24
+      },
+      {
+        "date": "2022-01",
+        "price_inr_per_gram": 4330.54
+      },
+      {
+        "date": "2022-02",
+        "price_inr_per_gram": 4584.18
+      },
+      {
+        "date": "2022-03",
+        "price_inr_per_gram": 4751.99
+      },
+      {
+        "date": "2022-04",
+        "price_inr_per_gram": 4701.44
+      },
+      {
+        "date": "2022-06",
+        "price_inr_per_gram": 4576.35
+      },
+      {
+        "date": "2022-07",
+        "price_inr_per_gram": 4509.99
+      },
+      {
+        "date": "2022-08",
+        "price_inr_per_gram": 4387.93
+      },
+      {
+        "date": "2022-09",
+        "price_inr_per_gram": 4354.92
+      },
+      {
+        "date": "2022-10",
+        "price_inr_per_gram": 4325.4
+      },
+      {
+        "date": "2022-11",
+        "price_inr_per_gram": 4582.36
+      },
+      {
+        "date": "2022-12",
+        "price_inr_per_gram": 4840.65
+      },
+      {
+        "date": "2023-02",
+        "price_inr_per_gram": 4859.98
+      },
+      {
+        "date": "2023-03",
+        "price_inr_per_gram": 5197.35
+      },
+      {
+        "date": "2023-04",
+        "price_inr_per_gram": 5230.33
+      },
+      {
+        "date": "2023-05",
+        "price_inr_per_gram": 5220.73
+      },
+      {
+        "date": "2023-06",
+        "price_inr_per_gram": 5069.37
+      },
+      {
+        "date": "2023-07",
+        "price_inr_per_gram": 5210.96
+      },
+      {
+        "date": "2023-08",
+        "price_inr_per_gram": 5153.44
+      },
+      {
+        "date": "2023-09",
+        "price_inr_per_gram": 4943.14
+      },
+      {
+        "date": "2023-11",
+        "price_inr_per_gram": 5460.33
+      },
+      {
+        "date": "2023-12",
+        "price_inr_per_gram": 5457.25
+      },
+      {
+        "date": "2024-01",
+        "price_inr_per_gram": 5473.4
+      },
+      {
+        "date": "2024-02",
+        "price_inr_per_gram": 5453.18
+      },
+      {
+        "date": "2024-03",
+        "price_inr_per_gram": 5945.17
+      },
+      {
+        "date": "2024-04",
+        "price_inr_per_gram": 6147.86
+      },
+      {
+        "date": "2024-05",
+        "price_inr_per_gram": 6222.65
+      },
+      {
+        "date": "2024-06",
+        "price_inr_per_gram": 6245.23
+      },
+      {
+        "date": "2024-07",
+        "price_inr_per_gram": 6532.79
+      },
+      {
+        "date": "2024-08",
+        "price_inr_per_gram": 6726.5
+      },
+      {
+        "date": "2024-10",
+        "price_inr_per_gram": 7403.06
+      },
+      {
+        "date": "2024-11",
+        "price_inr_per_gram": 7223.66
+      },
+      {
+        "date": "2025-01",
+        "price_inr_per_gram": 7834.96
+      },
+      {
+        "date": "2025-02",
+        "price_inr_per_gram": 7964.67
+      },
+      {
+        "date": "2025-03",
+        "price_inr_per_gram": 8588.12
+      },
+      {
+        "date": "2025-04",
+        "price_inr_per_gram": 9050.09
+      },
+      {
+        "date": "2025-05",
+        "price_inr_per_gram": 9042.46
+      },
+      {
+        "date": "2025-07",
+        "price_inr_per_gram": 9287.11
+      },
+      {
+        "date": "2025-08",
+        "price_inr_per_gram": 9846.66
+      },
+      {
+        "date": "2025-09",
+        "price_inr_per_gram": 10953.63
+      },
+      {
+        "date": "2025-10",
+        "price_inr_per_gram": 11347.93
+      },
+      {
+        "date": "2025-11",
+        "price_inr_per_gram": 12116.92
+      },
+      {
+        "date": "2025-12",
+        "price_inr_per_gram": 12484.34
+      },
+      {
+        "date": "2026-01",
+        "price_inr_per_gram": 13894.94
+      },
+      {
+        "date": "2026-04",
+        "price_inr_per_gram": 14082.39
+      },
+      {
+        "date": "2026-05",
+        "price_inr_per_gram": 13979.2
+      },
+      {
+        "date": "2026-05",
+        "price_inr_per_gram": 13914.18
+      }
+    ],
+    "cagr_pct": {
+      "1y": 53.75,
+      "3y": 42.18,
+      "5y": 25.43,
+      "7y": null
+    }
+  },
+  "silver": {
+    "history": [
+      {
+        "date": "2019-06",
+        "price_inr_per_gram": 34.0
+      },
+      {
+        "date": "2019-07",
+        "price_inr_per_gram": 36.3
+      },
+      {
+        "date": "2019-08",
+        "price_inr_per_gram": 41.91
+      },
+      {
+        "date": "2019-10",
+        "price_inr_per_gram": 41.11
+      },
+      {
+        "date": "2019-11",
+        "price_inr_per_gram": 39.13
+      },
+      {
+        "date": "2020-01",
+        "price_inr_per_gram": 41.39
+      },
+      {
+        "date": "2020-02",
+        "price_inr_per_gram": 38.01
+      },
+      {
+        "date": "2020-04",
+        "price_inr_per_gram": 36.05
+      },
+      {
+        "date": "2020-05",
+        "price_inr_per_gram": 44.77
+      },
+      {
+        "date": "2020-06",
+        "price_inr_per_gram": 45.13
+      },
+      {
+        "date": "2020-07",
+        "price_inr_per_gram": 58.32
+      },
+      {
+        "date": "2020-08",
+        "price_inr_per_gram": 66.86
+      },
+      {
+        "date": "2020-09",
+        "price_inr_per_gram": 55.63
+      },
+      {
+        "date": "2020-10",
+        "price_inr_per_gram": 56.39
+      },
+      {
+        "date": "2020-12",
+        "price_inr_per_gram": 61.91
+      },
+      {
+        "date": "2021-01",
+        "price_inr_per_gram": 63.05
+      },
+      {
+        "date": "2021-02",
+        "price_inr_per_gram": 62.47
+      },
+      {
+        "date": "2021-03",
+        "price_inr_per_gram": 57.89
+      },
+      {
+        "date": "2021-04",
+        "price_inr_per_gram": 61.6
+      },
+      {
+        "date": "2021-05",
+        "price_inr_per_gram": 65.15
+      },
+      {
+        "date": "2021-06",
+        "price_inr_per_gram": 62.49
+      },
+      {
+        "date": "2021-07",
+        "price_inr_per_gram": 60.94
+      },
+      {
+        "date": "2021-09",
+        "price_inr_per_gram": 52.62
+      },
+      {
+        "date": "2021-10",
+        "price_inr_per_gram": 57.58
+      },
+      {
+        "date": "2021-11",
+        "price_inr_per_gram": 54.93
+      },
+      {
+        "date": "2021-12",
+        "price_inr_per_gram": 55.82
+      },
+      {
+        "date": "2022-01",
+        "price_inr_per_gram": 54.03
+      },
+      {
+        "date": "2022-02",
+        "price_inr_per_gram": 58.8
+      },
+      {
+        "date": "2022-03",
+        "price_inr_per_gram": 61.24
+      },
+      {
+        "date": "2022-04",
+        "price_inr_per_gram": 56.73
+      },
+      {
+        "date": "2022-06",
+        "price_inr_per_gram": 51.45
+      },
+      {
+        "date": "2022-07",
+        "price_inr_per_gram": 51.56
+      },
+      {
+        "date": "2022-08",
+        "price_inr_per_gram": 45.5
+      },
+      {
+        "date": "2022-09",
+        "price_inr_per_gram": 49.67
+      },
+      {
+        "date": "2022-10",
+        "price_inr_per_gram": 50.57
+      },
+      {
+        "date": "2022-11",
+        "price_inr_per_gram": 56.56
+      },
+      {
+        "date": "2022-12",
+        "price_inr_per_gram": 63.48
+      },
+      {
+        "date": "2023-02",
+        "price_inr_per_gram": 55.7
+      },
+      {
+        "date": "2023-03",
+        "price_inr_per_gram": 63.55
+      },
+      {
+        "date": "2023-04",
+        "price_inr_per_gram": 65.7
+      },
+      {
+        "date": "2023-05",
+        "price_inr_per_gram": 62.4
+      },
+      {
+        "date": "2023-06",
+        "price_inr_per_gram": 60.19
+      },
+      {
+        "date": "2023-07",
+        "price_inr_per_gram": 65.73
+      },
+      {
+        "date": "2023-08",
+        "price_inr_per_gram": 65.07
+      },
+      {
+        "date": "2023-09",
+        "price_inr_per_gram": 59.47
+      },
+      {
+        "date": "2023-11",
+        "price_inr_per_gram": 67.76
+      },
+      {
+        "date": "2023-12",
+        "price_inr_per_gram": 63.12
+      },
+      {
+        "date": "2024-01",
+        "price_inr_per_gram": 61.59
+      },
+      {
+        "date": "2024-02",
+        "price_inr_per_gram": 60.42
+      },
+      {
+        "date": "2024-03",
+        "price_inr_per_gram": 66.48
+      },
+      {
+        "date": "2024-04",
+        "price_inr_per_gram": 70.81
+      },
+      {
+        "date": "2024-05",
+        "price_inr_per_gram": 81.16
+      },
+      {
+        "date": "2024-06",
+        "price_inr_per_gram": 78.44
+      },
+      {
+        "date": "2024-07",
+        "price_inr_per_gram": 77.48
+      },
+      {
+        "date": "2024-08",
+        "price_inr_per_gram": 77.5
+      },
+      {
+        "date": "2024-10",
+        "price_inr_per_gram": 88.28
+      },
+      {
+        "date": "2024-11",
+        "price_inr_per_gram": 83.42
+      },
+      {
+        "date": "2025-01",
+        "price_inr_per_gram": 89.5
+      },
+      {
+        "date": "2025-02",
+        "price_inr_per_gram": 87.65
+      },
+      {
+        "date": "2025-03",
+        "price_inr_per_gram": 94.76
+      },
+      {
+        "date": "2025-04",
+        "price_inr_per_gram": 89.08
+      },
+      {
+        "date": "2025-05",
+        "price_inr_per_gram": 90.43
+      },
+      {
+        "date": "2025-07",
+        "price_inr_per_gram": 103.08
+      },
+      {
+        "date": "2025-08",
+        "price_inr_per_gram": 113.95
+      },
+      {
+        "date": "2025-09",
+        "price_inr_per_gram": 131.91
+      },
+      {
+        "date": "2025-10",
+        "price_inr_per_gram": 136.77
+      },
+      {
+        "date": "2025-11",
+        "price_inr_per_gram": 162.14
+      },
+      {
+        "date": "2025-12",
+        "price_inr_per_gram": 202.42
+      },
+      {
+        "date": "2026-01",
+        "price_inr_per_gram": 230.77
+      },
+      {
+        "date": "2026-04",
+        "price_inr_per_gram": 224.4
+      },
+      {
+        "date": "2026-05",
+        "price_inr_per_gram": 234.67
+      },
+      {
+        "date": "2026-05",
+        "price_inr_per_gram": 234.4
+      }
+    ],
+    "cagr_pct": {
+      "1y": 163.13,
+      "3y": 54.56,
+      "5y": 33.33,
+      "7y": null
+    }
+  },
+  "fetched_at": "2026-05-24T20:05:03.916492"
+}

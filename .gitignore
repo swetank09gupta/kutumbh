@@ -1,0 +1,27 @@
+# Secrets & personal data — NEVER commit these
+.env
+config/accounts.yml
+data/raw/
+data/processed/
+data/cache/
+*.txt.cache
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Docker volumes (if mapped locally)
+grafana/
+postgres_data/
+
+# macOS
+.DS_Store
+
+# Local agent state
+.claude/
