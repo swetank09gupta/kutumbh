@@ -41,7 +41,7 @@ pycryptodome==3.21.0
 lxml==5.3.0
 
 # Static files (SPA)
-aiofiles==24.1.0
+aiofiles==25.1.0
 
 # Date utilities
 python-dateutil==2.9.0.post0
