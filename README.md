@@ -4,6 +4,8 @@ A self-hosted, private, email-driven personal finance tracker for the whole fami
 One `docker-compose up` gives you a live Grafana dashboard fed by your bank & investment statements.
 
 > **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md) · [Submission](docs/SUBMISSION.md)
+>
+> **Legal:** [License (MIT)](LICENSE) · [Disclaimer](DISCLAIMER.md) · [Notices & Trademarks](NOTICE.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md)
 
 ---
 
