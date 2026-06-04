@@ -17,8 +17,6 @@ One `docker-compose up` gives you a live Grafana dashboard fed by your bank & in
 
 ![Kutumb walkthrough](docs/media/demo.gif)
 
-> _Record with [LICEcap](https://www.cockos.com/licecap/) (GIF) or QuickTime → save to `docs/media/demo.gif` (or `.mp4`). Keep under ~15 MB for fast README loads._
-
 ---
 
 ## Why Kutumb?
