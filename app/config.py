@@ -3,6 +3,7 @@ Central configuration — reads from .env and config/accounts.yml.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -138,12 +139,21 @@ class Settings(BaseSettings):
 
     def get_salary_patterns(self) -> list[str]:
         """
-        Collect employer-specific salary-narration regex patterns from every
-        owner's `salary_patterns:` list in accounts.yml. Returns an empty list
-        if accounts.yml is absent or no owner has configured patterns — the
-        generic `salary|payroll|...` rule in the categoriser still applies.
-        Kept out of source code so the repo can be public without naming
-        employers.
+        Collect employer-specific salary-narration patterns from accounts.yml.
+
+        Supports two styles per owner — users only need to know the simpler one:
+
+          salary_keywords:          # plain words/phrases (recommended for most users)
+            - "acmecorp"
+            - "acme sal"
+
+          salary_patterns:          # full regex for advanced users
+            - "neft.*acme|acme.*neft"
+
+        Keywords are escaped and wrapped in a word-boundary regex automatically,
+        so "acmecorp" matches "NEFT FROM ACMECORP" without the user knowing regex.
+        Both lists may coexist. Falls back to an empty list (the generic
+        salary|payroll rule in the categoriser then applies).
         """
         cfg = Path("config/accounts.yml")
         if not cfg.exists():
@@ -151,6 +161,12 @@ class Settings(BaseSettings):
         data = yaml.safe_load(cfg.read_text()) or {}
         out: list[str] = []
         for owner in data.get("owners", []):
+            # Plain keywords → auto-wrapped in \b...\b so they match as substrings
+            for kw in (owner.get("salary_keywords") or []):
+                kw = str(kw).strip()
+                if kw:
+                    out.append(re.escape(kw))
+            # Advanced regex patterns — used as-is
             for pat in (owner.get("salary_patterns") or []):
                 pat = str(pat).strip()
                 if pat:

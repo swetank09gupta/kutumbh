@@ -58,15 +58,16 @@ owners:
                                   #   Multiple co-borrowers: each owner's share counts
                                   #   for their 80C; sum < 100 implies an external
                                   #   co-borrower (e.g. parent) whose share isn't tracked.
-    # ── Salary-narration regex patterns (employer-specific) ──────────────
-    # These let the categoriser tag your salary credits even when the bank's
-    # narration doesn't contain the literal word "salary". Patterns are
-    # case-insensitive regex (Python `re` syntax). Kept here (git-ignored)
-    # so employer names never appear in source. Leave empty if the generic
-    # `salary|payroll|...` rule already catches your credits.
-    # Examples:
-    #   - "neft.*acmecorp|acmecorp.*neft"
-    #   - "acme\\s*sal"
+    # ── Employer salary keywords (recommended — no regex knowledge needed) ──
+    # Add your employer's name as it appears in your bank's NEFT narration.
+    # Only needed if the word "salary" doesn't appear in the bank narration —
+    # most HDFC/SBI narrations already contain "SAL" so this can stay empty.
+    # Check by searching a month of transactions for your salary credit.
+    # Examples: "acmecorp", "acme technologies", "abc pvt ltd"
+    salary_keywords: []
+
+    # ── Advanced: full regex (optional, for power users) ─────────────────
+    # Leave this empty — salary_keywords above is easier and covers most cases.
     salary_patterns: []
 
   - id:     "wife"
@@ -77,6 +78,7 @@ owners:
     tax_regime:           "old"
     epf_monthly:          0
     home_loan_share_pct:  0
+    salary_keywords: []
     salary_patterns: []
 
 # ── Children (used to compute age-based goal target dates) ────────────
