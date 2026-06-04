@@ -7,6 +7,132 @@ One `docker-compose up` gives you a live Grafana dashboard fed by your bank & in
 
 ---
 
+## Demo
+
+<!-- Drop a short screen recording here. GitHub auto-renders .mp4/.mov/.gif up to 100 MB.
+     Easiest: open an Issue in this repo, drag the file into the comment box, copy the
+     generated `https://user-images.githubusercontent.com/...` URL, and paste below. -->
+
+![Kutumb walkthrough](docs/media/demo.gif)
+
+> _Record with [LICEcap](https://www.cockos.com/licecap/) (GIF) or QuickTime → save to `docs/media/demo.gif` (or `.mp4`). Keep under ~15 MB for fast README loads._
+
+---
+
+## Why Kutumb?
+
+Most personal finance tools either:
+- Require sharing financial data with third parties
+- Focus only on budgeting
+- Lack Indian financial instruments (PPF, NPS, ELSS, SGB, CAMS/KFintech CAS)
+- Provide little actionable planning
+
+Kutumb is a **privacy-first financial operating system for Indian households** — everything runs locally, ingests official email statements only, and produces actionable, market-aware recommendations.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Sources["📧 Email Inboxes"]
+        GMAIL[Gmail IMAP]
+        YAHOO[Yahoo IMAP]
+    end
+
+    subgraph Ingestion["Ingestion Layer"]
+        FETCH[Email Fetcher<br/>APScheduler · 6h]
+        PARSE[Parsers<br/>HDFC · SBI · Axis · Union<br/>Zerodha · CAMS · KFintech]
+    end
+
+    subgraph ETL["ETL Pipeline"]
+        NORM[Normaliser]
+        DEDUP[Fingerprint Dedup]
+        CAT[Categoriser<br/>60+ rules]
+        MAINT[Maintenance:<br/>ISIN backfill · NAV refresh<br/>ghost-redemption synth]
+    end
+
+    subgraph Engine["Analytics Engine"]
+        NW[Net Worth Snapshots]
+        XIRR[XIRR / CAGR Engine<br/>AMFI ISIN lookup]
+        GOALS[Goal Projection<br/>inflation-adjusted]
+        REC[Recommendation Engine<br/>market-aware · memory]
+        LLM[Ollama LLM<br/>local fallback]
+    end
+
+    subgraph Storage["Storage"]
+        PG[(PostgreSQL)]
+    end
+
+    subgraph UI["Presentation"]
+        API[FastAPI REST]
+        GRAF[Grafana Dashboards]
+    end
+
+    GMAIL --> FETCH
+    YAHOO --> FETCH
+    FETCH --> PARSE
+    PARSE --> NORM --> DEDUP --> CAT --> MAINT
+    MAINT --> PG
+    PG --> NW & XIRR & GOALS & REC
+    PARSE -.fallback.-> LLM
+    REC --> PG
+    PG --> API
+    PG --> GRAF
+```
+
+All components run as Docker services on the user's machine — no cloud, no third-party APIs (except market-data fetches: AMFI NAV file, NSE indices).
+
+---
+
+## Interesting Engineering Problems Solved
+
+### Statement Normalisation across 7 institutions
+Every bank and broker ships a different PDF layout, CSV schema, and date format. HDFC alone has two layout variants and headerless continuation pages. Built per-institution parsers with shared normalisation downstream, plus a local-LLM fallback (Ollama) for unseen layouts.
+
+### Fingerprint-based Dedup
+Reprocessing a statement must never double-count. Each transaction gets a stable fingerprint (account + date + amount + normalised ref/narration) that survives whitespace, padding, and Decimal precision drift.
+
+### Portfolio XIRR across heterogeneous vehicles
+Money-weighted returns computed across mutual funds, direct equity, SGBs, FDs/RDs, and PPF — at family / class / owner / instrument / goal granularity. Coin transactions are joined to holdings via AMFI ISIN lookup (NAVAll.txt cached 24h, scheme renames handled). SGB purchases synthesized at RBI tranche date; FD principals compounded at stated rate.
+
+### Net Worth Reconstruction
+Daily historical snapshots reconstructed by replaying statement history through the engine — no need for the user to have used the tool from day one.
+
+### Goal Projection Engine
+Inflation-adjusted corpus targets with the SIP required to close each gap, considering current trajectory and existing assets earmarked.
+
+### Market-aware Recommendations + Memory
+Recommendations consider live Nifty 50 / Midcap 150 / Smallcap 250 P/E zones (NSE) and the user's real loan amortisation × co-borrower share for ELSS 80C dead-weight detection. Persistent snapshots produce a new / resolved / persisting diff so multi-month progress is visible.
+
+---
+
+## AI Features
+
+- **Local LLM via Ollama** (llama3.2) — runs in Docker, zero cloud calls
+- **Statement-understanding fallback** for unseen PDF layouts when deterministic parsers don't match
+- **Recommendation explanation** generation in plain language
+- Fully local inference — financial data never leaves the machine
+
+---
+
+## Performance
+
+Validated against the author's real household data:
+
+| Metric | Value |
+|---|---|
+| Historical horizon | 2+ years of transactions |
+| Bank transactions | Thousands across 4 banks |
+| Investment records | Hundreds of MF / equity / SGB rows |
+| Dashboard query latency | Sub-second on Grafana panels |
+| Full sync (6h cadence) | < 30s typical |
+| Reprocess full history | < 2 min |
+
+See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for detailed numbers.
+
+---
+
 ## What it does
 
 | Feature | Detail |
