@@ -85,6 +85,49 @@ All components run as Docker services on the user's machine — no cloud, no thi
 
 ---
 
+## ⭐ The Recommendation Engine — Where It All Comes Together
+
+This is the heart of Kutumb. Every other component feeds into it.
+
+```mermaid
+flowchart LR
+    NSE[NSE Live<br/>Nifty50 · Midcap150<br/>Smallcap250 P/E zones]
+    AMFI[AMFI NAVAll.txt<br/>scheme NAV + ISIN]
+    FX[USD/INR · RBI]
+    PERS[Personal Ledger<br/>holdings · txns · EMIs<br/>EPF · loan amort × share%]
+    GOALS[Goals & Glide-paths<br/>inflation-adjusted]
+    HIST[Recommendation<br/>Memory Store]
+    OLLAMA[Ollama LLM<br/>local · llama3.2]
+
+    NSE --> ENG[Recommendation<br/>Engine]
+    AMFI --> ENG
+    FX --> ENG
+    PERS --> ENG
+    GOALS --> ENG
+    HIST --> ENG
+    ENG --> OLLAMA
+    OLLAMA --> OUT[Actionable, plain-English<br/>recommendations with<br/>new / resolved / persisting diff]
+```
+
+**What makes it different:**
+
+| Input | What it contributes |
+|---|---|
+| **NSE live P/E zones** | Tells the engine *when* to buy / pause / redirect — Midcap150 in EXPENSIVE zone → pause midcap SIPs |
+| **AMFI NAV + ISIN** | Joins your Coin transactions to current scheme NAV; flags scheme overlaps and direct-equity scatter |
+| **Personal loan amortisation × your share%** | Computes real 80C usage from home-loan principal → catches ELSS dead-weight that generic advisors miss |
+| **EPF FY contributions** | Combined with loan principal, gives true 80C headroom — not a guess |
+| **Goal glide-paths** | Inflation-adjusted corpus gaps → SIP amounts that actually close the gap |
+| **Memory store** | Diff vs last month: new triggers, resolved items, what's been persisting and for how long |
+| **Ollama (local LLM)** | Turns the structured reasoning into plain-English explanations — no cloud, no data leaves the machine |
+
+**Sample output (from the demo):**
+> _"Midcap 150 P/E 34.8 (EXPENSIVE zone, >1σ above 10yr median). Your portfolio is 42% high-beta (28% midcap + 14% smallcap). **→ Pause ₹ 15k/mo midcap SIP + ₹ 7.5k/mo smallcap SIP, redirect to Nifty 50 index until P/E returns to FAIR zone.**"_
+
+No SaaS robo-advisor knows your home-loan share, your spouse's PPF balance, or that your EPF already maxed 80C. Kutumb does, because it lives next to your data.
+
+---
+
 ## Interesting Engineering Problems Solved
 
 ### Statement Normalisation across 7 institutions
