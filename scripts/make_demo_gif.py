@@ -113,30 +113,126 @@ def frame_networth(t):
     return img
 
 
-def frame_recs():
+def market_strip(d, y):
+    """NSE market signals strip across the top."""
+    panel(d, 30, y, 900, 90, "LIVE MARKET SIGNALS · NSE  (12h cached)")
+    indices = [
+        ("NIFTY 50",      "P/E 22.4", "FAIR",      YELLOW, 24700),
+        ("MIDCAP 150",    "P/E 34.8", "EXPENSIVE", RED,    18420),
+        ("SMALLCAP 250",  "P/E 31.2", "EXPENSIVE", RED,    16180),
+        ("USD/INR",       "₹ 83.42",  "STABLE",    GREEN,  None),
+    ]
+    x = 50
+    for name, pe, zone, color, level in indices:
+        d.text((x, y + 32), name, fill=MUTED, font=font(11, True))
+        d.text((x, y + 48), pe, fill=TEXT, font=font(16, True))
+        d.rectangle([x, y + 70, x + 70, y + 86], fill=color)
+        d.text((x + 6, y + 71), zone, fill=(10, 10, 10), font=font(11, True))
+        x += 220
+
+
+def frame_recs_market():
+    """Frame A: market signals + headline."""
     img, d = base()
-    d.text((30, 60), "Recommendations", fill=TEXT, font=font(24, True))
-    d.text((30, 92), "Market-aware · persistent memory · diff vs last month", fill=MUTED, font=font(13))
+    d.text((30, 56), "Market-Aware Recommendations", fill=TEXT, font=font(22, True))
+    d.text((30, 84), "NSE live P/E zones · personal cashflow · loan amortisation · goal gaps",
+           fill=MUTED, font=font(12))
+    market_strip(d, 110)
+
+    # Headline reasoning block
+    panel(d, 30, 220, 900, 290, "ENGINE REASONING (this month)")
+    bullets = [
+        ("•", "Midcap 150 P/E 34.8  →  EXPENSIVE zone (>1σ above 10yr median)", RED),
+        ("•", "Your portfolio: 28% midcap + 14% smallcap  =  42% high-beta exposure",  YELLOW),
+        ("•", "Home-loan principal FY: ₹ 1.62 L  ×  your 60% share  =  ₹ 97k toward 80C", ACCENT),
+        ("•", "EPF FY contribution: ₹ 72k  →  80C already at ₹ 1.69 L (cap ₹ 1.5 L)", ACCENT),
+        ("•", "Emergency fund: 1.8 months  vs  target 6  →  ₹ 3.8 L gap",            RED),
+        ("•", "Goals: child-edu corpus on track  ·  retirement 18% behind glide-path", YELLOW),
+        ("•", "Spouse PPF: ₹ 70k deposited / ₹ 1.5 L cap  →  ₹ 80k pending by Mar-31", GREEN),
+    ]
+    yy = 258
+    for mark, line, color in bullets:
+        d.text((50, yy), mark, fill=color, font=font(15, True))
+        d.text((70, yy), line, fill=TEXT, font=font(13))
+        yy += 32
+    return img
+
+
+def frame_recs_cards():
+    """Frame B: detailed personalised rec cards."""
+    img, d = base()
+    d.text((30, 56), "Personalised Action Plan", fill=TEXT, font=font(22, True))
+    d.text((30, 84), "4 recommendations · estimated ₹ 47.5k/month redeployed",
+           fill=MUTED, font=font(12))
 
     recs = [
-        ("HIGH", RED, "Emergency fund gap",
-         "Build 4.2 months runway (₹ 3.8 L short). SIP ₹ 25k/mo into liquid fund."),
-        ("MED", YELLOW, "Midcap overweight",
-         "Midcap 150 P/E in EXPENSIVE zone. Pause midcap SIPs; redirect to largecap index."),
-        ("MED", YELLOW, "ELSS 80C dead-weight",
-         "Home-loan principal already exhausts 80C. Stop ₹ 12.5k/mo ELSS SIP."),
-        ("LOW", GREEN, "PPF nudge",
-         "Spouse PPF: ₹ 80k pending for FY — deposit by Mar-31."),
+        ("HIGH", RED,
+         "Emergency Fund Gap",
+         "1.8 mo runway vs 6 mo target  ·  shortfall ₹ 3.8 L",
+         "→ Start ₹ 25k/mo SIP into ICICI Liquid until Aug-2026  ·  freed by stopping ELSS"),
+        ("HIGH", RED,
+         "Midcap / Smallcap Overweight",
+         "42% high-beta  ·  Midcap150 P/E EXPENSIVE  ·  Smallcap250 P/E EXPENSIVE",
+         "→ Pause ₹ 15k/mo midcap SIP + ₹ 7.5k/mo smallcap SIP  ·  redirect to Nifty 50 index"),
+        ("MED",  YELLOW,
+         "ELSS 80C Dead-Weight",
+         "80C already at ₹ 1.69 L via home-loan principal + EPF (cap ₹ 1.5 L)",
+         "→ Stop ₹ 12.5k/mo ELSS SIP  ·  saves ₹ 0 tax  ·  redirect to emergency fund"),
+        ("LOW",  GREEN,
+         "Spouse PPF Top-up",
+         "₹ 70k deposited / ₹ 1.5 L FY cap  ·  deadline Mar-31-2026",
+         "→ Transfer ₹ 80k to Union Bank PPF before Mar-31  ·  locks 7.1% tax-free"),
     ]
-    y = 130
-    for tag, color, title, body in recs:
-        d.rectangle([30, y, 930, y + 78], fill=PANEL, outline=(50, 56, 74))
-        d.rectangle([30, y, 36, y + 78], fill=color)
+    y = 118
+    for tag, color, title, why, action in recs:
+        d.rectangle([30, y, 930, y + 92], fill=PANEL, outline=(50, 56, 74))
+        d.rectangle([30, y, 36, y + 92], fill=color)
         d.rectangle([50, y + 12, 100, y + 30], fill=color)
         d.text((58, y + 13), tag, fill=(10, 10, 10), font=font(12, True))
         d.text((115, y + 10), title, fill=TEXT, font=font(16, True))
-        d.text((115, y + 38), body, fill=MUTED, font=font(13))
-        y += 92
+        d.text((115, y + 36), why, fill=MUTED, font=font(12))
+        d.text((115, y + 60), action, fill=ACCENT, font=font(13, True))
+        y += 102
+    return img
+
+
+def frame_recs_memory():
+    """Frame C: persistent memory diff vs last month."""
+    img, d = base()
+    d.text((30, 56), "Recommendation Memory", fill=TEXT, font=font(22, True))
+    d.text((30, 84), "Diff vs last month  ·  multi-month progress tracking",
+           fill=MUTED, font=font(12))
+
+    # Three columns: New / Resolved / Persisting
+    cols = [
+        ("NEW (this month)",  RED, [
+            ("Midcap overweight", "triggered by NSE P/E zone flip Apr→May"),
+            ("Emergency fund gap", "salary irregularity widened gap to 3.8 L"),
+        ]),
+        ("RESOLVED ✓",        GREEN, [
+            ("Direct equity scatter", "12 → 8 holdings (consolidated Apr)"),
+            ("International gap",     "added ₹ 8k/mo Motilal Nasdaq-100 FoF"),
+        ]),
+        ("PERSISTING",        YELLOW, [
+            ("ELSS 80C dead-weight",  "5 months running · est. tax lost ₹ 0"),
+            ("Spouse PPF top-up",     "3 months running · 23 days to deadline"),
+        ]),
+    ]
+    cw = 290
+    cx = 30
+    for header, color, items in cols:
+        d.rectangle([cx, 118, cx + cw, 500], fill=PANEL, outline=(50, 56, 74))
+        d.rectangle([cx, 118, cx + cw, 142], fill=color)
+        d.text((cx + 12, 122), header, fill=(10, 10, 10), font=font(13, True))
+        yy = 158
+        for title, sub in items:
+            d.text((cx + 12, yy), title, fill=TEXT, font=font(14, True))
+            d.text((cx + 12, yy + 22), sub, fill=MUTED, font=font(11))
+            yy += 60
+        cx += cw + 15
+
+    # Trend arrows footer
+    panel(d, 30, 510, 900, 25, "")
     return img
 
 
@@ -169,8 +265,10 @@ for i in range(10):
     frames.append((frame_networth(i * 0.3), 180))
 # Hold
 frames.append((frame_networth(3.0), 1200))
-# Recs
-frames.append((frame_recs(), 2500))
+# Recs — 3-frame story: market signals → action plan → memory diff
+frames.append((frame_recs_market(), 3200))
+frames.append((frame_recs_cards(), 3500))
+frames.append((frame_recs_memory(), 3000))
 # Grafana
 for i in range(8):
     frames.append((frame_grafana(i * 0.4), 200))
