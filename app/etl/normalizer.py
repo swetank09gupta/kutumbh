@@ -123,18 +123,46 @@ def _get_or_create_account(
     db: Session, owner_id: str, institution: str, account_type: str, account_ref: str | None
 ) -> Account:
     ref = account_ref or "unknown"
+
+    # Exact match first (covers both real refs and "unknown").
     acc = (
         db.query(Account)
         .filter_by(owner_id=owner_id, institution=institution,
                    account_type=account_type, account_ref=ref)
         .first()
     )
-    if acc is None:
-        acc = Account(owner_id=owner_id, institution=institution,
-                      account_type=account_type, account_ref=ref)
-        db.add(acc)
-        db.flush()
-        logger.info("Created account: %s / %s / %s / %s", owner_id, institution, account_type, ref)
+    if acc:
+        return acc
+
+    # When the parser couldn't extract an account number (ref=="unknown"),
+    # prefer an existing account for the same (owner, institution, type)
+    # with a REAL reference number over creating a brand-new "unknown" row.
+    # This prevents a fresh UUID being minted each reprocess, which would
+    # cause fingerprint mismatches and re-insert transactions as duplicates.
+    if ref == "unknown":
+        real_acc = (
+            db.query(Account)
+            .filter(
+                Account.owner_id    == owner_id,
+                Account.institution == institution,
+                Account.account_type == account_type,
+                Account.account_ref  != "unknown",
+            )
+            .order_by(Account.account_ref)   # deterministic choice
+            .first()
+        )
+        if real_acc:
+            logger.debug(
+                "Reusing canonical account %s for %s/%s/%s (no ref in statement)",
+                real_acc.account_ref, owner_id, institution, account_type,
+            )
+            return real_acc
+
+    acc = Account(owner_id=owner_id, institution=institution,
+                  account_type=account_type, account_ref=ref)
+    db.add(acc)
+    db.flush()
+    logger.info("Created account: %s / %s / %s / %s", owner_id, institution, account_type, ref)
     return acc
 
 
@@ -167,7 +195,17 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     txn_rows: list[dict] = []
     import uuid
     for pt in result.transactions:
-        if pt.isin and is_demat:
+        # Use the owner-scoped equity_demat_fingerprint for any ISIN-tagged
+        # row whose description starts with "DEMAT". This covers both CDSL CAS
+        # statements (is_demat=True) AND Zerodha monthly holding statements
+        # (is_demat=False) which emit "DEMAT CREDIT N.NNN INSTRUMENT_NAME"
+        # snapshot rows. The instrument name in the description varies between
+        # monthly PDFs (short symbol vs full name), making description-based
+        # fingerprinting unstable. The ISIN + qty + date combination is stable.
+        is_demat_row = pt.isin and (
+            is_demat or (pt.description or "").upper().startswith("DEMAT ")
+        )
+        if is_demat_row:
             fp = equity_demat_fingerprint(
                 owner_id, pt.isin, pt.date, pt.amount, pt.transaction_type
             )

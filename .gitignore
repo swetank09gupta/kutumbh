@@ -9,6 +9,7 @@ data/metal_history_cache.json
 data/market_signals_cache.json
 data/inflation_cache.json
 data/hdfc_pending.json
+data/amfi_nav_cache.json
 *.txt.cache
 
 # Local dev/debug scripts (not part of the app)

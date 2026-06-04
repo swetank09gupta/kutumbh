@@ -63,6 +63,11 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
         summary   = process_attachments(attachments, db)
         snapshots = snapshot_all(db)
 
+        # Post-sync maintenance: dedup, ISIN backfill, NAV refresh, ghost
+        # synth, re-categorize — keeps derived state honest after every sync.
+        from app.etl.maintenance import run_all as _run_maintenance
+        maintenance = _run_maintenance(db)
+
         result = {
             "attachments_fetched":    len(attachments),
             "transactions_inserted":  summary.get("transactions", 0),
@@ -71,6 +76,7 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
             "snapshots_updated":      len(snapshots),
             "since_days":             since_days,
             "until_days":             until_days,
+            "maintenance":            maintenance,
         }
         logger.info("Sync done: %s", result)
         _sync_state["last_result"] = result
@@ -353,6 +359,10 @@ def _run_reprocess_bg() -> None:
         summary   = process_attachments(attachments, db)
         snapshots = snapshot_all(db)
 
+        # Post-reprocess maintenance — same pipeline as full sync.
+        from app.etl.maintenance import run_all as _run_maintenance
+        maintenance = _run_maintenance(db)
+
         result = {
             "attachments_fetched":   len(attachments),
             "transactions_inserted": summary.get("transactions", 0),
@@ -360,6 +370,7 @@ def _run_reprocess_bg() -> None:
             "parse_errors":          summary.get("failed", 0),
             "snapshots_updated":     len(snapshots),
             "since_days":            0,
+            "maintenance":           maintenance,
         }
         logger.info("Reprocess done: %s", result)
         _sync_state["last_result"] = result

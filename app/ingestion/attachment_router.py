@@ -5,6 +5,7 @@ then persists the results via the ETL pipeline.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from app.ingestion.email_fetcher import FetchedAttachment
@@ -70,6 +71,12 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
     if not any(s in inst for s in _SUPPORTED):
         logger.warning("Unknown institution '%s', no parser available", inst)
         return None
+
+    # NOTE: a previous version of this file skipped "_<reqnum>_<last4>.pdf"
+    # files on the assumption they were HDFC credit-card statements. That was
+    # incorrect — those files are Union Bank statements (filename suffix is the
+    # Union Bank account's last 4 digits, not an HDFC CC). The skip has been
+    # removed so they parse normally via UnionBankParser.
 
     # Try primary password first, then fall back to other owners' passwords.
     passwords_to_try = [attachment.pdf_password] + [

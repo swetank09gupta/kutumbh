@@ -165,7 +165,10 @@ def monthly_summary(
         )
         .join(Account, Transaction.account_id == Account.id)
         .filter(Transaction.date >= cutoff)
-        .filter(Transaction.category.notin_(["transfer"]))
+        # Exclude both transfers (inter-account moves are not income/expense)
+        # AND investments (wealth-building outflows are savings, not consumption).
+        # EMI is kept as expense — it includes interest cost which IS spend.
+        .filter(Transaction.category.notin_(["transfer", "investment"]))
     )
     ids = _owner_ids(db, owner_id)
     if ids:

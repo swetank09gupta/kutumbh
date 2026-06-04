@@ -25,6 +25,7 @@ from pathlib import Path
 from app.ingestion.parsers.base import (
     BaseParser, ParsedTransaction, ParseResult,
 )
+from app.engine.amfi_isin import lookup_isin as _amfi_lookup_isin
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,7 @@ class ZerodhaCoinParser(BaseParser):
                     raw_description=fund,
                     counterparty=fund or None,
                     reference_number=folio,
+                    isin=_amfi_lookup_isin(fund),
                 ))
             if transactions:
                 logger.info(
@@ -177,6 +179,7 @@ class ZerodhaCoinParser(BaseParser):
                 raw_description=label,
                 counterparty=label or None,
                 reference_number=folio,
+                isin=_amfi_lookup_isin(fund_name) if fund_name else None,
             ))
 
         if transactions:

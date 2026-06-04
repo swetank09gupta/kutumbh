@@ -13,8 +13,10 @@ One `docker-compose up` gives you a live Grafana dashboard fed by your bank & in
 |---|---|
 | **Email ingestion** | Connects to Gmail + Yahoo (IMAP) every 6h, downloads statement attachments |
 | **Bank parsers** | HDFC, SBI, Axis Bank, Union Bank of India — CSV & PDF |
-| **Investment parsers** | Zerodha Kite (holdings + tradebook), CAMS/KFintech CAS MF PDFs (Coin) |
-| **Smart categorisation** | 50+ rules for EMI, insurance, salary, groceries, SIPs, child expenses… |
+| **Investment parsers** | Zerodha Kite (holdings + tradebook + contract notes), Zerodha Coin (allotments/redemptions, old + new email format), CDSL CAS, CAMS/KFintech CAS MF PDFs |
+| **Portfolio XIRR / CAGR** | Money-weighted returns across every vehicle — family, per-class, per-owner, **per-instrument**, per-goal. Coin txns are joined to holdings via **AMFI ISIN lookup** (NAVAll.txt, 24h cached, scheme renames handled). SGB purchases synthesized at RBI tranche date; FD/RD principals compounded at stated rate. |
+| **Smart categorisation** | 60+ rules for EMI, insurance, salary, groceries, SIPs, child expenses, travel, SGB, PaytmQR merchants… Auto-recategorizes on every sync. |
+| **Data hygiene** | Fingerprint-based dedup prevents any statement from being double-counted on reprocess. Normalises ref-number padding/whitespace, DEMAT unit-count rows, and Decimal precision. Post-sync maintenance pipeline runs automatically: dedup → account-merge → ISIN backfill → NAV refresh → ghost-redemption synth → recategorize. |
 | **Net worth tracking** | Daily snapshots per person + family combined |
 | **Goal projections** | Inflation-adjusted corpus targets with SIP calculator |
 | **Recommendations** | Emergency fund · goal shortfalls · asset allocation · EMI burden · PPF nudge. **Portfolio-quality**: midcap/smallcap overweight, international gap, scattered direct equity, **ELSS 80C dead-weight** (uses real loan amortisation × your co-borrower share). **Market-aware**: where + how much + when, given live Nifty 50 / Midcap 150 / Smallcap 250 P/E zones from NSE. **Memory**: persistent snapshots with new/resolved/persisting diff and metric trend arrows so multi-month progress is visible. |
@@ -150,8 +152,15 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/goals/recommendations` | GET | Actionable recommendations (market-aware; snapshots silently for memory) |
 | `/api/goals/recommendations/changes` | GET | Diff vs prior snapshot: new / resolved / persisting + metric trends |
 | `/api/goals/market-signals` | GET | Current Nifty 50 / Midcap 150 / Smallcap 250 P/Es + zones + USD/INR (12-hr cached) |
+| `/api/portfolio/returns?owner_id=family` | GET | Total + per-class + per-instrument + per-goal XIRR / CAGR; Coin txns ISIN-matched via AMFI |
 | `/api/profile/{owner_id}` | PUT | Edit owner's tax regime, EPF, home-loan share% (drives 80C check) |
 | `/api/manual/assets` | GET/POST | PPF, FD, NPS, liabilities (EMI + interest_rate on loan rows) |
+
+To backfill ISINs on historical Coin transactions after upgrading:
+
+```bash
+docker exec finance_app python -m scripts.backfill_coin_isins
+```
 
 Full interactive docs: http://localhost:8000/docs
 

@@ -1228,6 +1228,7 @@ function setGTime(section, range) {
   refreshGrafana(section);
   if (section === 'transactions') _applyTxPageFilter();
   if (section === 'investments')  loadHoldings();
+  if (section === 'overview')     loadCashflow();
 }
 
 function setGOwner(section, owner) {
@@ -1360,10 +1361,19 @@ function aggregateMonthly(rows) {
   return { months, income: months.map(m => map[m].income), expense: months.map(m => map[m].expense) };
 }
 
+function _presetToMonths(preset) {
+  // Maps the time-range pills ('now-1M' ... 'now-20y') to a months count.
+  const m = (preset || '').match(/now-(\d+)([My])/);
+  if (!m) return 6;
+  const n = parseInt(m[1], 10);
+  return m[2] === 'y' ? n * 12 : n;
+}
+
 async function loadCashflow() {
   try {
+    const monthsCount = _presetToMonths(_gState?.overview?.from || 'now-1y');
     const ownerParam = _currentOwner !== 'family' ? `&owner_id=${_currentOwner}` : '';
-    const rows = await apiFetch(`/api/transactions/summary?months=6${ownerParam}`);
+    const rows = await apiFetch(`/api/transactions/summary?months=${monthsCount}${ownerParam}`);
     if (!rows.length) return;
     const { months, income, expense } = aggregateMonthly(rows);
     makeChart('cashflow', $('chart-cashflow'), {
@@ -1467,7 +1477,10 @@ const TX_PER_PAGE = 25;
 
 async function loadMonthlySummary() {
   try {
-    const rows = await apiFetch('/api/transactions/summary?months=6');
+    const monthsCount = _presetToMonths(_gState?.transactions?.from || 'now-6M');
+    const owner  = _gState?.transactions?.owner;
+    const ownerParam = (owner && owner !== 'family') ? `&owner_id=${owner}` : '';
+    const rows = await apiFetch(`/api/transactions/summary?months=${monthsCount}${ownerParam}`);
     if (!rows.length) return;
     const { months, income, expense } = aggregateMonthly(rows);
     makeChart('monthly', $('chart-monthly'), {
@@ -1827,25 +1840,28 @@ async function loadPortfolioReturns() {
     // Use the all-asset portfolio endpoint with the current owner switcher.
     // Falls back to "family" when the dashboard's _currentOwner isn't set yet.
     const owner = _currentOwner || 'family';
-    _returnsData = await apiFetch(`/api/portfolio/returns?owner_id=${encodeURIComponent(owner)}`);
+    // Fire both endpoints in parallel. /api/portfolio/returns is fast (~0.3s);
+    // /api/accounts/returns is slow (~3s) and only contributes closed positions
+    // to the holdings table. Render the strip the moment the fast one returns,
+    // then patch in closed-positions when the slow one resolves.
+    const portfolioP = apiFetch(`/api/portfolio/returns?owner_id=${encodeURIComponent(owner)}`);
+    const closedP    = apiFetch(`/api/accounts/returns?owner_id=${encodeURIComponent(owner === 'family' ? '' : owner)}`)
+                         .then(r => r.closed || []).catch(_ => []);
+
+    _returnsData = await portfolioP;
     const t = _returnsData?.total;
     if (!t || (t.invested == null && t.current == null)) {
       strip.style.display = 'none';
       return;
     }
-
-    // Holdings cache for the per-instrument table — separate endpoint still needed
-    // because the new aggregator works on cashflows, not per-ISIN closed positions.
-    try {
-      const acctReturns = await apiFetch(`/api/accounts/returns?owner_id=${encodeURIComponent(owner === 'family' ? '' : owner)}`);
-      _closedCache = acctReturns.closed || [];
-    } catch(_) { _closedCache = []; }
-
     _renderReturnsStrip();
 
-    // Re-render holdings table with returns data now available
-    const showClosed = $('show-closed-chk')?.checked;
-    $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, showClosed);
+    // Closed positions arrive later — refresh just the holdings table when ready.
+    closedP.then(closed => {
+      _closedCache = closed;
+      const showClosed = $('show-closed-chk')?.checked;
+      $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, showClosed);
+    });
   } catch(e) { /* silent — returns are optional enrichment */ }
 }
 

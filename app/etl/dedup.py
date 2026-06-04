@@ -6,8 +6,54 @@ re-importing the same statement doesn't create duplicate rows.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import date
 from decimal import Decimal
+
+
+_NORM_RE = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _normalize_amount(amount) -> str:
+    """Canonical string for an amount used in fingerprint keys.
+
+    The DB stores Decimal values with their original scale (e.g. "25.000")
+    but a fresh parser run may produce "25" or "25.0" for the same value.
+    Normalise by stripping trailing zeros so all three collapse to "25".
+
+    Uses Decimal.normalize() then fixed-point format:
+        Decimal("25.000").normalize() → Decimal("25")  → "25"
+        Decimal("597.035").normalize() → Decimal("597.035") → "597.035"
+        Decimal("151662").normalize()  → Decimal("151662")  → "151662"
+    """
+    from decimal import Decimal as _D, InvalidOperation
+    try:
+        d = _D(str(amount)).normalize()
+        return format(d, 'f')
+    except (InvalidOperation, TypeError):
+        return str(amount)
+
+
+def _normalize_ref(ref: str | None) -> str:
+    """Strip whitespace, punctuation, and leading zeros from a reference number.
+
+    HDFC sometimes emits the same UTR in two formats — once padded with
+    zeros ("0000008913231095") and once not ("008913231095") — across
+    different sections of the same PDF. Without this normalization both
+    rows pass dedup as distinct, doubling the recorded spend.
+    """
+    if not ref:
+        return ""
+    return _NORM_RE.sub("", ref).lstrip("0").lower()
+
+
+def _normalize_desc(desc: str | None) -> str:
+    """Collapse whitespace + strip non-alphanumeric for hashing only.
+
+    Prevents "ACH D- HDFC BANK LTD" and "ACHD-HDFCBANKLTD" — same wire,
+    different rendering — from getting different fingerprints.
+    """
+    return _NORM_RE.sub("", desc or "").lower()
 
 
 def transaction_fingerprint(
@@ -21,13 +67,15 @@ def transaction_fingerprint(
     """
     Stable fingerprint for a transaction.
     Uses reference_number when available (more precise),
-    otherwise falls back to (date, amount, type, first-60-chars-of-desc).
+    otherwise falls back to (date, amount, type, normalized-desc).
     """
-    if reference_number and reference_number.strip():
-        key = f"{account_id}|{txn_date}|{reference_number.strip()}"
+    ref_norm  = _normalize_ref(reference_number)
+    amt_norm  = _normalize_amount(amount)
+    if ref_norm:
+        key = f"{account_id}|{txn_date}|{ref_norm}"
     else:
-        desc_slug = description.strip()[:60].lower()
-        key = f"{account_id}|{txn_date}|{amount}|{transaction_type}|{desc_slug}"
+        desc_slug = _normalize_desc(description)[:80]
+        key = f"{account_id}|{txn_date}|{amt_norm}|{transaction_type}|{desc_slug}"
 
     return hashlib.sha256(key.encode()).hexdigest()
 
@@ -47,5 +95,5 @@ def equity_demat_fingerprint(
     (not account_id) means the same event won't be inserted twice regardless
     of which source processes it first.
     """
-    key = f"DEMAT|{owner_id}|{isin.upper()}|{txn_date}|{qty}|{transaction_type}"
+    key = f"DEMAT|{owner_id}|{isin.upper()}|{txn_date}|{_normalize_amount(qty)}|{transaction_type}"
     return hashlib.sha256(key.encode()).hexdigest()

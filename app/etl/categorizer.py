@@ -60,6 +60,12 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     (re.compile(r"repaymentispltdaccount", re.I),
      Category("transfer", None)),
 
+    # ── Axis Bank Standing Instruction (BRN-SI / Closing-Balance summary lines) ─
+    # BRN-SI = branch standing instruction (auto-transfer). Often appears with
+    # large round amounts. Treat as transfer, not spend.
+    (re.compile(r"\bbrn-si\b|standing\s+instruction|closing\s+balance\s+summary", re.I),
+     Category("transfer", None)),
+
     # ── EMI / Loan repayment ──────────────────────────────────────────────────
     (re.compile(r"\bemi\b|equated\s+monthly|loan\s+repayment|\bhl\s+emi\b|car\s*loan|personal\s*loan"
                 r"|home\s*loan|housing\s*loan|mortgage"
@@ -68,7 +74,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
                 r"|ACHD.*HDFCBANK|ACH\s*D.*HDFC\s*BANK"  # HDFC home loan ACH mandate
                 r"|LDESK.*HDFCBANK"     # HDFC loan desk payment
                 r"|chdf\w+.*hdfc\s*ltd|hdfc\s*ltd.*chdf"  # HDFC loan prepayment NEFT format
-                r"|[a-z0-9]+/hdfcltd|hdfcltd/[a-z0-9]",  # HDFC Ltd direct payment (e.g. YHDF.../HDFCLTD)
+                r"|[a-z0-9]+/hdfcltd|hdfcltd/[a-z0-9]"  # HDFC Ltd direct payment (e.g. YHDF.../HDFCLTD)
+                r"|[a-z0-9]+/hdfc\s+ltd|hdfc\s+ltd/[a-z0-9]"  # same with space
+                r"|payment\s*towards\s*loan|paymenttowardsloan",  # explicit narration
                 re.I),
      Category("emi", "loan_prepayment")),
 
@@ -77,13 +85,21 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     (re.compile(r"\b(?:buy|sell)\s+[\d,.]+\s*[×x]\s+\w+\s+@", re.I),
      Category("investment", "stocks")),
 
-    # ── MF purchases that contain "ICICI PRU" in fund name — must come BEFORE insurance ─
-    # Zerodha Coin trade confirmations: "BUY x units of ICICI PRUDENTIAL … FUND"
-    (re.compile(r"\bbuy\b.*\bunits\s+of\b.*\bfund\b"
-                r"|\bsell\b.*\bunits\s+of\b.*\bfund\b"
+    # ── MF purchases — Zerodha Coin allotment/redemption descriptions ─────────
+    # Format: "BUY 119.287 units of HDFC ELSS TAX SAVER - DIRECT PLAN - GROWTH OPTION @ NAV ₹..."
+    # Older format included "FUND" in name; many newer don't (ELSS, ETF, INDEX).
+    # Match on "BUY/SELL <num> units of" anywhere, with optional "@ NAV" tail.
+    # Must come BEFORE insurance (ICICI PRU clashes).
+    (re.compile(r"\b(?:buy|sell)\s+[\d,.]+\s+units?\s+of\b"
                 r"|icici\s+prudential.*(?:fund|nav|units)"
                 r"|(?:fund|nav|units).*icici\s+prudential", re.I),
      Category("investment", "mutual_fund")),
+
+    # ── SGB (Sovereign Gold Bond) subscription via SBI ─────────────────────────
+    # SBI debits look like "SBISG223531122052R1542111 SGBS 25 GMS" — the SBISG
+    # prefix + GMS/GRAMS suffix uniquely identifies SGB.
+    (re.compile(r"sbisg\w*\s*sgbs|sgbs?\s+\d+\s*g(m|ram)|sovereign\s+gold\s+bond", re.I),
+     Category("investment", "sgb_gold")),
 
     # ── Insurance ─────────────────────────────────────────────────────────────
     # Term insurance via NACH mandate (e.g. "ACHDr NACH00000000022899 Policybazaar")
@@ -116,7 +132,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     # ── Child expenses ────────────────────────────────────────────────────────
     (re.compile(r"school\s+fee|tuition|coaching|daycare|creche|nursery|kindergarten"
                 r"|playschool|kiddy|child\s+care|campus\s+fee|college\s+fee"
-                r"|education\s+fee|sswings|nopaperf|nopaper\s*form", re.I),
+                r"|education\s+fee|sswings|nopaperf|nopaper\s*form"
+                r"|biju\s*nit",          # recurring daycare/school vendor
+                re.I),
      Category("child_expenses", "education_care")),
 
     # ── Food & dining ─────────────────────────────────────────────────────────
@@ -134,7 +152,10 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     # ── Transport ─────────────────────────────────────────────────────────────
     (re.compile(r"uber|ola\s+cab|rapido|auto|cab|taxi|metro|dmrc|nmmc|bmtc"
                 r"|irctc|railway|flight|indigo|air\s+india|spicejet|vistara"
-                r"|makemytrip|goibibo|booking\.com|yatra|cleartrip|redbus", re.I),
+                r"|makemytrip|goibibo|booking\.com|yatra|cleartrip|redbus"
+                r"|frontier|quest2tr|quest\s*2\s*travel|airbnb|ola\s*airport"
+                r"|secunder|hyd\s*t",     # Secunderabad / Hyderabad travel agents
+                re.I),
      Category("transport", "travel_commute")),
     (re.compile(r"petrol|diesel|hp\s+fuel|bharat\s+petroleum|indian\s+oil|shell"
                 r"|fuel\s+station|iocl|bpcl|hpcl", re.I),
@@ -186,7 +207,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     # ── Entertainment / Subscriptions ────────────────────────────────────────
     (re.compile(r"netflix|amazon\s*prime|hotstar|disney|sony\s*liv|zee5|voot"
                 r"|spotify|apple\s*music|youtube\s*premium|jiocinema"
-                r"|google\s*one|googleindia|google\s*india|google\s*play", re.I),
+                r"|google\s*one|googleindia|google\s*india|google\s*play"
+                r"|gpay-utili|google\s*i\b|google-i\b",  # Google India billing labels
+                re.I),
      Category("entertainment", "subscriptions")),
     (re.compile(r"smaaash|fun\s*zone|bowling|escape\s*room|laser\s*tag|trampolin"
                 r"|adventure\s*park|amusement", re.I),
@@ -222,9 +245,23 @@ _RULES: list[tuple[re.Pattern, Category]] = [
                 r"|ac\s+xfr.*sol|sol.*to\s+\d|swetank\s+gupta"
                 r"|swetank.*sbin.*swetank\.en|swetank\.energy"
                 r"|sweep\s+tfr|sweep\s+trf|sweep\s+from"  # SBI auto-sweep
-                r"|lendenclub",                            # LendenClub P2P repayments
+                r"|swetankguptapradeep"                   # own-name self-transfer
+                r"|lendenclub",                           # LendenClub P2P repayments
                 re.I),
      Category("transfer", None)),
+
+    # ── Bare-numeric IMPS references (e.g. "IN22606125428144", "I-113676881189") ─
+    # When the bank narration is just a numeric reference + IMPS marker, treat
+    # as a person-to-person transfer (we can't classify the destination).
+    # MUST come AFTER specific-merchant rules so e.g. "IN COIN ..." isn't grabbed.
+    (re.compile(r"^IN\d{8,}$|^I-\d{8,}|^\d{8,}-UPI$|^\d{10,}$", re.I),
+     Category("transfer", "p2p")),
+
+    # ── UPI to PaytmQR / GooglePay merchant codes — typically shopping ────────
+    # Format: "...PAYTMQR<digits>" or "...@paytm" or "<merchant>-PAYTMQRP"
+    # These are micro-merchant QR payments (kirana, restaurants, etc).
+    (re.compile(r"paytmqr\d+|paytmqrp\b|paytm\.s\d+|@paytm\b|@hdfcbank-hdfc0merupi", re.I),
+     Category("shopping", "upi_merchant")),
 
 ]
 

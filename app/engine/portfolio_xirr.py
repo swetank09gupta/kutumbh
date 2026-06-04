@@ -40,7 +40,14 @@ ZERO = Decimal(0)
 
 # Account types whose transactions feed XIRR (everything else is excluded — bank
 # savings, current accounts, etc. — because cash flows there are not investments).
-_INVESTING_ACCOUNT_TYPES = {"stocks", "mutual_fund", "demat"}
+#
+# Note: "demat" (CDSL/NSDL CAS) is intentionally EXCLUDED. CDSL statements are
+# position snapshots only — no buy/sell cashflows — so they cannot contribute to
+# XIRR. Their ISINs overlap with the broker (Zerodha "stocks") accounts which
+# already capture the same positions WITH cost basis via contract notes.
+# Including CDSL produced a phantom "demat" bucket with current_value but
+# invested=0, which inflated displayed AUM and showed an empty Demat XIRR card.
+_INVESTING_ACCOUNT_TYPES = {"stocks", "mutual_fund"}
 
 # Manual asset types that are real investments (the rest — e.g. liabilities — are skipped).
 _INVESTING_ASSET_TYPES = {
@@ -766,12 +773,14 @@ def _per_goal_returns(
     isins_by_goal: dict[str, set[str]] = defaultdict(set)
     cur_by_goal:   dict[str, float]    = defaultdict(float)
     count_by_goal: dict[str, int]      = defaultdict(int)
+    holdings_by_goal: dict[str, list]  = defaultdict(list)
     for h in holdings:
         tag = h.goal_tag or "untagged"
         if h.isin:
             isins_by_goal[tag].add(h.isin)
         cur_by_goal[tag] += float(h.current_value or 0)
         count_by_goal[tag] += 1
+        holdings_by_goal[tag].append(h)
 
     txns = (
         db.query(Transaction)
@@ -796,6 +805,7 @@ def _per_goal_returns(
     for tag, isins in isins_by_goal.items():
         cfs: list[tuple[date, float]] = []
         invested = 0.0
+        isins_with_debit: set[str] = set()
         for t in txns:
             ti = _txn_isin(t)
             if ti not in isins:
@@ -808,10 +818,61 @@ def _per_goal_returns(
             if t.transaction_type == "debit":
                 cfs.append((t.date, -amt))
                 invested += amt
+                isins_with_debit.add(ti)
             elif t.transaction_type == "credit":
                 cfs.append((t.date, amt))
 
-        cur = cur_by_goal[tag]
+        # SGB purchase synthesis: bond holdings whose buys never landed as txns
+        # (SGB subscribed via the bank SGB-application rather than the broker)
+        # get a synthetic outflow at the RBI tranche's issue date. Without this,
+        # SGB-heavy goals (e.g. Child marriage) show invested=0 and XIRR=None.
+        for h in holdings_by_goal[tag]:
+            if (h.holding_type or "") != "bonds" or not h.isin:
+                continue
+            if h.isin in isins_with_debit:
+                continue
+            issue_dt = _sgb_issue_date(h.isin, h.instrument_name or "")
+            if not issue_dt:
+                continue
+            unit_cost = _sgb_issue_price(h.isin) or float(h.avg_cost_nav or 0)
+            units = float(h.units or 0)
+            cost  = units * unit_cost
+            if cost <= 0:
+                continue
+            cfs.append((issue_dt, -cost))
+            invested += cost
+            isins_with_debit.add(h.isin)
+
+        # Cost-basis fallback for non-bond holdings: if a goal-tagged holding has
+        # no matched buy cashflow (ISIN not on the txn, or fund-name match
+        # failed for non-Coin imports), try broker-reported invested_value, then
+        # avg_cost_nav × units. Without these fallbacks, the holding's
+        # current_value still flows into the terminal cf but invested stays at
+        # 0, inflating per-goal XIRR (the bug that made Retirement read 83%
+        # when the underlying equity bucket was 6%).
+        excluded_current = 0.0
+        for h in holdings_by_goal[tag]:
+            if not h.isin or h.isin in isins_with_debit:
+                continue
+            inv_val = float(getattr(h, "invested_value", 0) or 0)
+            if inv_val <= 0:
+                # Some imports (Zerodha holdings PDF) leave invested_value NULL
+                # but report avg_cost_nav × units, which equals cost basis.
+                avg_cost = float(getattr(h, "avg_cost_nav", 0) or 0)
+                units    = float(getattr(h, "units", 0) or 0)
+                inv_val  = avg_cost * units
+            if inv_val <= 0:
+                # No cost basis available — exclude this holding's current_value
+                # from the goal's terminal cf so it doesn't masquerade as
+                # phantom appreciation.
+                excluded_current += float(h.current_value or 0)
+                continue
+            buy_dt = getattr(h, "first_buy_date", None) or today
+            cfs.append((buy_dt, -inv_val))
+            invested += inv_val
+            isins_with_debit.add(h.isin)
+
+        cur = cur_by_goal[tag] - excluded_current
         if cur > 0:
             cfs.append((today, cur))
 
