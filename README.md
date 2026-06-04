@@ -1,6 +1,6 @@
-# 💰 Kutumb — Family Financial Dashboard
+# 💰 Kutumb — Family Wealth Management Platform
 
-A self-hosted, private, email-driven personal finance tracker for the whole family.
+A self-hosted, private, email-driven personal finance tracking & recommnedation engine for the whole family.
 One `docker-compose up` gives you a live Grafana dashboard fed by your bank & investment statements.
 
 > **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [Parsers](docs/PARSERS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md)
