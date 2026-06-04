@@ -107,7 +107,11 @@ Both are owner-scoped (PPF lands in the owner whose bank account funds it; SGB i
 
 - **Age-derived target dates.** For `retirement` goals, `target_date = owner.birth_date + owner.retirement_age`. For `child_education` / `child_marriage` goals, `target_date = child.dob + education_age|marriage_age` from the optional `children:` block in `config/accounts.yml`. The stored `goal.target_date` is a fallback used only when the relevant profile data is missing.
 - **Per-owner corpus.** Retirement corpus = owner's tagged-holdings sum + that owner's PPF. Earlier the family-aggregated PPF was added to every retirement goal — fixed in [ADR-0015](adr/0015-synthetic-cashflows.md).
-- **Actual investing rate.** "On track" is computed against the family's real last-6-month investing rate (investment-account debits + ManualAssetContributions) distributed across investment goals in proportion to each goal's prescribed SIP. Previously the prescribed SIP itself was passed as the actual SIP, making every goal trivially on-track.
+- **Per-goal effective return.** A goal's projection uses a *blended* return: the value-weighted XIRR of holdings + manual assets tagged to that goal, capped at a long-run category benchmark (equity 13.5%, MF 13%, FD 7%, gold 9%, …) so a fund that ran 28% in a 3-yr bull market doesn't extrapolate at 28% for 30 years. If the blended figure is implausibly low (< 4%, e.g. fresh holdings sitting at a paper loss) the engine falls back to the conservative default. The user can override with a manual `expected_return_rate` per goal. Implementation lives in `app/engine/goal_returns.compute_blended_return`. See [ADR-0019](adr/0019-goal-projection-model.md).
+- **SIP step-up.** Per-goal `sip_stepup_pct` lets the projected SIP grow annually. If left blank, the engine auto-detects from the owner's last 24 months of investing activity (ratio of months [-11..0] / [-23..-12]), clamped to 0–12%. The math compounds the step-up each completed 12 months inside the FV-of-annuity calculation.
+- **Glide path.** For long-horizon goals, the return tapers linearly from the start-rate to `glide_end_return_pct` (default 8%) over the last `glide_start_years_before` years (default 3). Implemented as a per-month return schedule (`_monthly_return_schedule`); the same schedule drives both lump-sum and SIP future-value computations, and the SIP-needed solver does a binary search across it.
+- **Actual investing rate.** "On track" is computed against the family's real recent investing — but only *recurring SIPs* count, not lumpsums. A broker-account flow qualifies as a SIP when it has ≥3 hits in the lookback window AND its per-txn amounts have CV < 15% (i.e. amounts are tight). The rate reported is the per-txn average (current monthly SIP rate), not `total / months` — so SIPs that started recently aren't under-counted. SIP amounts are snapped to the nearest ₹100 to absorb NAV-rounding paisa. SIPs that ride on the **bank statement** (NACH mandates to Zerodha/Coin at `YESB00709000028661`) are also detected by description-match, so an owner whose Coin emails aren't ingested still contributes to the goal SIP totals. See [ADR-0020](adr/0020-sip-detection.md).
+- **Per-goal attribution.** Actual SIPs are attributed to a specific goal when the underlying instrument's `goal_tag` matches the goal's `goal_type` (resolved via ISIN → Holding for broker transactions, or directly on ManualAsset for manual contributions). Any un-attributable family-level SIP is spread across goals in proportion to `monthly_sip_needed` so nothing is silently lost.
 
 ### 3.9 Recommendation engine — checks
 
@@ -174,6 +178,13 @@ Grafana is provisioned at boot:
 - Four JSON dashboards copied into `/var/lib/grafana/dashboards`.
 
 The app and Grafana never talk to each other directly — Grafana only reads Postgres. This means dashboards keep working even if the FastAPI app is down.
+
+Alongside Grafana, `app/static/index.html` is a single-file vanilla-JS SPA served at `/ui/` for the views that don't fit a dashboard (CRUD modals, sync trigger, per-goal projection drill-downs, scenario panel). The SPA:
+- Uses **hash routing** (`#overview`, `#investments`, `#goals`, …) so refresh, back/forward, and bookmarks all land on the active tab. State is held in `location.hash` + `history.pushState`; no client-side router framework.
+- Lazy-loads Grafana iframes per tab — each iframe starts with `src=""` and is populated by `refreshGrafana(section)` only when its tab is visited.
+- Shows **skeleton loaders** (shimmer placeholders) instead of "Loading…" text for tables/cards/lists during async fetches.
+- Modal dismiss is wired uniformly (Esc + click-outside) across all four modals (goal / asset / profile / contribution / scenarios).
+- Page width is fully fluid — no hard `max-width` cap; tables and panels fill the available viewport on any monitor.
 
 ## 4. Storage Model
 
