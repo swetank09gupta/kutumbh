@@ -1,9 +1,15 @@
 """
 Rule-based transaction categoriser for Indian personal finance.
 Applies regex patterns to description text to assign category + subcategory.
+
+Employer-specific salary narration patterns are loaded from
+config/accounts.yml (each owner's `salary_patterns:` list) — they are never
+hardcoded in source so this repo can be public without revealing employers.
+A generic `salary|payroll|...` fallback rule catches the unconfigured case.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
@@ -14,6 +20,27 @@ class Category:
     subcategory: str | None = None
 
 
+def _load_employer_salary_rules() -> list[tuple[re.Pattern, Category]]:
+    """
+    Build employer-specific salary rules from accounts.yml. Failure here must
+    never break categorisation — fall back to an empty list so the generic
+    salary rule below still runs.
+    """
+    try:
+        from app.config import settings  # local import to avoid cycles at module load
+        patterns = settings.get_salary_patterns()
+    except Exception as exc:  # pragma: no cover — config absent in some tests
+        logging.getLogger(__name__).debug("salary patterns not loaded: %s", exc)
+        return []
+    rules: list[tuple[re.Pattern, Category]] = []
+    for pat in patterns:
+        try:
+            rules.append((re.compile(pat, re.I), Category("income", "salary")))
+        except re.error as exc:
+            logging.getLogger(__name__).warning("invalid salary pattern %r: %s", pat, exc)
+    return rules
+
+
 # Ordered — first match wins
 _RULES: list[tuple[re.Pattern, Category]] = [
     # ── ATM / Cash — checked FIRST so location names don't trigger income rules ─
@@ -21,13 +48,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
      Category("cash", None)),
 
     # ── Income ────────────────────────────────────────────────────────────────
-    # Employer-specific NEFT/salary credits
-    (re.compile(r"neft.*grey\s*orange|grey\s*orange.*neft"
-                r"|greyorange|goi\s*sal", re.I),
-     Category("income", "salary")),
-    (re.compile(r"bharat\s*electronics|cemtex|cmp\s+bharat"
-                r"|^bel$|bel\s+ch|bel\s+chq|by\s+bel\s+ch", re.I),
-     Category("income", "salary")),
+    # Employer-specific salary credits — loaded from config/accounts.yml
+    # (per-owner `salary_patterns:` list). Never hardcoded.
+    *_load_employer_salary_rules(),
     (re.compile(r"salary|sal\s*credit|payroll|neft.*sal|sal.*neft|\bctc\b", re.I),
      Category("income", "salary")),
     (re.compile(r"dividend|div\s*pay|int(erest)?\s*(credit|paid|earned)", re.I),

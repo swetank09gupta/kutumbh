@@ -136,6 +136,27 @@ class Settings(BaseSettings):
                 }
         return {}
 
+    def get_salary_patterns(self) -> list[str]:
+        """
+        Collect employer-specific salary-narration regex patterns from every
+        owner's `salary_patterns:` list in accounts.yml. Returns an empty list
+        if accounts.yml is absent or no owner has configured patterns — the
+        generic `salary|payroll|...` rule in the categoriser still applies.
+        Kept out of source code so the repo can be public without naming
+        employers.
+        """
+        cfg = Path("config/accounts.yml")
+        if not cfg.exists():
+            return []
+        data = yaml.safe_load(cfg.read_text()) or {}
+        out: list[str] = []
+        for owner in data.get("owners", []):
+            for pat in (owner.get("salary_patterns") or []):
+                pat = str(pat).strip()
+                if pat:
+                    out.append(pat)
+        return out
+
     def get_accounts_config(self) -> dict[str, Any]:
         cfg = Path("config/accounts.yml")
         if cfg.exists():
