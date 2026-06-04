@@ -9,7 +9,7 @@ seriously.
 
 Instead, please email the maintainer privately:
 
-- **Contact:** swetank.g@greyorange.com
+- **Contact:** swetank.tech@gmail.com
 - **Subject line:** `[SECURITY] Kutumb — <one-line summary>`
 
 Include in your report:
