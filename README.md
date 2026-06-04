@@ -5,7 +5,7 @@ One `docker-compose up` gives you a live Grafana dashboard fed by your bank & in
 
 > **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md) · [Submission](docs/SUBMISSION.md)
 >
-> **Legal:** [License (MIT)](LICENSE) · [Disclaimer](DISCLAIMER.md) · [Notices & Trademarks](NOTICE.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md)
+> **Legal:** [License (MIT)](LICENSE) · [Disclaimer](DISCLAIMER.md) · [Notices & Trademarks](NOTICE.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Security Policy](SECURITY.md)
 
 ---
 
