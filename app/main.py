@@ -41,6 +41,35 @@ def _migrate_db() -> None:
         # XIRR / returns tracking additions
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS isin VARCHAR(12)",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS first_buy_date DATE",
+        # Per-goal projection knobs (blended return, SIP step-up, glide path)
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS use_manual_return BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS sip_stepup_pct NUMERIC(5,2)",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS glide_enabled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS glide_start_years_before INTEGER DEFAULT 3",
+        "ALTER TABLE goals ADD COLUMN IF NOT EXISTS glide_end_return_pct NUMERIC(5,2) DEFAULT 8.0",
+        # Owner tax profile fields (drive 80C dead-weight recommendation)
+        "ALTER TABLE owners ADD COLUMN IF NOT EXISTS tax_regime VARCHAR(10) DEFAULT 'old'",
+        "ALTER TABLE owners ADD COLUMN IF NOT EXISTS epf_monthly NUMERIC(10,2) DEFAULT 0",
+        "ALTER TABLE owners ADD COLUMN IF NOT EXISTS home_loan_share_pct NUMERIC(5,2) DEFAULT 0",
+        # Loan tracking: monthly EMI on liability rows (drives accurate 80C principal split)
+        "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS monthly_payment NUMERIC(15,2)",
+        # Recommendation memory — tracks what was advised over time so the UI
+        # can show "new this month / persisting / resolved" deltas.
+        """CREATE TABLE IF NOT EXISTS recommendation_snapshots (
+            id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            snapshot_date DATE NOT NULL,
+            owner_id      VARCHAR(20) NOT NULL DEFAULT 'family',
+            fingerprint   VARCHAR(120) NOT NULL,
+            priority      VARCHAR(10) NOT NULL,
+            category      VARCHAR(40) NOT NULL,
+            title         VARCHAR(120) NOT NULL,
+            detail        TEXT,
+            action        TEXT,
+            metrics       TEXT,
+            created_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_recsnap_owner_date ON recommendation_snapshots(owner_id, snapshot_date DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_recsnap_fp_date    ON recommendation_snapshots(fingerprint, snapshot_date DESC)",
     ]
     with engine.connect() as conn:
         for stmt in migrations:
@@ -59,11 +88,29 @@ def _seed_from_config(db) -> None:
 
     data = yaml.safe_load(cfg_path.read_text()) or {}
 
-    # Owners
+    # Owners — create on first start; backfill tax fields from yaml if blank in DB.
     for owner_cfg in data.get("owners", []):
         oid = owner_cfg.get("id")
-        if oid and not db.get(Owner, oid):
-            db.add(Owner(id=oid, name=owner_cfg.get("name", oid.capitalize())))
+        if not oid:
+            continue
+        existing = db.get(Owner, oid)
+        if not existing:
+            db.add(Owner(
+                id=oid, name=owner_cfg.get("name", oid.capitalize()),
+                tax_regime=owner_cfg.get("tax_regime", "old"),
+                epf_monthly=owner_cfg.get("epf_monthly", 0),
+                home_loan_share_pct=owner_cfg.get("home_loan_share_pct", 0),
+            ))
+        else:
+            # Only fill fields that are NULL — never overwrite UI-edited values.
+            if existing.tax_regime is None and owner_cfg.get("tax_regime"):
+                existing.tax_regime = owner_cfg["tax_regime"]
+            if (existing.epf_monthly is None or float(existing.epf_monthly) == 0) \
+                    and owner_cfg.get("epf_monthly"):
+                existing.epf_monthly = owner_cfg["epf_monthly"]
+            if (existing.home_loan_share_pct is None or float(existing.home_loan_share_pct) == 0) \
+                    and owner_cfg.get("home_loan_share_pct"):
+                existing.home_loan_share_pct = owner_cfg["home_loan_share_pct"]
     # Always ensure family pseudo-owner
     if not db.get(Owner, "family"):
         db.add(Owner(id="family", name="Family"))

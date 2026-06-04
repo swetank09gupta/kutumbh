@@ -49,12 +49,24 @@ owners:
     dob:    ""           # YYYY-MM-DD  e.g. 1990-03-15
     pan:    ""           # PAN uppercase  e.g. ABCDE1234F
     mobile: ""           # 10-digit mobile (last 4 used as SBI fallback)
+    # ── Tax profile (drives 80C dead-weight ELSS detection) ──
+    # All fields below are seeded into the DB on first start, then
+    # become UI-editable via the Profile button on the Goals tab.
+    tax_regime:           "old"   # "old" | "new" — 80C only checked under "old"
+    epf_monthly:          0       # employee EPF contribution per month (₹)
+    home_loan_share_pct:  0       # co-borrower share of household home loan (0-100).
+                                  #   Multiple co-borrowers: each owner's share counts
+                                  #   for their 80C; sum < 100 implies an external
+                                  #   co-borrower (e.g. parent) whose share isn't tracked.
 
   - id:     "wife"
     name:   "Wife's Name"
     dob:    ""
     pan:    ""
     mobile: ""
+    tax_regime:           "old"
+    epf_monthly:          0
+    home_loan_share_pct:  0
 
 # ── Children (used to compute age-based goal target dates) ────────────
 # Goals of type child_education / child_marriage use the OLDEST child's

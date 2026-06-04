@@ -80,7 +80,7 @@
 
     /* ── Main ── */
     #main { flex: 1; overflow-y: auto; background: #0f1117; }
-    .page { display: none; padding: 28px 32px; max-width: 1200px; }
+    .page { display: none; padding: 28px 32px; width: 100%; box-sizing: border-box; }
     .page.active { display: block; }
 
     /* ── Page header ── */
@@ -243,6 +243,21 @@
     .modal-grid .full { grid-column: span 2; }
     .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
     .modal-err { color: #fca5a5; font-size: 12.5px; margin-bottom: 10px; display: none; }
+
+    /* ── Skeleton loaders ── */
+    @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+    .skel {
+      display: inline-block; height: 12px; border-radius: 4px;
+      background: linear-gradient(90deg, #161b27 0%, #1e2738 50%, #161b27 100%);
+      background-size: 800px 100%;
+      animation: shimmer 1.4s linear infinite;
+    }
+    .skel-row td { padding: 12px 14px; }
+    .skel-row td .skel { width: 100%; }
+    .skel-card {
+      background: #0f1923; border: 1px solid #1e2738; border-radius: 12px;
+      padding: 16px; display: flex; flex-direction: column; gap: 10px;
+    }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -638,7 +653,7 @@
                   <th style="text-align:right" title="CAGR from avg cost + first buy date. XIRR when per-trade history is available.">CAGR / XIRR</th>
                 </tr>
               </thead>
-              <tbody id="holdings-tbody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
+              <tbody id="holdings-tbody"><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr></tbody>
             </table>
           </div>
         </div>
@@ -696,7 +711,8 @@
       <div class="page-sub" id="goals-sub">Financial goals with SIP projections &nbsp;·&nbsp; <span id="cpi-badge" style="color:#fbbf24">India CPI: loading…</span></div>
 
       <div id="goals-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:20px">
-        <div class="goal-card" style="color:#64748b;font-style:italic">Loading…</div>
+        <div class="skel-card"><span class="skel" style="width:60%;height:14px"></span><span class="skel" style="width:100%;height:8px"></span><span class="skel" style="width:40%"></span></div>
+        <div class="skel-card"><span class="skel" style="width:50%;height:14px"></span><span class="skel" style="width:100%;height:8px"></span><span class="skel" style="width:35%"></span></div>
       </div>
 
       <div class="card" style="padding:0;margin-bottom:16px">
@@ -712,18 +728,37 @@
                 <th style="text-align:right">Inflation-Adj Target</th>
                 <th>Target Date</th>
                 <th style="text-align:right">SIP Needed / mo</th>
+                <th style="text-align:right" title="Effective return used in projection (blended XIRR of tagged holdings, or manual override)">Eff. Return</th>
                 <th>On Track</th>
                 <th style="text-align:right">Gap</th>
               </tr>
             </thead>
-            <tbody id="proj-tbody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
+            <tbody id="proj-tbody"><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="8"><span class="skel"></span></td></tr></tbody>
           </table>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="card-title" style="margin:0">Market Context <span style="font-size:11px;color:#475569;font-weight:400">(12-hr cached)</span></div>
+          <div id="market-source" style="font-size:11px;color:#64748b"></div>
+        </div>
+        <div id="market-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:12px">
+          <div class="skel-card"><span class="skel" style="width:80%;height:12px"></span></div>
+          <div class="skel-card"><span class="skel" style="width:80%;height:12px"></span></div>
+          <div class="skel-card"><span class="skel" style="width:80%;height:12px"></span></div>
+          <div class="skel-card"><span class="skel" style="width:80%;height:12px"></span></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:8px">What Changed Since Last Snapshot</div>
+        <div id="reco-changes" style="font-size:12.5px;color:#94a3b8">Loading change history…</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
         <div class="card-title">Rule-Based Recommendations</div>
-        <div id="reco-list" style="color:#64748b;font-style:italic;font-size:13px">Loading…</div>
+        <div id="reco-list" style="font-size:13px"><div class="skel-card" style="margin-bottom:8px"><span class="skel" style="width:55%;height:13px"></span><span class="skel" style="width:90%"></span></div><div class="skel-card"><span class="skel" style="width:45%;height:13px"></span><span class="skel" style="width:85%"></span></div></div>
       </div>
 
       <!-- Grafana: Goal Tracking -->
@@ -790,7 +825,7 @@
                 <th>Status</th>
               </tr>
             </thead>
-            <tbody id="accounts-tbody"><tr class="empty-row"><td colspan="5">Loading…</td></tr></tbody>
+            <tbody id="accounts-tbody"><tr class="skel-row"><td colspan="5"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="5"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="5"><span class="skel"></span></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -836,7 +871,7 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="manual-tbody"><tr class="empty-row"><td colspan="11">Loading…</td></tr></tbody>
+            <tbody id="manual-tbody"><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -909,12 +944,32 @@
         <input type="date" id="goal-date"/>
       </div>
       <div class="field">
-        <label>Expected Return %</label>
+        <label>Expected Return % <span style="font-size:10px;color:#64748b">(manual override)</span></label>
         <input type="number" id="goal-ret" value="12" step="0.5"/>
       </div>
       <div class="field">
         <label>Inflation %</label>
         <input type="number" id="goal-inf" value="6" step="0.5"/>
+      </div>
+      <div class="field full" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="goal-use-manual" style="width:auto;margin:0"/>
+        <label for="goal-use-manual" style="margin:0;font-weight:500">Use manual return (else auto-blend XIRR of tagged holdings, capped at category benchmark)</label>
+      </div>
+      <div class="field">
+        <label>SIP Step-up % / yr <span style="font-size:10px;color:#64748b">(blank = auto-detect)</span></label>
+        <input type="number" id="goal-stepup" placeholder="auto" step="0.5"/>
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+        <input type="checkbox" id="goal-glide" style="width:auto;margin:0" checked/>
+        <label for="goal-glide" style="margin:0;font-weight:500">Glide path (de-risk near goal date)</label>
+      </div>
+      <div class="field">
+        <label>Glide starts (yrs before)</label>
+        <input type="number" id="goal-glide-yrs" value="3" min="0" max="10"/>
+      </div>
+      <div class="field">
+        <label>Glide end return %</label>
+        <input type="number" id="goal-glide-end" value="8" step="0.5"/>
       </div>
       <div class="field full">
         <label>Notes (optional)</label>
@@ -951,6 +1006,7 @@
           <option value="sgb">Sovereign Gold Bond (SGB)</option>
           <option value="real_estate">Real Estate</option>
           <option value="insurance">Insurance (corpus)</option>
+          <option value="liability">Loan / Liability</option>
           <option value="other">Other</option>
         </select>
       </div>
@@ -998,6 +1054,11 @@
       <div class="field">
         <label>Interest / Return Rate (%)</label>
         <input type="number" id="asset-rate" placeholder="7.1" step="0.1"/>
+      </div>
+      <div class="field">
+        <label>Monthly Payment / EMI (₹)</label>
+        <input type="number" id="asset-emi" placeholder="170000" step="100"
+               title="For liabilities: monthly EMI. Drives accurate 80C principal split."/>
       </div>
       <div class="field">
         <label>Maturity / Review Date</label>
@@ -1062,6 +1123,17 @@
   </div>
 </div>
 
+<!-- Scenarios modal -->
+<div class="modal-bg" id="scenarios-modal">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-title" id="scenarios-modal-title">Scenarios</div>
+    <div id="scenarios-body" style="font-size:13px;color:#cbd5e1">Loading…</div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeScenariosModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- ══════════════════════════════════════════ JS ═══ -->
@@ -1103,6 +1175,12 @@ async function apiFetch(url, opts = {}) {
   const r = await fetch(url, opts);
   if (!r.ok) { const e = await r.text(); throw new Error(e || r.statusText); }
   return r.json();
+}
+
+// Render N skeleton rows for a table tbody with the given column count.
+function skelRows(rows, cols) {
+  const cells = '<td><span class="skel"></span></td>'.repeat(cols);
+  return `<tr class="skel-row">${cells}</tr>`.repeat(rows);
 }
 
 /* ── Grafana embedding ─────────────────────────────────────── */
@@ -1172,7 +1250,11 @@ function _applyTxPageFilter() {
 }
 
 /* ── navigation ───────────────────────────────────────────── */
-function nav(id) {
+const VALID_NAV_IDS = ['overview','sync','transactions','investments','goals','accounts','manual'];
+
+function nav(id, opts = {}) {
+  if (!VALID_NAV_IDS.includes(id)) id = 'overview';
+  if (!$('nav-' + id) || !$('page-' + id)) return;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
   $('nav-' + id).classList.add('active');
@@ -1182,14 +1264,27 @@ function nav(id) {
   void page.offsetWidth;
   page.classList.add('fade-up');
 
+  // Persist active tab in the URL so refresh / back / forward / bookmarks work.
+  if (!opts.fromHash) {
+    const target = '#' + id;
+    if (location.hash !== target) history.pushState({ navId: id }, '', target);
+  }
+
   if (id === 'overview')     { loadNetworth(); loadCashflow(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
-  if (id === 'goals')        { loadGoals(); loadProjections(); loadRecommendations(); loadCpi(); refreshGrafana('goals'); }
+  if (id === 'goals')        { loadGoals(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
   if (id === 'accounts')     { loadAccounts(); }
   if (id === 'manual')       { loadMetalPrices(); loadMetalHistory().then(loadManualAssets); }
 }
+
+function _navFromHash() {
+  const id = (location.hash || '').replace(/^#/, '') || 'overview';
+  nav(id, { fromHash: true });
+}
+window.addEventListener('hashchange', _navFromHash);
+window.addEventListener('popstate', _navFromHash);
 
 /* ── system status ────────────────────────────────────────── */
 async function loadSysStatus() {
@@ -1419,7 +1514,7 @@ async function loadExpenseBreakdown() {
   if (from)  url += `from_date=${from}&`;
   if (to)    url += `to_date=${to}&`;
   if (owner) url += `owner_id=${owner}&`;
-  $('exp-cat-list').innerHTML = '<div style="color:#64748b;font-size:13px;padding:16px 0">Loading…</div>';
+  $('exp-cat-list').innerHTML = '<div style="padding:8px 0"><div class="skel" style="width:80%;margin-bottom:8px"></div><div class="skel" style="width:65%;margin-bottom:8px"></div><div class="skel" style="width:75%"></div></div>';
   try {
     renderExpenseBreakdown(await apiFetch(url));
   } catch (e) {
@@ -1937,16 +2032,40 @@ async function loadGoals() {
 async function loadProjections() {
   try {
     const rows = await apiFetch('/api/goals/projections');
-    $('proj-tbody').innerHTML = rows.length ? rows.map(p => `<tr>
-      <td style="font-weight:500">${p.name}</td>
-      <td style="text-transform:capitalize;color:#64748b">${p.goal_type||'—'}</td>
-      <td style="text-align:right;font-family:monospace">₹${fmtCr(p.inflation_adj_target)}</td>
-      <td style="color:#64748b">${fmtDate(p.target_date)}</td>
-      <td style="text-align:right;font-weight:600;color:#a5b4fc">${p.monthly_sip_needed!=null?'₹'+fmt(p.monthly_sip_needed):'—'}</td>
-      <td><span class="badge" style="background:${p.on_track?'#052e16':'#450a0a'};color:${p.on_track?'#86efac':'#fca5a5'}">${p.on_track?'✓ Yes':'✗ No'}</span></td>
-      <td style="text-align:right;font-family:monospace;color:${p.gap>0?'#f87171':'#4ade80'}">${p.gap!=null?(p.gap>0?'−':'+')+' ₹'+fmtCr(Math.abs(p.gap)):'—'}</td>
-    </tr>`).join('') : `<tr class="empty-row"><td colspan="7">No projections</td></tr>`;
-  } catch (e) { $('proj-tbody').innerHTML = `<tr class="empty-row"><td colspan="7" style="color:#f87171">${e.message}</td></tr>`; }
+    $('proj-tbody').innerHTML = rows.length ? rows.map(p => {
+      const srcLabel = p.return_source === 'blended' ? 'auto'
+                     : p.return_source === 'manual'  ? 'manual'
+                     : 'default';
+      const srcColor = p.return_source === 'blended' ? '#86efac'
+                     : p.return_source === 'manual'  ? '#fcd34d'
+                     : '#94a3b8';
+      const retCell = p.effective_return_pct != null
+        ? `<div style="font-family:monospace">${p.effective_return_pct.toFixed(2)}%</div>
+           <div style="font-size:10px;color:${srcColor};text-transform:uppercase;letter-spacing:0.5px">${srcLabel}</div>`
+        : '—';
+      const chips = [];
+      if (p.sip_stepup_pct && p.sip_stepup_pct > 0) {
+        const stepLbl = p.sip_stepup_source === 'auto' ? 'auto' : 'set';
+        chips.push(`<span title="SIP step-up applied (${stepLbl})" style="font-size:10px;color:#a5b4fc;background:#1e1b4b;padding:1px 6px;border-radius:8px">↑ ${p.sip_stepup_pct.toFixed(1)}%</span>`);
+      }
+      if (p.glide_active) {
+        chips.push(`<span title="Glide path active — return tapers near goal date" style="font-size:10px;color:#fcd34d;background:#422006;padding:1px 6px;border-radius:8px">glide</span>`);
+      }
+      const nameCell = `<div style="font-weight:500">${p.name}</div>${chips.length?`<div style="display:flex;gap:4px;margin-top:3px">${chips.join('')}</div>`:''}`;
+      const nameLink = `<a href="javascript:void(0)" onclick="openScenarios('${p.goal_id}','${(p.name||'').replace(/'/g,"\\'")}')" style="color:#a5b4fc;text-decoration:none;font-weight:500" title="See side-by-side scenarios">${p.name}</a>`;
+      const nameCellWithLink = `<div>${nameLink}</div>${chips.length?`<div style="display:flex;gap:4px;margin-top:3px">${chips.join('')}</div>`:''}`;
+      return `<tr>
+        <td>${nameCellWithLink}</td>
+        <td style="text-transform:capitalize;color:#64748b">${p.goal_type||'—'}</td>
+        <td style="text-align:right;font-family:monospace">₹${fmtCr(p.inflation_adj_target)}</td>
+        <td style="color:#64748b">${fmtDate(p.target_date)}</td>
+        <td style="text-align:right;font-weight:600;color:#a5b4fc">${p.monthly_sip_needed!=null?'₹'+fmt(p.monthly_sip_needed):'—'}</td>
+        <td style="text-align:right">${retCell}</td>
+        <td><span class="badge" style="background:${p.on_track?'#052e16':'#450a0a'};color:${p.on_track?'#86efac':'#fca5a5'}">${p.on_track?'✓ Yes':'✗ No'}</span></td>
+        <td style="text-align:right;font-family:monospace;color:${p.gap>0?'#f87171':'#4ade80'}">${p.gap!=null?(p.gap>0?'−':'+')+' ₹'+fmtCr(Math.abs(p.gap)):'—'}</td>
+      </tr>`;
+    }).join('') : `<tr class="empty-row"><td colspan="8">No projections</td></tr>`;
+  } catch (e) { $('proj-tbody').innerHTML = `<tr class="empty-row"><td colspan="8" style="color:#f87171">${e.message}</td></tr>`; }
 }
 
 async function loadRecommendations() {
@@ -1964,6 +2083,67 @@ async function loadRecommendations() {
   } catch (e) { $('reco-list').innerHTML = `<div style="color:#f87171">${e.message}</div>`; }
 }
 
+async function loadRecoChanges() {
+  try {
+    const d = await apiFetch('/api/goals/recommendations/changes');
+    const pill = (txt, bg, fg) =>
+      `<span style="display:inline-block;background:${bg};color:${fg};padding:1px 7px;border-radius:9px;font-size:10.5px;font-weight:600;letter-spacing:0.3px">${txt}</span>`;
+    const section = (label, items, color) => {
+      if (!items || !items.length) return '';
+      const lines = items.map(r => `<div style="padding:4px 0;border-bottom:1px solid #1e2738">
+          <span style="color:#e2e8f0;font-weight:600">${r.title}</span>
+          ${r.count_snapshots ? `<span style="color:#64748b;margin-left:6px">· seen ${r.count_snapshots}× since ${r.since_date}</span>` : ''}
+          ${r.trend && r.trend.length >= 2 ? (() => {
+            const first = r.trend[0], last = r.trend[r.trend.length-1];
+            if (first.metric !== last.metric) return '';
+            const delta = (last.value - first.value);
+            const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→';
+            const dcolor = delta > 0 ? '#f87171' : delta < 0 ? '#4ade80' : '#94a3b8';
+            return `<span style="color:${dcolor};margin-left:6px;font-weight:600">${arrow} ${first.metric}: ${(+first.value).toFixed(1)} → ${(+last.value).toFixed(1)}</span>`;
+          })() : ''}
+        </div>`).join('');
+      return `<div style="margin-bottom:8px">
+        <div style="margin-bottom:4px">${pill(label, color, '#fff')}</div>
+        ${lines}
+      </div>`;
+    };
+    const cmpd = d.compared_to ? `<div style="color:#64748b;font-size:11px;margin-bottom:8px">Comparing ${d.today} vs ${d.compared_to}</div>` : `<div style="color:#64748b;font-size:11px;margin-bottom:8px">No prior snapshot — this is your first one. Come back in a week to see changes.</div>`;
+    const html = cmpd
+      + section(`🆕 NEW (${d.new.length})`, d.new, '#7c3aed')
+      + section(`✅ RESOLVED (${d.resolved.length})`, d.resolved, '#16a34a')
+      + section(`🔄 PERSISTING (${d.persisting.length})`, d.persisting, '#475569');
+    $('reco-changes').innerHTML = html || '<div style="color:#475569;font-style:italic">No changes yet.</div>';
+  } catch (e) {
+    $('reco-changes').innerHTML = `<div style="color:#f87171">${e.message}</div>`;
+  }
+}
+
+async function loadMarketSignals() {
+  try {
+    const s = await apiFetch('/api/goals/market-signals');
+    const zoneColor = (z) => ({cheap:'#4ade80', fair:'#fbbf24', expensive:'#f87171'}[z] || '#64748b');
+    const tile = (label, value, sub, zone) => `
+      <div style="background:#0f1117;border:1px solid #1e2738;border-radius:10px;padding:10px 12px">
+        <div style="color:#64748b;font-size:11px;letter-spacing:0.5px;text-transform:uppercase">${label}</div>
+        <div style="color:#f1f5f9;font-weight:700;font-size:18px;margin:2px 0">${value}</div>
+        <div style="font-size:11px">
+          ${sub ? `<span style="color:#94a3b8">${sub}</span>` : ''}
+          ${zone ? `<span style="color:${zoneColor(zone)};margin-left:6px;font-weight:600">● ${zone}</span>` : ''}
+        </div>
+      </div>`;
+    const fmt = (v) => v == null ? '—' : (typeof v === 'number' ? v.toFixed(1) : v);
+    $('market-grid').innerHTML = [
+      tile('Nifty 50 P/E', fmt(s.nifty50_pe), `5-yr avg ${s.hist_avg_pe?.nifty50||22}`, s.nifty50_zone),
+      tile('Midcap 150 P/E', fmt(s.nifty_midcap_pe), s.midcap_premium_pct!=null?`${s.midcap_premium_pct>0?'+':''}${s.midcap_premium_pct}% vs Nifty 50`:`5-yr avg ${s.hist_avg_pe?.nifty_midcap||28}`, s.nifty_midcap_zone),
+      tile('Smallcap 250 P/E', fmt(s.nifty_smallcap_pe), `5-yr avg ${s.hist_avg_pe?.nifty_smallcap||27}`, s.nifty_smallcap_zone),
+      tile('USD / INR', fmt(s.usd_inr), s.ind_10y_yield?`10y G-Sec ${s.ind_10y_yield.toFixed(2)}%`:''),
+    ].join('');
+    $('market-source').textContent = `source: ${s.source||'cached'} · ${s.fetched_at ? new Date(s.fetched_at).toLocaleString() : ''}`;
+  } catch (e) {
+    $('market-grid').innerHTML = `<div style="color:#f87171;grid-column:1/-1">Market data unavailable: ${e.message}</div>`;
+  }
+}
+
 /* ── goal CRUD ──────────────────────────────────────────────── */
 function openGoalModal(g = null) {
   $('goal-modal-title').textContent = g ? 'Edit Goal' : 'Add Goal';
@@ -1975,6 +2155,11 @@ function openGoalModal(g = null) {
   $('goal-date').value  = g ? fmtDate(g.target_date) : '';
   $('goal-ret').value   = g ? g.expected_return_rate : 12;
   $('goal-inf').value   = g ? g.inflation_rate : 6;
+  $('goal-use-manual').checked = g ? !!g.use_manual_return : false;
+  $('goal-stepup').value = (g && g.sip_stepup_pct != null) ? g.sip_stepup_pct : '';
+  $('goal-glide').checked = g ? (g.glide_enabled !== false) : true;
+  $('goal-glide-yrs').value = g && g.glide_start_years_before != null ? g.glide_start_years_before : 3;
+  $('goal-glide-end').value = g && g.glide_end_return_pct != null ? g.glide_end_return_pct : 8;
   $('goal-notes').value = g ? (g.notes||'') : '';
   $('goal-err').style.display = 'none';
   $('goal-modal').classList.add('show');
@@ -1989,11 +2174,18 @@ async function editGoal(id) {
 
 async function saveGoal() {
   const id = $('goal-id').value;
+  const stepupRaw = $('goal-stepup').value.trim();
   const body = {
     name: $('goal-name').value.trim(), goal_type: $('goal-type').value,
     owner_id: $('goal-owner').value, target_amount: parseFloat($('goal-target').value),
     target_date: $('goal-date').value, expected_return_rate: parseFloat($('goal-ret').value),
-    inflation_rate: parseFloat($('goal-inf').value), notes: $('goal-notes').value.trim()||null,
+    inflation_rate: parseFloat($('goal-inf').value),
+    use_manual_return: $('goal-use-manual').checked,
+    sip_stepup_pct: stepupRaw === '' ? null : parseFloat(stepupRaw),
+    glide_enabled: $('goal-glide').checked,
+    glide_start_years_before: parseInt($('goal-glide-yrs').value, 10) || 0,
+    glide_end_return_pct: parseFloat($('goal-glide-end').value),
+    notes: $('goal-notes').value.trim()||null,
   };
   if (!body.name || !body.target_amount || !body.target_date) {
     $('goal-err').textContent = 'Name, target amount, and date are required.';
@@ -2271,6 +2463,7 @@ function openAssetModal(a = null) {
   $('asset-value').value     = a ? a.current_value : '';
   $('asset-invested').value  = a ? (a.invested_amount||'') : '';
   $('asset-rate').value      = a ? (a.interest_rate||'') : '';
+  $('asset-emi').value       = a ? (a.monthly_payment||'') : '';
   $('asset-maturity').value  = a ? (a.maturity_date||'') : '';
   $('asset-inst').value      = a ? (a.institution||'') : '';
   $('asset-notes').value     = a ? (a.notes||'') : '';
@@ -2291,6 +2484,7 @@ async function editAsset(id) {
 async function saveAsset() {
   const id   = $('asset-id').value;
   const rate = parseFloat($('asset-rate').value);
+  const emi  = parseFloat($('asset-emi').value);
   const mat  = $('asset-maturity').value;
   const qty  = parseFloat($('asset-quantity').value);
   const body = {
@@ -2300,6 +2494,7 @@ async function saveAsset() {
     current_value:    parseFloat($('asset-value').value)||0,
     invested_amount:  parseFloat($('asset-invested').value)||null,
     interest_rate:    isNaN(rate) ? null : rate,
+    monthly_payment:  isNaN(emi) ? null : emi,
     maturity_date:    mat || null,
     institution:      $('asset-inst').value.trim()||'—',
     notes:            $('asset-notes').value.trim()||null,
@@ -2375,6 +2570,23 @@ async function openProfileModal() {
             <label>Retirement Age</label>
             <input type="number" id="prof-ret-${p.id}" value="${p.retirement_age||60}" min="45" max="80"/>
           </div>
+          <div class="field">
+            <label>Tax Regime</label>
+            <select id="prof-tax-${p.id}">
+              <option value="old" ${p.tax_regime==='old'?'selected':''}>Old (80C, HRA, etc.)</option>
+              <option value="new" ${p.tax_regime==='new'?'selected':''}>New (lower slabs, no 80C)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>EPF / Month (₹)</label>
+            <input type="number" id="prof-epf-${p.id}" value="${p.epf_monthly||0}" min="0" step="100"
+                   title="Employee EPF contribution per month — drives 80C dead-weight check"/>
+          </div>
+          <div class="field">
+            <label>Home-Loan Share (%)</label>
+            <input type="number" id="prof-hls-${p.id}" value="${p.home_loan_share_pct||0}" min="0" max="100" step="1"
+                   title="Co-borrower share of household home loan. Used to split principal repayment across co-borrowers for 80C."/>
+          </div>
         </div>
         ${p.age ? `<div style="font-size:12px;color:#475569;margin-top:6px">Current age: ${p.age} years</div>` : ''}
       </div>`).join('');
@@ -2390,9 +2602,15 @@ async function saveProfiles() {
       const dob     = $(`prof-dob-${p.id}`).value;
       const risk    = $(`prof-risk-${p.id}`).value;
       const retAge  = parseInt($(`prof-ret-${p.id}`).value)||60;
+      const taxReg  = $(`prof-tax-${p.id}`).value;
+      const epfMon  = parseFloat($(`prof-epf-${p.id}`).value)||0;
+      const hlShare = parseFloat($(`prof-hls-${p.id}`).value)||0;
       await apiFetch(`/api/profile/${p.id}`, {
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ birth_date: dob||null, risk_appetite: risk, retirement_age: retAge }),
+        body: JSON.stringify({
+          birth_date: dob||null, risk_appetite: risk, retirement_age: retAge,
+          tax_regime: taxReg, epf_monthly: epfMon, home_loan_share_pct: hlShare,
+        }),
       });
     }
     closeProfileModal();
@@ -2450,12 +2668,60 @@ async function loadAiInsights() {
 }
 
 /* ── modal backdrop click + Escape ─────────────────────────── */
-['goal-modal','asset-modal','profile-modal','contrib-modal'].forEach(id => {
+['goal-modal','asset-modal','profile-modal','contrib-modal','scenarios-modal'].forEach(id => {
   $(id).addEventListener('click', e => { if (e.target === $(id)) $(id).classList.remove('show'); });
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeGoalModal(); closeAssetModal(); closeProfileModal(); closeContribModal(); }
+  if (e.key === 'Escape') { closeGoalModal(); closeAssetModal(); closeProfileModal(); closeContribModal(); closeScenariosModal(); }
 });
+
+/* ── scenarios modal ────────────────────────────────────────── */
+function closeScenariosModal() { $('scenarios-modal').classList.remove('show'); }
+
+async function openScenarios(goalId, name) {
+  $('scenarios-modal-title').textContent = `Scenarios — ${name}`;
+  $('scenarios-body').innerHTML = '<div style="padding:12px 0"><div class="skel" style="width:60%;margin-bottom:8px"></div><div class="skel" style="width:90%;margin-bottom:8px"></div><div class="skel" style="width:75%"></div></div>';
+  $('scenarios-modal').classList.add('show');
+  try {
+    const data = await apiFetch(`/api/goals/scenarios/${goalId}`);
+    const s = data.scenarios;
+    const labels = {
+      base:      ['Base',            'step-up + glide as configured'],
+      no_stepup: ['No step-up',      'flat SIP each year'],
+      no_glide:  ['No glide',        'return stays flat till goal date'],
+      flat:      ['Flat (textbook)', 'no step-up, no glide'],
+    };
+    const order = ['base','no_stepup','no_glide','flat'];
+    const target = s.base.inflation_adj_target;
+    const cells = order.map(k => {
+      const v   = s[k];
+      const lbl = labels[k];
+      const stepBadge  = v.sip_stepup_pct > 0 ? `<span style="font-size:10px;color:#a5b4fc;background:#1e1b4b;padding:1px 6px;border-radius:8px;margin-right:4px">↑ ${v.sip_stepup_pct}%</span>` : '';
+      const glideBadge = v.glide_active ? `<span style="font-size:10px;color:#fcd34d;background:#422006;padding:1px 6px;border-radius:8px">glide</span>` : '';
+      const covers = v.projected_corpus >= target;
+      return `<div style="background:#0f1923;border:1px solid ${k==='base'?'#6366f1':'#1e2738'};border-radius:10px;padding:14px">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">${lbl[0]}</div>
+        <div style="font-size:11px;color:#475569;margin-bottom:10px">${lbl[1]}</div>
+        <div style="font-size:11px;color:#64748b">SIP needed / mo</div>
+        <div style="font-size:18px;font-weight:700;color:#a5b4fc;margin-bottom:8px">₹${fmt(v.monthly_sip_needed)}</div>
+        <div style="font-size:11px;color:#64748b">Projected corpus</div>
+        <div style="font-size:14px;font-weight:600;color:${covers?'#4ade80':'#f87171'};margin-bottom:8px">₹${fmtCr(v.projected_corpus)}</div>
+        <div style="font-size:11px;color:#64748b">Eff. return: <span style="color:#cbd5e1">${v.effective_return_pct}%</span></div>
+        <div style="margin-top:6px">${stepBadge}${glideBadge}</div>
+      </div>`;
+    }).join('');
+    $('scenarios-body').innerHTML = `
+      <div style="margin-bottom:12px;font-size:12px;color:#64748b">
+        Inflation-adjusted target: <span style="color:#cbd5e1;font-family:monospace">₹${fmtCr(target)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">${cells}</div>
+      <div style="margin-top:14px;font-size:11.5px;color:#475569;line-height:1.5">
+        Step-up grows your monthly SIP each year. Glide path tapers the return rate toward 8% over the last 3 years before the goal date — a conservative de-risking assumption.
+      </div>`;
+  } catch (e) {
+    $('scenarios-body').innerHTML = `<div style="color:#f87171">${e.message}</div>`;
+  }
+}
 
 /* ── contributions modal ────────────────────────────────────── */
 let _contribAssetId = null;
@@ -2543,9 +2809,15 @@ async function deleteContrib(id) {
 
 /* ── init ───────────────────────────────────────────────────── */
 loadSysStatus();
-loadNetworth();
-loadCashflow();
-refreshGrafana('overview');
+// Honour the hash on first paint so refresh / shared link land on the right tab.
+// Falls back to overview when there's no hash.
+if (location.hash && VALID_NAV_IDS.includes(location.hash.replace(/^#/, ''))) {
+  _navFromHash();
+} else {
+  loadNetworth();
+  loadCashflow();
+  refreshGrafana('overview');
+}
 setInterval(loadSysStatus, 30000);
 </script>
 </body>

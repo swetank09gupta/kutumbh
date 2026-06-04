@@ -17,7 +17,7 @@ One `docker-compose up` gives you a live Grafana dashboard fed by your bank & in
 | **Smart categorisation** | 50+ rules for EMI, insurance, salary, groceries, SIPs, child expenses… |
 | **Net worth tracking** | Daily snapshots per person + family combined |
 | **Goal projections** | Inflation-adjusted corpus targets with SIP calculator |
-| **Recommendations** | Emergency fund, goal shortfalls, asset allocation, EMI burden, PPF nudges |
+| **Recommendations** | Emergency fund · goal shortfalls · asset allocation · EMI burden · PPF nudge. **Portfolio-quality**: midcap/smallcap overweight, international gap, scattered direct equity, **ELSS 80C dead-weight** (uses real loan amortisation × your co-borrower share). **Market-aware**: where + how much + when, given live Nifty 50 / Midcap 150 / Smallcap 250 P/E zones from NSE. **Memory**: persistent snapshots with new/resolved/persisting diff and metric trend arrows so multi-month progress is visible. |
 | **Grafana dashboards** | 4 pre-built dashboards auto-wired to Postgres |
 | **Manual entry API** | Add PPF, NPS, gold, real estate via REST API |
 | **100% private** | Everything runs locally in Docker; private GitHub repo for code |
@@ -147,8 +147,11 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/transactions/summary` | GET | Monthly income/expense summary |
 | `/api/goals/` | GET/POST | List / create goals |
 | `/api/goals/projections` | GET | Corpus projections with SIP needed |
-| `/api/goals/recommendations` | GET | Actionable recommendations |
-| `/api/manual/assets` | GET/POST | PPF, FD, NPS manual entries |
+| `/api/goals/recommendations` | GET | Actionable recommendations (market-aware; snapshots silently for memory) |
+| `/api/goals/recommendations/changes` | GET | Diff vs prior snapshot: new / resolved / persisting + metric trends |
+| `/api/goals/market-signals` | GET | Current Nifty 50 / Midcap 150 / Smallcap 250 P/Es + zones + USD/INR (12-hr cached) |
+| `/api/profile/{owner_id}` | PUT | Edit owner's tax regime, EPF, home-loan share% (drives 80C check) |
+| `/api/manual/assets` | GET/POST | PPF, FD, NPS, liabilities (EMI + interest_rate on loan rows) |
 
 Full interactive docs: http://localhost:8000/docs
 

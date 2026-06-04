@@ -6,8 +6,13 @@ data/processed/
 data/cache/
 data/metal_prices_cache.json
 data/metal_history_cache.json
+data/market_signals_cache.json
+data/inflation_cache.json
 data/hdfc_pending.json
 *.txt.cache
+
+# Local dev/debug scripts (not part of the app)
+/yahoo_sync.py
 
 # Python
 __pycache__/

@@ -27,6 +27,7 @@ class AssetCreate(BaseModel):
     current_value:   float
     invested_amount: Optional[float] = None
     interest_rate:   Optional[float] = None
+    monthly_payment: Optional[float] = None   # EMI for liabilities
     quantity:        Optional[float] = None   # grams or SGB units
     metal_purity:    Optional[str]   = None   # '24K' | '22K' | '18K'
     start_date:      Optional[date]  = None
@@ -39,8 +40,10 @@ class AssetUpdate(BaseModel):
     current_value:   Optional[float] = None
     invested_amount: Optional[float] = None
     interest_rate:   Optional[float] = None
+    monthly_payment: Optional[float] = None
     quantity:        Optional[float] = None
     metal_purity:    Optional[str]   = None
+    start_date:      Optional[date]  = None
     maturity_date:   Optional[date]  = None
     is_liquid:       Optional[bool]  = None
     notes:           Optional[str]   = None
@@ -85,6 +88,7 @@ def create_asset(
         current_value=Decimal(str(body.current_value)),
         invested_amount=Decimal(str(body.invested_amount)) if body.invested_amount else None,
         interest_rate=Decimal(str(body.interest_rate)) if body.interest_rate else None,
+        monthly_payment=Decimal(str(body.monthly_payment)) if body.monthly_payment else None,
         quantity=Decimal(str(body.quantity)) if body.quantity else None,
         metal_purity=body.metal_purity or None,
         start_date=body.start_date,
@@ -273,6 +277,7 @@ def _asset_dict(a: ManualAsset) -> dict:
         "current_value":    float(a.current_value or 0),
         "invested_amount":  float(a.invested_amount or 0),
         "interest_rate":    float(a.interest_rate or 0),
+        "monthly_payment":  float(a.monthly_payment or 0) if a.monthly_payment else None,
         "quantity":         float(a.quantity) if a.quantity else None,
         "metal_purity":     a.metal_purity,
         "start_date":       str(a.start_date) if a.start_date else None,

@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey,
+    Boolean, Column, Date, DateTime, ForeignKey, Integer,
     Numeric, String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -26,6 +26,9 @@ class Owner(Base):
     birth_date     = Column(Date)
     risk_appetite  = Column(String(20))   # conservative | moderate | aggressive
     retirement_age = Column(String(3))    # e.g. "60"
+    tax_regime     = Column(String(10), default="old")   # "old" | "new" — drives 80C dead-weight check
+    epf_monthly    = Column(Numeric(10, 2), default=0)   # employee EPF / month (₹)
+    home_loan_share_pct = Column(Numeric(5, 2), default=0)  # % of home-loan EMI this owner can claim under 80C (principal) / 24(b) (interest)
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
     accounts     = relationship("Account",       back_populates="owner")
@@ -189,6 +192,34 @@ class Balance(Base):
 # ─────────────────────────────────────────────────────────────────────────────
 # ManualAsset  (PPF / NPS / Gold / Real-Estate — no email statements)
 # ─────────────────────────────────────────────────────────────────────────────
+class RecommendationSnapshot(Base):
+    """
+    Persistent memory of recommendations issued over time.
+
+    A *fingerprint* is `owner_id|category|title` — used to detect "same rec
+    persisting" vs "new rec appeared" vs "resolved". The detail/action fields
+    can drift across snapshots (₹ amounts change as portfolio grows); the
+    fingerprint stays stable so we can track lifecycle.
+
+    metrics: JSON of the key numbers that drove the rec (e.g.
+        {"midcap_pct": 26.1, "equity_total": 3246595, "nifty50_pe": 20.2}).
+    Useful for showing trend (midcap % went 28 → 26 → 24 over 3 months).
+    """
+    __tablename__ = "recommendation_snapshots"
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    snapshot_date = Column(Date, nullable=False)
+    owner_id      = Column(String(20), nullable=False, default="family")
+    fingerprint   = Column(String(120), nullable=False)  # category|title (stable across time)
+    priority      = Column(String(10), nullable=False)
+    category      = Column(String(40), nullable=False)
+    title         = Column(String(120), nullable=False)
+    detail        = Column(Text)
+    action        = Column(Text)
+    metrics       = Column(Text)  # JSON-encoded
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ManualAsset(Base):
     __tablename__ = "manual_assets"
 
@@ -200,6 +231,7 @@ class ManualAsset(Base):
     current_value   = Column(Numeric(15, 2))
     invested_amount = Column(Numeric(15, 2))
     interest_rate   = Column(Numeric(6, 4))   # annual %, e.g. 7.1 for PPF
+    monthly_payment = Column(Numeric(15, 2))  # EMI for liabilities; SIP for assets (optional)
     quantity        = Column(Numeric(15, 4))  # grams for gold/silver; units for SGB
     metal_purity    = Column(String(4))       # '24K' | '22K' | '18K' (gold only)
     start_date           = Column(Date)
@@ -258,8 +290,13 @@ class Goal(Base):
     target_date          = Column(Date)
     current_corpus       = Column(Numeric(15, 2), default=0)
     monthly_sip_needed   = Column(Numeric(15, 2))
-    expected_return_rate = Column(Numeric(6, 4), default=12.0)   # % per year
+    expected_return_rate = Column(Numeric(6, 4), default=12.0)   # % per year (manual override)
     inflation_rate       = Column(Numeric(6, 4), default=6.0)    # % per year
+    use_manual_return    = Column(Boolean, default=False)        # False = use blended XIRR from tagged holdings
+    sip_stepup_pct       = Column(Numeric(5, 2))                 # % per year; NULL = auto-detect
+    glide_enabled        = Column(Boolean, default=True)         # taper return toward end_return_pct near goal date
+    glide_start_years_before = Column(Integer, default=3)
+    glide_end_return_pct = Column(Numeric(5, 2), default=8.0)
     notes                = Column(Text)
     created_at           = Column(DateTime(timezone=True), server_default=func.now())
     updated_at           = Column(DateTime(timezone=True), server_default=func.now(),

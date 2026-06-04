@@ -30,6 +30,11 @@ class GoalCreate(BaseModel):
     monthly_sip_needed:   Optional[float] = None
     expected_return_rate: float = 12.0
     inflation_rate:       float = 6.0
+    use_manual_return:    bool  = False
+    sip_stepup_pct:       Optional[float] = None
+    glide_enabled:        bool  = True
+    glide_start_years_before: int = 3
+    glide_end_return_pct: float = 8.0
     notes:                Optional[str] = None
 
 
@@ -40,6 +45,11 @@ class GoalUpdate(BaseModel):
     current_corpus:       Optional[float] = None
     expected_return_rate: Optional[float] = None
     inflation_rate:       Optional[float] = None
+    use_manual_return:    Optional[bool]  = None
+    sip_stepup_pct:       Optional[float] = None
+    glide_enabled:        Optional[bool]  = None
+    glide_start_years_before: Optional[int]   = None
+    glide_end_return_pct: Optional[float] = None
     notes:                Optional[str]   = None
 
 
@@ -71,6 +81,11 @@ def create_goal(
         monthly_sip_needed=Decimal(str(body.monthly_sip_needed)) if body.monthly_sip_needed else None,
         expected_return_rate=Decimal(str(body.expected_return_rate)),
         inflation_rate=Decimal(str(body.inflation_rate)),
+        use_manual_return=body.use_manual_return,
+        sip_stepup_pct=Decimal(str(body.sip_stepup_pct)) if body.sip_stepup_pct is not None else None,
+        glide_enabled=body.glide_enabled,
+        glide_start_years_before=body.glide_start_years_before,
+        glide_end_return_pct=Decimal(str(body.glide_end_return_pct)),
         notes=body.notes,
     )
     db.add(goal)
@@ -134,6 +149,12 @@ def goal_projections(
             "months_to_goal":       p.months_to_goal,
             "on_track":             p.on_track,
             "current_monthly_sip":  p.current_monthly_sip,
+            "effective_return_pct": p.effective_return_pct,
+            "return_source":        p.return_source,
+            "sip_stepup_pct":       p.sip_stepup_pct,
+            "sip_stepup_source":    p.sip_stepup_source,
+            "glide_active":         p.glide_active,
+            "blended_components":   p.blended_components,
         }
         for p in projections
     ]
@@ -145,11 +166,93 @@ def recommendations(
     owner_id: str = "family",
 ):
     recs = gen_recs(db, owner_id)
+    # Persist a snapshot so we can compute month-over-month deltas later.
+    # Idempotent for the same date — no duplication on repeated dashboard loads.
+    try:
+        from app.engine.recommendation_memory import snapshot_recommendations
+        snapshot_recommendations(db, recs, owner_id=owner_id)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).debug("rec snapshot failed: %s", exc)
     return [
         {"priority": r.priority, "category": r.category,
-         "title": r.title, "detail": r.detail, "action": r.action}
+         "title": r.title, "detail": r.detail, "action": r.action,
+         "metrics": r.metrics or {}}
         for r in recs
     ]
+
+
+@router.get("/recommendations/changes")
+def recommendations_changes(
+    db:       Annotated[Session, Depends(get_db)],
+    owner_id: str = "family",
+    lookback_days: int = 35,
+):
+    """
+    Diff today's recommendations vs the most recent snapshot 7-`lookback_days`
+    days old. Returns `new`, `resolved`, and `persisting` lists. Used by the
+    "What's changed since last month" panel.
+    """
+    from app.engine.recommendation_memory import recommendation_changes
+    return recommendation_changes(db, owner_id=owner_id, lookback_days=lookback_days)
+
+
+@router.get("/scenarios/{goal_id}")
+def goal_scenarios(
+    goal_id: str,
+    db:      Annotated[Session, Depends(get_db)],
+):
+    """
+    Side-by-side projections for a single goal under four scenarios:
+      base        — step-up + glide as configured
+      no_stepup   — step-up forced to 0
+      no_glide    — glide path disabled
+      flat        — both off (textbook flat-SIP, flat-return projection)
+    """
+    from copy import copy
+    from app.engine.goals import project_goal
+    from app.engine.goal_returns import detect_sip_stepup
+    from app.models.schemas import Owner
+
+    goal = db.query(Goal).filter_by(id=goal_id).first()
+    if not goal:
+        raise HTTPException(404, "Goal not found")
+
+    # Resolve owner_ids (same scope expansion as project_all_goals).
+    if goal.owner_id == "family":
+        owner_ids = [r[0] for r in db.query(Owner.id).filter(Owner.id != "family").all()]
+    else:
+        owner_ids = [goal.owner_id]
+
+    detected = detect_sip_stepup(db, owner_ids)
+
+    def _variant(disable_stepup: bool, disable_glide: bool):
+        g = copy(goal)
+        if disable_stepup:
+            g.sip_stepup_pct = 0
+        if disable_glide:
+            g.glide_enabled = False
+        p = project_goal(g, 0, db, owner_ids=owner_ids,
+                         detected_stepup_pct=None if disable_stepup else detected)
+        return {
+            "monthly_sip_needed":   p.monthly_sip_needed,
+            "projected_corpus":     p.projected_corpus,
+            "inflation_adj_target": p.inflation_adj_target,
+            "effective_return_pct": p.effective_return_pct,
+            "sip_stepup_pct":       p.sip_stepup_pct,
+            "glide_active":         p.glide_active,
+        }
+
+    return {
+        "goal_id":    str(goal.id),
+        "name":       goal.name,
+        "scenarios": {
+            "base":       _variant(False, False),
+            "no_stepup":  _variant(True,  False),
+            "no_glide":   _variant(False, True),
+            "flat":       _variant(True,  True),
+        },
+    }
 
 
 @router.post("/refresh-corpus")
@@ -179,6 +282,17 @@ def current_inflation():
     return {"india_cpi": get_india_cpi(), "source": "World Bank Open Data"}
 
 
+@router.get("/market-signals")
+def current_market_signals():
+    """
+    Returns current market valuation signals (Nifty 50 / Midcap / Smallcap /
+    500 P/Es, USD/INR, Nasdaq 100, India 10-yr yield) with cheap/fair/expensive
+    zones vs historical averages. 12-hour cached.
+    """
+    from app.engine.market_signals import get_market_signals
+    return get_market_signals()
+
+
 # ── Helper ────────────────────────────────────────────────────────────────────
 def _goal_dict(g: Goal) -> dict:
     return {
@@ -192,5 +306,10 @@ def _goal_dict(g: Goal) -> dict:
         "monthly_sip_needed":   float(g.monthly_sip_needed or 0),
         "expected_return_rate": float(g.expected_return_rate or 12),
         "inflation_rate":       float(g.inflation_rate or 6),
+        "use_manual_return":    bool(getattr(g, "use_manual_return", False)),
+        "sip_stepup_pct":       float(g.sip_stepup_pct) if getattr(g, "sip_stepup_pct", None) is not None else None,
+        "glide_enabled":        bool(getattr(g, "glide_enabled", True)),
+        "glide_start_years_before": int(getattr(g, "glide_start_years_before", 3) or 3),
+        "glide_end_return_pct": float(getattr(g, "glide_end_return_pct", 8) or 8),
         "notes":                g.notes,
     }

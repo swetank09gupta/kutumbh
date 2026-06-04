@@ -18,10 +18,13 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 
 class ProfileUpdate(BaseModel):
-    name:           Optional[str]  = None
-    birth_date:     Optional[date] = None
-    risk_appetite:  Optional[str]  = None   # conservative | moderate | aggressive
-    retirement_age: Optional[int]  = None
+    name:           Optional[str]   = None
+    birth_date:     Optional[date]  = None
+    risk_appetite:  Optional[str]   = None   # conservative | moderate | aggressive
+    retirement_age: Optional[int]   = None
+    tax_regime:     Optional[str]   = None   # "old" | "new"
+    epf_monthly:    Optional[float] = None   # ₹ / month
+    home_loan_share_pct: Optional[float] = None   # % co-borrower share
 
 
 @router.get("/")
@@ -68,4 +71,7 @@ def _dict(o: Owner) -> dict:
         "age":            age,
         "risk_appetite":  risk or "moderate",
         "retirement_age": ret_age or 60,
+        "tax_regime":     getattr(o, "tax_regime", None) or "old",
+        "epf_monthly":    float(getattr(o, "epf_monthly", 0) or 0),
+        "home_loan_share_pct": float(getattr(o, "home_loan_share_pct", 0) or 0),
     }

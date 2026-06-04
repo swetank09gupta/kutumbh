@@ -86,7 +86,9 @@ Five containers, all on one Docker network:
 | `holding_tagger.py` | Auto-tags holdings to goals from a per-ISIN map + fund-name regex + holding-type fallback. Runs on every sync and on a daily 00:15 IST scheduler sweep. |
 | `ppf_from_transfers.py` | Synthesises PPF as a `ManualAsset` from bank-savings debits matching PPF-transfer patterns (Union Bank etc.). |
 | `metal_prices.py` | Live gold/silver spot via Yahoo Finance, used to mark SGB holdings to market. |
-| `recommendations.py` | Rule-based nudges (emergency-fund gap, EMI-to-income, asset allocation drift, PPF top-up). |
+| `recommendations.py` | Rule-based nudges. Originally: emergency-fund gap, EMI-to-income, asset allocation drift, PPF top-up. Extended (see §3.10) with portfolio-quality checks (midcap overweight, international gap, scattered direct equity, ELSS 80C dead-weight) and market-aware investment-timing recs (where + how much + when, given current Nifty P/E zones). |
+| `market_signals.py` | Live Nifty 50 / Midcap 150 / Smallcap 250 / Nifty 500 P/Es from NSE daily-close CSV (`archives.nseindia.com`), USD/INR + Nasdaq 100 from Yahoo. 12-hour cached. Zones (`cheap`/`fair`/`expensive`) computed vs 5-yr rolling averages; midcap premium % over Nifty 50 derived. Drives the timing language in market-aware recs. |
+| `recommendation_memory.py` | Persists rec snapshots (`recommendation_snapshots` table) once per (fingerprint, date). Diffs today vs the most-recent snapshot 7-35 days ago to surface 🆕 new, ✅ resolved, 🔄 persisting buckets. Numeric metrics (e.g. `midcap_pct`) are snapshotted so the UI shows trend arrows over months. |
 
 All engines are pure functions over the DB — re-running them is safe and idempotent.
 
@@ -107,13 +109,57 @@ Both are owner-scoped (PPF lands in the owner whose bank account funds it; SGB i
 - **Per-owner corpus.** Retirement corpus = owner's tagged-holdings sum + that owner's PPF. Earlier the family-aggregated PPF was added to every retirement goal — fixed in [ADR-0015](adr/0015-synthetic-cashflows.md).
 - **Actual investing rate.** "On track" is computed against the family's real last-6-month investing rate (investment-account debits + ManualAssetContributions) distributed across investment goals in proportion to each goal's prescribed SIP. Previously the prescribed SIP itself was passed as the actual SIP, making every goal trivially on-track.
 
-### 3.8 Caches
+### 3.9 Recommendation engine — checks
+
+All checks are pure functions of the DB + (optionally) `market_signals`. Each rec carries a `priority`, `category`, `title`, `detail`, `action`, and an optional `metrics` dict (key numbers that drove the rec — snapshotted for trend display).
+
+| Check | Fires when | Key metric |
+|---|---|---|
+| `_emergency_fund_check` | Liquid savings < 6× monthly expenses | `liquid_months` |
+| `_goal_shortfall_check` | Projection < inflation-adjusted target | `gap` |
+| `_high_expense_check` | Any non-EMI category > 30% of monthly expenses | `share` |
+| `_asset_allocation_check` | Equity < 40% or Debt > 60% of net worth | `equity_pct`, `debt_pct` |
+| `_emi_burden_check` | Recurring monthly EMI > 40% of monthly income. EMI is detected from `category=emi` debits via amount-grouping (≥3 hits, σ/μ < 10%) so one-off prepayments and statement duplicates don't inflate the burden. | `emi_ratio` |
+| `_ppf_nudge` | PPF contributions this FY < ₹1.5 L | `ppf_contrib` |
+| `_80c_dead_weight_check` (per owner) | 80C consumed ≥ ₹1.5 L cap **AND** ELSS holdings exist. Consumed = PPF (this FY) + EPF × 12 + owner's share of home-loan principal. Principal uses real amortisation when loan params exist on the liability row (EMI − outstanding × rate / 12), else falls back to 30% of total `emi` category. | `total_80c_consumed`, `elss_value` |
+| `_midcap_concentration_check` | Mid/small-cap funds ≥ 25% of equity book | `midcap_pct` |
+| `_international_gap_check` | International equity < 5% of equity book (equity ≥ ₹5 L) | `intl_pct` |
+| `_direct_equity_fragmentation_check` | > 5 distinct stocks, avg position < ₹1.5 L | (positions, avg) |
+| `_retirement_target_sanity_check` | Combined household retirement target < 70% of (annual lifestyle expense × 25) | (target_sum, rule_of_thumb) |
+| `_market_timing_recommendations` | Per-gap timing advice. Drops specific fund shortlists (curated quarterly) + timing ("lump-sum now" / "standard SIP" / "STP over 6-12 mo" / "wait") based on Nifty 50 / Midcap 150 zones from `market_signals`. Includes a "Lock In G-Sec Yields" sub-rec when India 10-yr ≥ 7.25% and the household lacks ≥ ₹2 L in long-duration debt MFs. | varies |
+
+### 3.10 Recommendation memory & change detection
+
+Every call to `/api/goals/recommendations` snapshots the active recs into `recommendation_snapshots` (idempotent: one row per `(owner_id, fingerprint, snapshot_date)` — repeated dashboard loads on the same day update in place, they don't duplicate). `fingerprint = "{category}|{title}"` is stable across time even as detail/action wording drifts, so lifecycle is trackable.
+
+`/api/goals/recommendations/changes` diffs today's set vs the most recent snapshot 7-35 days ago and returns:
+
+- **`new`** — fingerprints active today, absent in prior snapshot.
+- **`resolved`** — active in prior snapshot, absent today. Usually means the user took the recommended action.
+- **`persisting`** — active in both. Each carries `since_date`, `count_snapshots`, and a `trend` of the primary numeric metric over the lookback window so the UI can show "midcap_pct: 26.1 → 23.4" with a coloured arrow.
+
+This solves the "noise vs signal" problem the user raised: recs are stable from one month to the next (they drift in ₹ amounts but the title/category persists), and the persisting bucket makes it visually obvious which advice has been ignored long enough to act on.
+
+### 3.11 Co-borrower / household tax model
+
+Three new owner fields drive personalised 80C and EMI-burden logic:
+
+- `tax_regime` (`old` | `new`) — only `old` is checked for ELSS dead-weight; under `new` regime no 80C is claimable.
+- `epf_monthly` — employee EPF contribution per month. Annualised to consume 80C.
+- `home_loan_share_pct` — co-borrower share of the household home loan. Sum across owners (e.g. user 33 + wife 34 = 67%) is < 100% when there's an external co-borrower (e.g. parent); that gap is handled in the EMI burden calc.
+
+Liability rows (`ManualAsset.asset_type = "liability"`) gained a `monthly_payment` column. Combined with `interest_rate` and `current_value` (negative = outstanding principal), the 80C check can compute the exact principal portion of each EMI as `EMI − outstanding × rate / 1200`, instead of the 30% rule-of-thumb. Prepayments beyond the regular EMI are treated as 100% principal.
+
+### 3.12 Caches
 
 | Cache | Purpose | Location | Invalidation |
 |---|---|---|---|
 | `ParseResult` pickle | Skip pdfplumber on unchanged statements | `data/cache/parsed/` | `sha1(file_bytes)` changes, or `BaseParser._CACHE_SCHEMA` bump. |
 | LLM response | Skip Ollama calls on identical prompt+input | `data/cache/llm/` | `sha1(model + prompt + input)` changes. |
 | PDF text sidecar | `.txt.cache` next to each PDF for whole-doc-text parsers | next to source PDF | Source PDF mtime newer than sidecar. |
+| Market signals | Live Nifty P/Es + USD/INR + Nasdaq levels for the rec engine | `data/market_signals_cache.json` | 12 hours since `cached_at`. |
+| India CPI | World Bank latest-inflation rate for goal projections | `data/inflation_cache.json` | 24 hours. |
+| Metal prices | COMEX gold/silver + USD/INR conversion for SGB MTM | `data/metal_prices_cache.json` | 6 hours. |
 
 All caches honour an env-var off-switch (`PARSE_RESULT_CACHE=0`, `LLM_CACHE=0`, `PDF_TEXT_CACHE=0`). Numbers in [BENCHMARKS.md](BENCHMARKS.md) and [PERFORMANCE.md](PERFORMANCE.md).
 
@@ -143,11 +189,24 @@ holdings(account_id, instrument_id, qty,        -- demat / MF positions
          avg_cost, as_of)
 networth_snapshots(owner_id, as_of, assets,     -- daily roll-up
                    liabilities, net)
-manual_assets(id, owner_id, type, value,        -- PPF, NPS, gold, real estate
-              interest_rate, updated_on)
+manual_assets(id, owner_id, type, value,        -- PPF, NPS, gold, real estate, liability
+              interest_rate, monthly_payment,    -- monthly_payment = EMI on liability rows
+              updated_on)
 goals(id, owner_id, name, target_amount,        -- "house 2030", "retire 2045"
       target_date, inflation_rate)
 email_seen(mailbox, uid, processed_at)          -- ingestion idempotency
+
+-- Owner tax profile (drives 80C dead-weight & EMI burden splitting; UI-editable)
+owners(id, name, birth_date, risk_appetite, retirement_age,
+       tax_regime,         -- "old" | "new"
+       epf_monthly,        -- employee EPF share
+       home_loan_share_pct)-- co-borrower share of household home loan
+
+-- Recommendation memory (one row per fingerprint per day; idempotent)
+recommendation_snapshots(id, snapshot_date, owner_id,
+                          fingerprint,        -- "category|title", stable across days
+                          priority, category, title, detail, action,
+                          metrics)            -- JSON of driving numbers (midcap_pct, etc.)
 ```
 
 Postgres is the **only** persistent state. Ollama models are cached in a volume but are reproducible from the registry. Grafana state (dashboards, datasource) is provisioned from files — the `grafana_data` volume only holds user customisations.

@@ -20,3 +20,5 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0014](0014-deployment-compose.md) | Deployment: docker-compose on a single host | Accepted |
 | [0015](0015-synthetic-cashflows.md) | Synthesize cashflows for SGB / PPF holdings without traced purchases | Accepted |
 | [0016](0016-age-based-goal-dates.md) | Age-based goal target dates from owner/child DOB | Accepted |
+| [0017](0017-market-aware-recommendations.md) | Market-aware recommendation engine (NSE P/E zones + fund shortlists) | Accepted |
+| [0018](0018-recommendation-memory.md) | Recommendation snapshots + change-detection for trend tracking | Accepted |

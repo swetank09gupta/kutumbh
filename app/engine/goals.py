@@ -33,6 +33,13 @@ class GoalProjection:
     months_to_goal:     int
     on_track:           bool
     current_monthly_sip: float    # what they're actually investing (estimated)
+    # ── New: projection inputs surfaced for UI ─────────────────────────────
+    effective_return_pct:   Optional[float] = None   # final return used (after blend + cap)
+    return_source:          str = "manual"           # "manual" | "blended" | "default"
+    sip_stepup_pct:         Optional[float] = None   # step-up applied to current SIP
+    sip_stepup_source:      str = "none"             # "manual" | "auto" | "none"
+    glide_active:           bool = False             # glide path applied
+    blended_components:     Optional[list] = None    # for tooltip in UI
 
 
 def _months_between(start: date, end: date) -> int:
@@ -145,6 +152,7 @@ def _pmt(future_value: float, annual_rate: float, months: int, pv: float = 0) ->
     """
     Monthly SIP needed to reach future_value in `months` months,
     given current corpus `pv` and annual return rate `annual_rate`%.
+    Kept for callers that don't need step-up / glide path.
     """
     r = annual_rate / 12 / 100
     if r == 0:
@@ -156,9 +164,91 @@ def _pmt(future_value: float, annual_rate: float, months: int, pv: float = 0) ->
     if remaining <= 0:
         return 0.0
 
-    # PMT = FV * r / ((1+r)^n - 1)
     denominator = ((1 + r) ** months) - 1
     return (remaining * r) / denominator if denominator > 0 else 0.0
+
+
+# ── Piecewise projection (supports glide path + SIP step-up) ────────────────
+def _monthly_return_schedule(
+    start_return_pct: float, months: int,
+    glide_enabled: bool, glide_start_years_before: int, glide_end_return_pct: float,
+) -> list[float]:
+    """
+    Per-month return rate (decimal, monthly compounded) for `months` ahead.
+    If glide is enabled and the horizon is long enough, the rate linearly tapers
+    from `start_return_pct` to `glide_end_return_pct` over the last
+    `glide_start_years_before` years.
+    """
+    glide_months = (glide_start_years_before or 0) * 12
+    if not glide_enabled or glide_months <= 0 or months <= glide_months:
+        r = start_return_pct / 12 / 100
+        return [r] * months
+
+    flat_months = months - glide_months
+    flat_r = start_return_pct / 12 / 100
+    schedule = [flat_r] * flat_months
+    # Linear taper over glide_months from start_return_pct to glide_end_return_pct
+    for i in range(glide_months):
+        frac = (i + 1) / glide_months
+        annual = start_return_pct + (glide_end_return_pct - start_return_pct) * frac
+        schedule.append(annual / 12 / 100)
+    return schedule
+
+
+def _fv_lump_with_schedule(pv: float, schedule: list[float]) -> float:
+    """Compound a lump sum month-by-month under varying monthly rates."""
+    v = pv
+    for r in schedule:
+        v *= (1.0 + r)
+    return v
+
+
+def _fv_sip_with_stepup(
+    initial_monthly_sip: float, stepup_pct: float, schedule: list[float],
+) -> float:
+    """
+    Future value of a stepped-up SIP under a per-month return schedule.
+    Step-up applied each completed 12 months: SIP_year_n = initial * (1+s)^n.
+    """
+    if initial_monthly_sip <= 0 or not schedule:
+        return 0.0
+    s = (stepup_pct or 0.0) / 100.0
+    v = 0.0
+    sip = initial_monthly_sip
+    for idx, r in enumerate(schedule):
+        # bump SIP at the start of each new year (months 12, 24, ...)
+        if idx > 0 and idx % 12 == 0:
+            sip *= (1.0 + s)
+        v = (v + sip) * (1.0 + r)
+    return v
+
+
+def _solve_sip_with_stepup(
+    fv_target: float, pv: float, schedule: list[float], stepup_pct: float,
+) -> float:
+    """
+    Numerically solve for the initial monthly SIP that, with step-up applied
+    each year and growth following `schedule`, reaches `fv_target` together with
+    the projected growth of `pv`.
+    """
+    fv_pv = _fv_lump_with_schedule(pv, schedule)
+    remaining = fv_target - fv_pv
+    if remaining <= 0:
+        return 0.0
+    # Binary search — monotone in initial SIP.
+    lo, hi = 0.0, max(remaining, 1.0)
+    # Expand `hi` until it overshoots.
+    for _ in range(40):
+        if _fv_sip_with_stepup(hi, stepup_pct, schedule) >= remaining:
+            break
+        hi *= 2
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if _fv_sip_with_stepup(mid, stepup_pct, schedule) < remaining:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
 
 
 def _inflation_adjusted_target(nominal_target: float, inflation_rate: float,
@@ -169,11 +259,10 @@ def _inflation_adjusted_target(nominal_target: float, inflation_rate: float,
 
 
 def project_goal(goal: Goal, current_monthly_sip: float = 0,
-                 db: Session | None = None) -> GoalProjection:
+                 db: Session | None = None,
+                 owner_ids: list[str] | None = None,
+                 detected_stepup_pct: Optional[float] = None) -> GoalProjection:
     today      = date.today()
-    # Prefer age-implied target_date when owner DOB + retirement_age or child
-    # DOB are available — the static target_date in the goal row may be
-    # arbitrary or out of sync with the actual life stage.
     effective_target = _age_target_date(goal, db) if db is not None else goal.target_date
     if effective_target is None:
         effective_target = goal.target_date
@@ -182,24 +271,62 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
 
     pv         = float(goal.current_corpus or 0)
     target_nom = float(goal.target_amount or 0)
-    ret_rate   = float(goal.expected_return_rate or 12)
-    # Use live India CPI if goal still has the default 6% inflation rate
+    manual_ret = float(goal.expected_return_rate or 12)
+
+    # ── Pick effective return (manual override vs blended from tagged holdings) ─
+    use_manual = bool(getattr(goal, "use_manual_return", False))
+    blended_info = None
+    return_source = "manual"
+    effective_return = manual_ret
+
+    if not use_manual and db is not None and owner_ids:
+        try:
+            from app.engine.goal_returns import (
+                compute_blended_return, DEFAULT_RETURN_PCT,
+            )
+            blended_info = compute_blended_return(db, goal, owner_ids, today)
+            if blended_info.get("blended_pct") is not None:
+                effective_return = blended_info["blended_pct"]
+                return_source = "blended"
+            else:
+                effective_return = DEFAULT_RETURN_PCT
+                return_source = "default"
+        except Exception:
+            effective_return = manual_ret
+            return_source = "manual"
+
+    # ── Step-up (manual value wins; else auto-detected; else 0) ──────────────
+    stored_stepup = getattr(goal, "sip_stepup_pct", None)
+    stepup_source = "none"
+    if stored_stepup is not None:
+        stepup_pct = float(stored_stepup)
+        stepup_source = "manual"
+    elif detected_stepup_pct is not None:
+        stepup_pct = detected_stepup_pct
+        stepup_source = "auto"
+    else:
+        stepup_pct = 0.0
+
+    # ── Glide path ──────────────────────────────────────────────────────────
+    glide_enabled  = bool(getattr(goal, "glide_enabled", True))
+    glide_yrs      = int(getattr(goal, "glide_start_years_before", 3) or 0)
+    glide_end_pct  = float(getattr(goal, "glide_end_return_pct", 8.0) or 8.0)
+    schedule = _monthly_return_schedule(
+        effective_return, months, glide_enabled, glide_yrs, glide_end_pct,
+    )
+    glide_active = glide_enabled and months > glide_yrs * 12 and glide_yrs > 0
+
+    # ── Inflation-adjusted target ───────────────────────────────────────────
     stored_inf = float(goal.inflation_rate or 0)
     inf_rate   = get_india_cpi() if stored_inf == 6.0 else stored_inf
-
-    # Inflate the target (target is in today's money; we need future ₹)
     inf_adj_target = _inflation_adjusted_target(target_nom, inf_rate, years)
 
-    # SIP needed from today
-    sip_needed = _pmt(inf_adj_target, ret_rate, months, pv)
+    # ── SIP needed (solves under step-up + schedule) ────────────────────────
+    sip_needed = _solve_sip_with_stepup(inf_adj_target, pv, schedule, stepup_pct)
 
-    # Projected corpus if current SIP maintained
-    fv_pv  = _future_value_lump_sum(pv, ret_rate, months)
-    r      = ret_rate / 12 / 100
-    if r > 0 and current_monthly_sip > 0:
-        fv_sip = current_monthly_sip * (((1 + r) ** months - 1) / r)
-    else:
-        fv_sip = current_monthly_sip * months
+    # ── Projected corpus if user keeps their current SIP (with step-up) ─────
+    fv_pv  = _fv_lump_with_schedule(pv, schedule)
+    fv_sip = _fv_sip_with_stepup(current_monthly_sip, stepup_pct, schedule)
     projected = fv_pv + fv_sip
 
     gap      = projected - inf_adj_target
@@ -218,6 +345,12 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
         months_to_goal=months,
         on_track=on_track,
         current_monthly_sip=current_monthly_sip,
+        effective_return_pct=round(effective_return, 2),
+        return_source=return_source,
+        sip_stepup_pct=round(stepup_pct, 2) if stepup_pct else 0.0,
+        sip_stepup_source=stepup_source,
+        glide_active=glide_active,
+        blended_components=(blended_info or {}).get("components") if blended_info else None,
     )
 
 
@@ -419,8 +552,19 @@ def _recent_investing_rate(
     today  = today or date.today()
     cutoff = today - timedelta(days=int(30.44 * lookback_months))
 
-    inv_debits = (
-        db.query(_f.coalesce(_f.sum(Transaction.amount), 0))
+    # Sum broker-account debits, counting only groups that look like real SIPs:
+    #   1. At least `min_recurrence` hits in the window (regular cadence), AND
+    #   2. Amounts are tight — coefficient of variation < 15% (fixed SIP amount,
+    #      not discretionary buys of varying size like equity / ETF purchases).
+    rows = (
+        db.query(
+            Transaction.account_id,
+            _f.coalesce(Transaction.counterparty, Transaction.description).label("flow_key"),
+            _f.count(Transaction.id).label("n"),
+            _f.sum(Transaction.amount).label("total"),
+            _f.avg(Transaction.amount).label("avg_amt"),
+            _f.stddev_samp(Transaction.amount).label("sd_amt"),
+        )
         .join(Account, Transaction.account_id == Account.id)
         .filter(
             Account.owner_id.in_(owner_ids),
@@ -429,8 +573,68 @@ def _recent_investing_rate(
             Transaction.date >= cutoff,
             ~Transaction.description.ilike("DEMAT %"),
         )
-        .scalar()
-    ) or 0
+        .group_by(Transaction.account_id,
+                  _f.coalesce(Transaction.counterparty, Transaction.description))
+        .all()
+    )
+    # For each qualifying SIP flow, the monthly rate is the per-txn average
+    # (one fixed-amount SIP per month). Summing avg_amt across flows gives the
+    # *current* monthly SIP rate — not the trailing 6-month average, which
+    # under-reports SIPs that started recently.
+    min_recurrence = max(3, lookback_months // 2)
+    sip_monthly = 0.0
+    for r in rows:
+        if (r.n or 0) < min_recurrence:
+            continue
+        avg = float(r.avg_amt or 0)
+        sd  = float(r.sd_amt or 0)
+        if avg <= 0:
+            continue
+        cv = sd / avg
+        if cv > 0.15:           # amounts vary too much → discretionary, not SIP
+            continue
+        # SIPs are set in round-rupee amounts; Coin/AMC debit a paisa or two
+        # less due to NAV rounding (e.g. ₹19,999 instead of ₹20,000). Snap to
+        # the nearest ₹100 so the reported total matches the configured SIP.
+        sip_monthly += round(avg / 100.0) * 100
+
+    # Bank-account ACH outflows to broker mandates (Zerodha/Coin SIPs that
+    # ride on the bank statement, not the broker statement). Group by mandate
+    # amount and require the same SIP-cadence + tight-amount rules so we get
+    # the current monthly rate, not a windowed average.
+    ach_rows = (
+        db.query(
+            Transaction.amount,
+            _f.count(Transaction.id).label("n"),
+            _f.avg(Transaction.amount).label("avg_amt"),
+            _f.stddev_samp(Transaction.amount).label("sd_amt"),
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(
+            Account.owner_id.in_(owner_ids),
+            Account.account_type == "bank",
+            Transaction.transaction_type == "debit",
+            Transaction.date >= cutoff,
+            (
+                Transaction.description.ilike("%YESB00709000028661%")
+                | Transaction.description.ilike("%ZERODHA BROKIN%")
+                | Transaction.description.ilike("%INDIAN CLEARIN%")
+            ),
+        )
+        .group_by(Transaction.amount)
+        .all()
+    )
+    broker_ach_monthly = 0.0
+    for r in ach_rows:
+        if (r.n or 0) < min_recurrence:
+            continue
+        avg = float(r.avg_amt or 0)
+        sd  = float(r.sd_amt or 0)
+        if avg <= 0:
+            continue
+        if (sd / avg) > 0.15:
+            continue
+        broker_ach_monthly += avg
 
     contribs = (
         db.query(_f.coalesce(_f.sum(ManualAssetContribution.amount), 0))
@@ -443,7 +647,10 @@ def _recent_investing_rate(
     ) or 0
 
     months = max(1, lookback_months)
-    return float(inv_debits + contribs) / months
+    # sip_monthly + broker_ach_monthly are already monthly rates (per-txn avg
+    # of the detected recurring flow). Only manual contributions still need
+    # to be divided over the lookback window.
+    return sip_monthly + broker_ach_monthly + (float(contribs) / months)
 
 
 def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProjection]:
@@ -464,26 +671,44 @@ def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProj
     else:
         owner_ids = [owner_id]
 
-    actual_monthly = _recent_investing_rate(db, owner_ids, lookback_months=6)
+    from app.engine.goal_returns import (
+        actual_monthly_sip_for_goal, detect_sip_stepup,
+    )
 
-    # Distribute the family's actual investing across investment goals in
-    # proportion to each goal's prescribed monthly_sip_needed. This answers
-    # "given how I'm actually splitting my SIPs, where am I headed?" rather
-    # than the trivially-circular "if I pay the prescribed SIP, am I on track?".
+    detected_stepup = detect_sip_stepup(db, owner_ids)
+    actual_family_total = _recent_investing_rate(db, owner_ids, lookback_months=6)
+
     investment_goals = [g for g in goals if (g.goal_type or "") not in ("emergency", "custom")]
+
+    # ── Per-goal actual SIP from tagged holdings (preferred) ────────────────
+    per_goal_actual: dict[str, float] = {}
+    sum_tagged_actual = 0.0
+    for g in investment_goals:
+        v = actual_monthly_sip_for_goal(db, g, owner_ids, lookback_months=6)
+        per_goal_actual[str(g.id)] = v
+        sum_tagged_actual += v
+
+    # ── Fallback: if tagging is sparse, spread the *un-attributed* family SIP
+    # in proportion to monthly_sip_needed so no contribution is silently lost.
+    untagged_family = max(0.0, actual_family_total - sum_tagged_actual)
     total_needed = sum(float(g.monthly_sip_needed or 0) for g in investment_goals)
 
     def _actual_for(goal: Goal) -> float:
-        if total_needed <= 0 or actual_monthly <= 0:
-            return 0.0
         if (goal.goal_type or "") in ("emergency", "custom"):
-            return 0.0  # emergency fund isn't where SIPs go
-        share = float(goal.monthly_sip_needed or 0) / total_needed
-        return actual_monthly * share
+            return 0.0
+        base = per_goal_actual.get(str(goal.id), 0.0)
+        if untagged_family > 0 and total_needed > 0:
+            share = float(goal.monthly_sip_needed or 0) / total_needed
+            base += untagged_family * share
+        return base
 
     projections = []
     for goal in goals:
-        projections.append(project_goal(goal, _actual_for(goal), db))
+        projections.append(project_goal(
+            goal, _actual_for(goal), db,
+            owner_ids=owner_ids,
+            detected_stepup_pct=detected_stepup,
+        ))
 
     return projections
 

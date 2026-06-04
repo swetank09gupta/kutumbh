@@ -670,7 +670,9 @@ def _fetch_account(acc: dict, since_days: int, until_days: int = 0) -> list[Fetc
     if "gmail" in imap_host:
         search_folders = ['"[Gmail]/All Mail"']
     elif "yahoo" in imap_host:
-        search_folders = ["INBOX", "Archive"]
+        # Yahoo aggressively routes broker / mutual-fund mailers to Bulk Mail.
+        # Without scanning it, Coin / KFintech statements never get picked up.
+        search_folders = ["INBOX", "Archive", "Bulk Mail", "Spam"]
     else:
         search_folders = ["INBOX"]
 
