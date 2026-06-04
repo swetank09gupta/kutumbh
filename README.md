@@ -3,7 +3,7 @@
 A self-hosted, private, email-driven personal finance tracker for the whole family.
 One `docker-compose up` gives you a live Grafana dashboard fed by your bank & investment statements.
 
-> **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md) · [Submission](docs/SUBMISSION.md)
+> **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [Parsers](docs/PARSERS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md)
 >
 > **Legal:** [License (MIT)](LICENSE) · [Disclaimer](DISCLAIMER.md) · [Notices & Trademarks](NOTICE.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Security Policy](SECURITY.md)
 

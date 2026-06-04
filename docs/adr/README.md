@@ -22,3 +22,6 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0016](0016-age-based-goal-dates.md) | Age-based goal target dates from owner/child DOB | Accepted |
 | [0017](0017-market-aware-recommendations.md) | Market-aware recommendation engine (NSE P/E zones + fund shortlists) | Accepted |
 | [0018](0018-recommendation-memory.md) | Recommendation snapshots + change-detection for trend tracking | Accepted |
+| [0019](0019-goal-projection-model.md) | Goal projection model | Accepted |
+| [0020](0020-sip-detection.md) | SIP detection | Accepted |
+| [0021](0021-employer-patterns-in-config.md) | Employer salary patterns in config, not source | Accepted |
