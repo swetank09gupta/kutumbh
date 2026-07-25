@@ -1776,7 +1776,7 @@ function _holdingRow(h, returnsMap, isClosed) {
 function _renderHoldingsTable(holdings, closed, showClosed) {
   const returnsMap = {};
   if (_returnsData) {
-    (_returnsData.holdings||[]).forEach(r => { if (r.isin) returnsMap[r.isin] = r; });
+    (_returnsData.instruments || _returnsData.holdings || []).forEach(r => { if (r.isin) returnsMap[r.isin] = r; });
   }
   const openRows   = holdings.map(h => _holdingRow(h, returnsMap, false));
   const closedRows = showClosed ? (closed||[]).map(h => _holdingRow(h, returnsMap, true)) : [];

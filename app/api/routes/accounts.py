@@ -181,10 +181,13 @@ def portfolio_returns(
     today = date.today()
     ids   = _owner_ids(db, owner_id)
 
-    inv_types = ("stocks", "mutual_fund")
+    # Holdings come from multiple account types: 'stocks', 'mutual_fund' (Zerodha),
+    # 'demat' (CDSL CAS), 'cams', 'kfintech', 'cdsl'.  Fetch all and filter by
+    # holding_type so nothing is silently excluded.
+    inv_holding_types = {"stocks", "equity", "mutual_fund", "bonds"}
 
-    # ── Current holdings from the view (deduplicated) ─────────────────────────
-    holdings = _latest_holdings(db, owner_ids=ids, account_types=inv_types)
+    holdings_all = _latest_holdings(db, owner_ids=ids)
+    holdings = [h for h in holdings_all if (h.holding_type or "") in inv_holding_types]
 
     if not holdings:
         return {
@@ -194,17 +197,17 @@ def portfolio_returns(
             "closed":    [],
         }
 
-    # ── Fetch all investment accounts — needed to pull full transaction history ─
-    # (transactions come from all accounts of that type, not just deduped ones)
-    acct_q = db.query(Account).filter(Account.account_type.in_(inv_types))
+    # ── Fetch ALL accounts for this owner set — ISIN-tagged SIP transactions
+    # arrive via bank accounts, not just investment-type accounts.
+    acct_q = db.query(Account)
     if ids:
         acct_q = acct_q.filter(Account.owner_id.in_(ids))
-    acct_ids = [a.id for a in acct_q.all()]
+    all_acct_ids = [a.id for a in acct_q.all()]
 
     # ── Transactions ──────────────────────────────────────────────────────────
     txns = (
         db.query(Transaction)
-        .filter(Transaction.account_id.in_(acct_ids))
+        .filter(Transaction.account_id.in_(all_acct_ids))
         .order_by(Transaction.date)
         .all()
     )
@@ -213,10 +216,19 @@ def portfolio_returns(
     # valid cash-flow inputs for XIRR.  Demat descriptions always start "DEMAT ".
     txns = [t for t in txns if not (t.description or "").upper().startswith("DEMAT ")]
 
+    # Restrict portfolio-level cashflows to investment-type accounts only
+    # (bank account debits/credits unrelated to investments would skew the aggregate).
+    inv_acct_types = {"stocks", "mutual_fund", "demat", "cams", "kfintech", "cdsl", "zerodha"}
+    inv_acct_ids = {
+        a.id for a in db.query(Account)
+        .filter(Account.id.in_(all_acct_ids), Account.account_type.in_(inv_acct_types)).all()
+    }
+    inv_txns = [t for t in txns if t.account_id in inv_acct_ids]
+
     # ── Closed holdings ───────────────────────────────────────────────────────
     closed = (
         db.query(ClosedHolding)
-        .filter(ClosedHolding.account_id.in_(acct_ids))
+        .filter(ClosedHolding.account_id.in_(all_acct_ids))
         .order_by(ClosedHolding.close_date.desc())
         .all()
     )
@@ -233,35 +245,61 @@ def portfolio_returns(
     total_invested_value = sum(_effective_invested(h) for h in holdings)
 
     # ── Portfolio-level XIRR ──────────────────────────────────────────────────
-    portfolio_cfs = build_investment_cashflows(
+    # Build isin→owner lookup so we can detect coverage gaps below (shared with
+    # per-instrument block; built early here to avoid duplication).
+    _acct_owner_map_early = {a.id: a.owner_id for a in db.query(Account).filter(Account.id.in_(all_acct_ids)).all()}
+    _isin_owner_covered: set[tuple] = set()
+    for t in inv_txns:
+        if t.isin:
+            _isin_owner_covered.add((t.isin, _acct_owner_map_early.get(t.account_id, "")))
+
+    # For holdings with no matching investment-account transactions (e.g. SGBs
+    # bought via demat subscription), inject a synthetic outflow so the XIRR
+    # denominator includes those investments rather than treating them as free gains.
+    synthetic_outflows: list[dict] = []
+    for h in holdings:
+        if h.isin and (h.isin, h.owner_id) not in _isin_owner_covered:
+            eff_inv = _effective_invested(h)
+            if eff_inv > 0 and h.first_buy_date:
+                synthetic_outflows.append({
+                    "date": h.first_buy_date,
+                    "amount": eff_inv,
+                    "transaction_type": "debit",
+                })
+
+    all_portfolio_flows = (
         [{"date": t.date, "amount": float(t.amount), "transaction_type": t.transaction_type}
-         for t in txns],
-        total_current_value,
-        today,
+         for t in inv_txns]
+        + synthetic_outflows
     )
+    portfolio_cfs = build_investment_cashflows(all_portfolio_flows, total_current_value, today)
     portfolio_xirr = xirr(portfolio_cfs)
     portfolio_total_return = total_return_pct(total_invested_value, total_current_value)
 
     # ── Per-type XIRR ─────────────────────────────────────────────────────────
-    # account_type is now a column on the view row — no separate map needed
-    acct_type_map = {a.id: a.account_type for a in db.query(Account).filter(Account.id.in_(acct_ids)).all()}
+    # Group by holding_type (not account_type) for consistent bucketing.
     type_txns: dict[str, list] = defaultdict(list)
-    for t in txns:
-        atype = acct_type_map.get(t.account_id, "other")
+    for t in inv_txns:
+        # Use holding_type of the matched ISIN as bucket key, fallback to account_type.
+        atype = t.account_type if hasattr(t, "account_type") else "other"
         type_txns[atype].append(t)
 
     type_current: dict[str, float] = defaultdict(float)
     type_invested: dict[str, float] = defaultdict(float)
     for h in holdings:
-        atype = h.account_type or "other"
+        atype = h.holding_type or "other"
         type_current[atype]  += float(h.current_value or 0)
         type_invested[atype] += _effective_invested(h)
 
     by_type: dict[str, dict] = {}
-    for atype, t_list in type_txns.items():
+    for atype in type_current:
+        atype_txns = [
+            t for t in inv_txns
+            if any(hh.holding_type == atype for hh in holdings if hh.isin and t.isin == hh.isin)
+        ]
         cfs = build_investment_cashflows(
             [{"date": t.date, "amount": float(t.amount),
-              "transaction_type": t.transaction_type} for t in t_list],
+              "transaction_type": t.transaction_type} for t in atype_txns],
             type_current[atype],
             today,
         )
@@ -274,30 +312,58 @@ def portfolio_returns(
         }
 
     # ── Per-instrument XIRR ───────────────────────────────────────────────────
-    isin_txns: dict[str, list] = defaultdict(list)
+    # Include ISIN-tagged transactions from ALL accounts (SIP debits come via bank accounts).
+    # Key by (isin, owner_id) so joint holdings (e.g. same ETF held by two owners)
+    # don't mix each other's cashflows.
+    isin_owner_txns: dict[tuple, list] = defaultdict(list)
+    # Build owner_id map for all accounts
+    acct_owner_map = {a.id: a.owner_id for a in db.query(Account).filter(Account.id.in_(all_acct_ids)).all()}
     for t in txns:
         if t.isin:
-            isin_txns[t.isin].append(t)
+            oid = acct_owner_map.get(t.account_id, "")
+            isin_owner_txns[(t.isin, oid)].append(t)
 
     instrument_returns: list[dict] = []
     for h in holdings:
         inst_xirr = None
-        if h.isin and h.isin in isin_txns:
+        txn_invested = 0.0
+        txn_first_date = None
+
+        if h.isin:
+            h_txns = isin_owner_txns.get((h.isin, h.owner_id), [])
+            # Compute invested from transaction debits when holding lacks it.
+            txn_invested = sum(float(t.amount or 0) for t in h_txns if t.transaction_type == "debit")
+            txn_first_date = min((t.date for t in h_txns if t.transaction_type == "debit"), default=None)
+
             cfs = build_investment_cashflows(
                 [{"date": t.date, "amount": float(t.amount),
                   "transaction_type": t.transaction_type}
-                 for t in isin_txns[h.isin]],
+                 for t in h_txns],
                 float(h.current_value or 0),
                 today,
             )
             inst_xirr = xirr(cfs)
 
+        # invested_value: prefer stored value, fall back to sum-of-debits from transactions.
+        eff_invested = _effective_invested(h) or txn_invested
+        # first_buy_date: transaction date is the actual first purchase; h.first_buy_date for
+        # CAS/demat holdings is the statement date, not the real purchase date.
+        first_buy = txn_first_date or h.first_buy_date
+
         h_cagr = holding_cagr(
             float(h.avg_cost_nav or 0),
             float(h.current_nav or 0),
-            h.first_buy_date,
+            first_buy,
             today,
         )
+        # CAGR fallback: if avg_cost_nav is missing, use invested/units as avg cost.
+        if h_cagr is None and eff_invested > 0 and float(h.units or 0) > 0 and first_buy:
+            implied_nav = eff_invested / float(h.units)
+            h_cagr = holding_cagr(implied_nav, float(h.current_nav or 0), first_buy, today)
+
+        gain = float(h.current_value or 0) - eff_invested
+        gain_pct = (gain / eff_invested * 100) if eff_invested > 0 else float(h.gain_loss_pct or 0)
+
         instrument_returns.append({
             "isin":             h.isin,
             "instrument_name":  h.instrument_name,
@@ -308,12 +374,12 @@ def portfolio_returns(
             "avg_cost_nav":     float(h.avg_cost_nav or 0),
             "current_nav":      float(h.current_nav or 0),
             "current_value":    float(h.current_value or 0),
-            "invested_value":   _effective_invested(h),
-            "gain_loss":        float(h.gain_loss or 0),
-            "gain_loss_pct":    float(h.gain_loss_pct or 0),
+            "invested_value":   round(eff_invested, 2),
+            "gain_loss":        round(gain, 2),
+            "gain_loss_pct":    round(gain_pct, 2),
             "xirr_pct":         inst_xirr,
             "cagr_pct":         h_cagr,
-            "first_buy_date":   str(h.first_buy_date) if h.first_buy_date else None,
+            "first_buy_date":   str(first_buy) if first_buy else None,
             "status":           "open",
         })
 
@@ -321,11 +387,13 @@ def portfolio_returns(
     closed_returns: list[dict] = []
     for ch in closed:
         ch_xirr = None
-        if ch.isin and ch.isin in isin_txns:
+        ch_owner = acct_owner_map.get(ch.account_id, "")
+        ch_txns = isin_owner_txns.get((ch.isin, ch_owner), []) if ch.isin else []
+        if ch_txns:
             cfs = build_investment_cashflows(
                 [{"date": t.date, "amount": float(t.amount),
                   "transaction_type": t.transaction_type}
-                 for t in isin_txns[ch.isin]],
+                 for t in ch_txns],
                 0.0,
                 ch.close_date,
             )

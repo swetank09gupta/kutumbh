@@ -87,6 +87,22 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
     # Union Bank account's last 4 digits, not an HDFC CC). The skip has been
     # removed so they parse normally via UnionBankParser.
 
+    # Skip known non-statement document types that are either unreadable or
+    # contain no transaction history worth parsing.
+    fname = fpath.name
+    if "hdfc" in inst and re.search(
+        r"(FT\d|CR\d|IT_FINAL|IT_PROV|IT_ARHL)", fname, re.IGNORECASE
+    ):
+        # HDFC non-statement documents: fund-transfer receipts (FT3/4/5*),
+        # credit-card charge receipts (CR*), and interest/tax certificates
+        # (IT_FINAL, IT_PROV, IT_ARHL).  None contain transaction history.
+        logger.debug("Skipping %s: HDFC non-statement document", fname)
+        return None
+    if re.search(r"TDS.CERTIFICATE", fname, re.IGNORECASE):
+        # Bank TDS/interest certificates (Axis, HDFC, SBI): tax documents, not statements.
+        logger.debug("Skipping %s: TDS certificate (no transaction data)", fname)
+        return None
+
     # Try primary password first, then fall back to other owners' passwords.
     passwords_to_try = [attachment.pdf_password] + [
         p for p in _all_pdf_passwords(inst, attachment.owner_id)
@@ -114,6 +130,17 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
                 continue
             logger.error("Parser error for %s (%s): %s", fpath.name, inst, exc, exc_info=True)
             return None
+
+    # Union Bank sends small (< 50 KB) AES-256-encrypted notification/alert
+    # letters (cheque clearance, debit alerts, KYC reminders) with a unique
+    # per-document password embedded in the email body.  These are not
+    # transaction statements — skip them silently rather than counting as errors.
+    if "union" in inst and fpath.stat().st_size < 50_000:
+        logger.info(
+            "Skipping %s (%s): likely notification letter (%.1f KB, all passwords failed)",
+            fpath.name, inst, fpath.stat().st_size / 1024,
+        )
+        return None
 
     logger.error(
         "Parser error for %s (%s): all %d passwords failed — %s",

@@ -96,14 +96,14 @@ isin_deduped AS (
            ROW_NUMBER() OVER (
                PARTITION BY owner_id, isin
                ORDER BY
+                   snapshot_date DESC,
                    CASE LOWER(institution)
                        WHEN 'cdsl'      THEN 1
                        WHEN 'cams'      THEN 1
                        WHEN 'kfintech'  THEN 1
                        WHEN 'zerodha'   THEN 2
                        ELSE 3
-                   END,
-                   snapshot_date DESC
+                   END
            ) AS rn
     FROM latest_per_account
     WHERE isin IS NOT NULL

@@ -282,6 +282,14 @@ def _all_pdf_passwords(institution: str, primary_owner_id: str) -> list[str]:
         if pwd and pwd not in seen:
             seen.add(pwd)
             passwords.append(pwd)
+        # HDFC: when a CIF password is configured it wins as primary, but some
+        # email-delivered statements use the name+DOB formula instead.  Add
+        # the formula as an extra candidate so both are tried.
+        if "hdfc" in institution.lower():
+            name_pwd = _derive_hdfc_smart_password(oid)
+            if name_pwd and name_pwd not in seen:
+                seen.add(name_pwd)
+                passwords.append(name_pwd)
     return passwords
 
 
