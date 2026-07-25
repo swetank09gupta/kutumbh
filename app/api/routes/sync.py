@@ -8,6 +8,8 @@ GET  /api/sync/status             → check if a sync is running + last result
 from __future__ import annotations
 
 import logging
+import os
+import queue
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +24,30 @@ RAW_DIR = Path("data/raw")
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 logger = logging.getLogger(__name__)
+
+# ── Chunked pipeline config ───────────────────────────────────────────────────
+# Syncs longer than _CHUNK_THRESHOLD days are automatically split into
+# _CHUNK_DAYS-day windows and processed as a pipelined fetch→persist stream.
+# The fetcher runs one chunk ahead in a background thread so IMAP wait time
+# overlaps with the previous chunk's parse+persist work.
+# Both values are tunable via env vars without a rebuild.
+_CHUNK_THRESHOLD = int(os.environ.get("SYNC_CHUNK_THRESHOLD", "90"))   # days
+_CHUNK_DAYS      = int(os.environ.get("SYNC_CHUNK_DAYS",      "90"))   # days per window
+
+
+def _time_chunks(since_days: int, until_days: int, chunk_days: int) -> list[tuple[int, int]]:
+    """
+    Split [until_days … since_days] into equal windows of chunk_days, oldest first.
+    E.g. since=200, until=0, chunk=90 → [(200,110), (110,20), (20,0)]
+    """
+    chunks: list[tuple[int, int]] = []
+    cursor = since_days
+    while cursor > until_days:
+        window_until = max(cursor - chunk_days, until_days)
+        chunks.append((cursor, window_until))
+        cursor = window_until
+    return chunks
+
 
 # ── In-process sync state tracker ────────────────────────────────────────────
 _sync_lock   = threading.Lock()
@@ -38,6 +64,13 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
     """
     Background-safe sync — opens its own DB session so the
     HTTP request session lifecycle doesn't interfere.
+
+    When since_days > SYNC_CHUNK_THRESHOLD (default 90), the range is
+    split into SYNC_CHUNK_DAYS-day windows processed as a pipeline:
+    a fetcher thread fills a 1-slot queue while the main thread parses
+    and persists the previous chunk, so IMAP wait time is hidden behind
+    CPU work.  Memory is bounded to 2 chunks at most.  Maintenance runs
+    once at the end over the full dataset.
     """
     global _sync_state
 
@@ -53,30 +86,93 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
     from app.ingestion.email_fetcher import fetch_all_accounts
     from app.ingestion.attachment_router import process_attachments
     from app.engine.networth import snapshot_all
+    from app.etl.maintenance import run_all as _run_maintenance
 
     db = SessionLocal()
     try:
-        logger.info("Sync started (since_days=%d, until_days=%d)", since_days, until_days)
-        attachments = fetch_all_accounts(since_days=since_days, until_days=until_days)
-        logger.info("Fetched %d attachments", len(attachments))
+        chunk_days = int(os.environ.get("SYNC_CHUNK_DAYS", str(_CHUNK_DAYS)))
+        chunks     = _time_chunks(since_days, until_days, chunk_days) \
+                     if since_days > _CHUNK_THRESHOLD else [(since_days, until_days)]
+        n_chunks   = len(chunks)
 
-        summary   = process_attachments(attachments, db)
-        snapshots = snapshot_all(db)
+        logger.info(
+            "Sync started (since_days=%d, until_days=%d) — %d chunk(s) of ≤%d days",
+            since_days, until_days, n_chunks, chunk_days,
+        )
 
-        # Post-sync maintenance: dedup, ISIN backfill, NAV refresh, ghost
-        # synth, re-categorize — keeps derived state honest after every sync.
-        from app.etl.maintenance import run_all as _run_maintenance
+        totals = {"attachments_fetched": 0, "transactions_inserted": 0,
+                  "holdings_inserted": 0, "parse_errors": 0}
+
+        if n_chunks == 1:
+            # ── Fast path: no thread overhead ────────────────────────────────
+            attachments = fetch_all_accounts(since_days=since_days, until_days=until_days)
+            logger.info("Fetched %d attachments", len(attachments))
+            summary = process_attachments(attachments, db)
+            totals["attachments_fetched"]    += len(attachments)
+            totals["transactions_inserted"]  += summary.get("transactions", 0)
+            totals["holdings_inserted"]      += summary.get("holdings", 0)
+            totals["parse_errors"]           += summary.get("failed", 0)
+
+        else:
+            # ── Pipelined path: fetcher → queue → processor ───────────────────
+            # Queue size 1: fetcher stays exactly one chunk ahead, bounding
+            # peak memory to 2 chunks regardless of total range size.
+            work_q: queue.Queue = queue.Queue(maxsize=1)
+
+            def _fetcher() -> None:
+                for i, (ch_since, ch_until) in enumerate(chunks, 1):
+                    try:
+                        logger.info(
+                            "Chunk %d/%d: fetching window -%dd → -%dd",
+                            i, n_chunks, ch_since, ch_until,
+                        )
+                        batch = fetch_all_accounts(since_days=ch_since, until_days=ch_until)
+                        work_q.put((i, batch))       # blocks if processor is behind
+                    except Exception as exc:
+                        logger.error(
+                            "Chunk %d/%d fetch failed: %s", i, n_chunks, exc, exc_info=True,
+                        )
+                        work_q.put((i, []))          # push empty batch so processor doesn't stall
+                work_q.put(None)                     # sentinel — no more chunks
+
+            fetch_thread = threading.Thread(target=_fetcher, name="sync-fetcher", daemon=True)
+            fetch_thread.start()
+
+            while True:
+                item = work_q.get()
+                if item is None:
+                    break                            # all chunks consumed
+                chunk_idx, attachments = item
+                logger.info(
+                    "Chunk %d/%d: processing %d attachments",
+                    chunk_idx, n_chunks, len(attachments),
+                )
+                summary = process_attachments(attachments, db)
+                totals["attachments_fetched"]   += len(attachments)
+                totals["transactions_inserted"] += summary.get("transactions", 0)
+                totals["holdings_inserted"]     += summary.get("holdings", 0)
+                totals["parse_errors"]          += summary.get("failed", 0)
+                logger.info(
+                    "Chunk %d/%d done: +%d txns, +%d holdings, %d errors",
+                    chunk_idx, n_chunks,
+                    summary.get("transactions", 0),
+                    summary.get("holdings", 0),
+                    summary.get("failed", 0),
+                )
+
+            fetch_thread.join()
+
+        # Maintenance and snapshot run once over the full dataset.
+        snapshots   = snapshot_all(db)
         maintenance = _run_maintenance(db)
 
         result = {
-            "attachments_fetched":    len(attachments),
-            "transactions_inserted":  summary.get("transactions", 0),
-            "holdings_inserted":      summary.get("holdings", 0),
-            "parse_errors":           summary.get("failed", 0),
-            "snapshots_updated":      len(snapshots),
-            "since_days":             since_days,
-            "until_days":             until_days,
-            "maintenance":            maintenance,
+            **totals,
+            "snapshots_updated": len(snapshots),
+            "since_days":        since_days,
+            "until_days":        until_days,
+            "chunks":            n_chunks,
+            "maintenance":       maintenance,
         }
         logger.info("Sync done: %s", result)
         _sync_state["last_result"] = result
