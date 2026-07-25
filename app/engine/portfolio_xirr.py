@@ -396,7 +396,17 @@ def _account_cashflows_by_bucket(
         # is the share/unit COUNT, not rupees. Exclude.
         if desc.startswith("DEMAT "):
             continue
-        bucket = isin_to_type.get(t.isin or "", majority) if t.isin else majority
+        if t.isin:
+            if t.isin in isin_to_type:
+                bucket = isin_to_type[t.isin]
+            elif t.isin.startswith("INF"):
+                bucket = "mutual_fund"
+            elif t.isin.startswith("IN0"):
+                bucket = "bonds"
+            else:
+                bucket = "equity"
+        else:
+            bucket = majority
         if t.transaction_type == "debit":
             per_bucket[bucket]["cfs"].append((t.date, -amt))
             per_bucket[bucket]["invested"] += Decimal(str(amt))
@@ -728,6 +738,38 @@ def _per_instrument_returns(
         else:
             years = 0.0
 
+        # CAGR: prefer per-unit avg_cost_nav vs current_nav when both are stored.
+        # Transaction-based cagr(invested, cur) overcounts cost when some units
+        # were sold (invested accumulates all buys but cur is only remaining
+        # value) — e.g. Silver ETF after partial redemption reads -60% instead
+        # of -20%.  NAV-based CAGR uses the actual average purchase price of
+        # the *remaining* units, which is always correct for open positions.
+        _nav_cost   = float(h.avg_cost_nav  or 0)
+        _nav_cur    = float(h.current_nav   or 0)
+        _first_dt   = h.first_buy_date
+        # Prefer txn first date when the stored first_buy_date is unreliable
+        # (e.g. set to the CAS statement date rather than actual purchase date).
+        if cfs:
+            _txn_dates = [d for d, _ in cfs if d < today]  # exclude terminal cf
+            _txn_first = min(_txn_dates) if _txn_dates else None
+            if _first_dt is None or _first_dt >= today:
+                _first_dt = _txn_first
+
+        if _nav_cost > 0 and _nav_cur > 0 and _first_dt and _first_dt < today:
+            _cagr_years = max(0.0, (today - _first_dt).days / 365.25)
+            h_cagr = cagr(_nav_cost, _nav_cur, _cagr_years) if _cagr_years > 0.08 else None
+        elif invested > 0 and years > 0.08:
+            h_cagr = cagr(invested, cur, years)
+        else:
+            h_cagr = None
+
+        # Display invested = stored cost of remaining holdings when available
+        # (avg_cost_nav × units or invested_value). Transaction sum overcounts
+        # when units were partially sold.
+        _h_inv = float(h.invested_value or 0)
+        if _h_inv <= 0 and _nav_cost > 0 and float(h.units or 0) > 0:
+            _h_inv = _nav_cost * float(h.units)
+        disp_invested = _h_inv if _h_inv > 0 else (invested if invested > 0 else 0)
         out.append({
             "isin":       h.isin,
             "name":       h.instrument_name or h.symbol or h.isin,
@@ -735,15 +777,11 @@ def _per_instrument_returns(
             "owner":      h.owner_id,
             "units":      float(h.units or 0),
             "current":    cur,
-            "invested":   invested if invested > 0 else float(h.invested_value or 0),
-            "gain":       cur - (invested if invested > 0 else float(h.invested_value or 0)),
+            "invested":   disp_invested,
+            "gain":       cur - disp_invested,
             "years":      round(years, 2),
             "xirr_pct":   xirr(cfs) if invested > 0 else None,
-            "cagr_pct":   cagr(invested, cur, years) if invested > 0 else (
-                          cagr(float(h.avg_cost_nav or 0), float(h.current_nav or 0),
-                               (today - h.first_buy_date).days / 365.25)
-                          if (h.avg_cost_nav and h.current_nav and h.first_buy_date) else None
-                          ),
+            "cagr_pct":   h_cagr,
             "goal_tag":   h.goal_tag,
         })
 
