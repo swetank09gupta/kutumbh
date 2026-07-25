@@ -86,9 +86,14 @@ def _deduped_investment_values(
 
     as_of: use the most recent snapshot on or before this date per account.
            Defaults to the absolute latest snapshot.
-    Priority (highest first): stocks > demat > mutual_fund
+    Sort key (lowest = processed first = wins the seen dict):
+      1. account_type priority  (stocks=0 > demat=1 > mutual_fund=2)
+      2. institution priority   (cdsl/cams/kfintech=0 > zerodha=1 > others=2)
+    This ensures CDSL beats Zerodha for equity and CAMS beats Zerodha Coin for MFs,
+    matching the dedup logic in the latest_holdings_deduped view.
     """
-    PRIORITY = {"stocks": 0, "demat": 1, "mutual_fund": 2}
+    ACCT_PRIORITY = {"stocks": 0, "demat": 1, "mutual_fund": 2}
+    INST_PRIORITY = {"cdsl": 0, "cams": 0, "kfintech": 0, "zerodha": 1}
 
     accounts = (
         db.query(Account)
@@ -101,7 +106,11 @@ def _deduped_investment_values(
     no_isin_equity = ZERO
     no_isin_mf     = ZERO
 
-    for acc in sorted(accounts, key=lambda a: PRIORITY.get(a.account_type, 99)):
+    sort_key = lambda a: (  # noqa: E731
+        ACCT_PRIORITY.get(a.account_type, 99),
+        INST_PRIORITY.get((a.institution or "").lower(), 2),
+    )
+    for acc in sorted(accounts, key=sort_key):
         q = db.query(func.max(Holding.snapshot_date)).filter_by(account_id=acc.id)
         if as_of:
             q = q.filter(Holding.snapshot_date <= as_of)
