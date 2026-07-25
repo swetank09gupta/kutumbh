@@ -70,6 +70,56 @@ def _migrate_db() -> None:
         )""",
         "CREATE INDEX IF NOT EXISTS ix_recsnap_owner_date ON recommendation_snapshots(owner_id, snapshot_date DESC)",
         "CREATE INDEX IF NOT EXISTS ix_recsnap_fp_date    ON recommendation_snapshots(fingerprint, snapshot_date DESC)",
+        # Cross-account ISIN dedup view — keeps the highest-priority source when the
+        # same ISIN appears in both a depository (CDSL) and a broker mirror (Zerodha),
+        # or in both CAMS and Zerodha Coin.  This view is the single dedup point for
+        # all API endpoints, goals engine, and recommendations.  Created here because
+        # SQLAlchemy metadata.create_all() does not know about views.
+        # DROP first: CREATE OR REPLACE VIEW cannot change the column list.
+        "DROP VIEW IF EXISTS latest_holdings_deduped CASCADE",
+        """CREATE VIEW latest_holdings_deduped AS
+WITH latest_per_account AS (
+    SELECT h.id, h.account_id, h.snapshot_date, h.symbol, h.isin,
+           h.instrument_name, h.units, h.avg_cost_nav, h.current_nav,
+           h.current_value, h.invested_value, h.gain_loss, h.gain_loss_pct,
+           h.holding_type, h.goal_tag, h.first_buy_date, h.source_file,
+           a.owner_id, a.account_type, a.institution
+    FROM holdings h
+    JOIN accounts a ON h.account_id = a.id
+    WHERE a.is_active = TRUE
+      AND h.snapshot_date = (
+          SELECT MAX(h2.snapshot_date) FROM holdings h2 WHERE h2.account_id = h.account_id
+      )
+),
+isin_deduped AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY owner_id, isin
+               ORDER BY
+                   CASE LOWER(institution)
+                       WHEN 'cdsl'      THEN 1
+                       WHEN 'cams'      THEN 1
+                       WHEN 'kfintech'  THEN 1
+                       WHEN 'zerodha'   THEN 2
+                       ELSE 3
+                   END,
+                   snapshot_date DESC
+           ) AS rn
+    FROM latest_per_account
+    WHERE isin IS NOT NULL
+)
+SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
+       units, avg_cost_nav, current_nav, current_value, invested_value,
+       gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
+       source_file, owner_id, account_type, institution
+FROM isin_deduped WHERE rn = 1
+UNION ALL
+SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
+       units, avg_cost_nav, current_nav, current_value, invested_value,
+       gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
+       source_file, owner_id, account_type, institution
+FROM latest_per_account
+WHERE isin IS NULL""",
     ]
     with engine.connect() as conn:
         for stmt in migrations:

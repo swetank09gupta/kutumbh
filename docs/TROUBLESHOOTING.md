@@ -168,6 +168,20 @@ If duplicates persist, they likely have different fingerprints due to encoding d
 
 ---
 
+### Holdings (portfolio/goals page) shows error or inflated values after DB reset
+
+**Root cause:** The `latest_holdings_deduped` PostgreSQL view (used by the portfolio API, goals engine, and recommendations) is not a SQLAlchemy ORM model — it is created by `_migrate_db()` at startup. If you wiped and recreated the DB before this fix was added, the view does not exist and those endpoints fail with `relation "latest_holdings_deduped" does not exist`.
+
+**Fix:** The view is now created idempotently in `_migrate_db()` on every startup (`CREATE OR REPLACE VIEW`). Restart the app container to apply:
+
+```bash
+docker-compose restart app
+```
+
+The net-worth endpoint is unaffected (it uses a separate Python-side dedup), which is why Grafana net-worth charts could still render while the holdings page was broken.
+
+---
+
 ### Salary credits not categorised as income/salary
 
 1. Check if the bank narration contains "salary", "sal credit", or "payroll" — these are caught by the generic rule automatically.
