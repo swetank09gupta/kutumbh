@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -205,21 +206,31 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
         is_demat_row = pt.isin and (
             is_demat or (pt.description or "").upper().startswith("DEMAT ")
         )
-        if is_demat_row:
-            fp = equity_demat_fingerprint(
-                owner_id, pt.isin, pt.date, pt.amount, pt.transaction_type
-            )
-        else:
-            fp = transaction_fingerprint(
-                account_id_str, pt.date, pt.amount, pt.transaction_type,
-                pt.description, pt.reference_number,
-            )
-        # Guard: skip rows whose description is suspiciously long (statement boilerplate)
+        # Truncate description before fingerprinting so the stored value and the
+        # fingerprint input are always identical.  Previously the fingerprint was
+        # computed from the untruncated description, while storage truncated it to
+        # 490 chars; maintenance re-computed from the stored value and got a
+        # different hash, causing the same transaction to be re-inserted every sync.
         desc     = (pt.description     or "")[:490]
         raw_desc = (pt.raw_description or "")[:490]
         if len(pt.description or "") > 490:
             logger.debug("Truncated long description (%d chars) from %s",
                          len(pt.description), result.source_file)
+
+        if is_demat_row:
+            # Quantize to 2dp before fingerprinting: the DB column is NUMERIC(15,2)
+            # so the stored amount will be rounded, and maintenance recomputes from
+            # stored data.  Using the same precision here prevents a fingerprint
+            # mismatch on the next sync (which would re-insert the row as a duplicate).
+            fp_qty = Decimal(str(pt.amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            fp = equity_demat_fingerprint(
+                owner_id, pt.isin, pt.date, fp_qty, pt.transaction_type
+            )
+        else:
+            fp = transaction_fingerprint(
+                account_id_str, pt.date, pt.amount, pt.transaction_type,
+                desc, pt.reference_number,
+            )
 
         cat = categorise(desc)
         txn_rows.append({

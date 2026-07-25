@@ -30,10 +30,12 @@ from app.engine.amfi_isin import (
     refresh as _amfi_refresh,
 )
 from app.etl.categorizer import categorise
-from app.etl.dedup import transaction_fingerprint
+from app.etl.dedup import equity_demat_fingerprint, transaction_fingerprint
 from app.models.schemas import (
     Account, Balance, Holding, Transaction,
 )
+
+_DEMAT_INSTITUTIONS = {"cdsl", "zerodha"}
 
 logger = logging.getLogger(__name__)
 
@@ -42,32 +44,47 @@ logger = logging.getLogger(__name__)
 # 1. Duplicate transactions
 # ─────────────────────────────────────────────────────────────────────────────
 def _dedup_transactions(db: Session) -> dict[str, int]:
-    rows = db.query(Transaction).all()
+    # Join with accounts so we can replicate the normalizer's fingerprint choice:
+    # equity_demat_fingerprint for ISIN-tagged demat rows, transaction_fingerprint otherwise.
+    pairs = db.query(Transaction, Account).join(Account, Transaction.account_id == Account.id).all()
     by_fp: dict[str, list[Transaction]] = defaultdict(list)
-    for r in rows:
-        fp = transaction_fingerprint(
-            str(r.account_id), r.date, r.amount, r.transaction_type,
-            r.description or "", r.reference_number,
+    fp_map: dict[str, str] = {}  # transaction id → recomputed fingerprint
+    for r, acc in pairs:
+        is_demat_row = r.isin and (
+            acc.institution.lower() in _DEMAT_INSTITUTIONS
+            or (r.description or "").upper().startswith("DEMAT ")
         )
+        if is_demat_row:
+            fp = equity_demat_fingerprint(
+                acc.owner_id, r.isin, r.date, r.amount, r.transaction_type,
+            )
+        else:
+            fp = transaction_fingerprint(
+                str(r.account_id), r.date, r.amount, r.transaction_type,
+                r.description or "", r.reference_number,
+            )
         by_fp[fp].append(r)
+        fp_map[str(r.id)] = fp
     deleted = 0
-    keepers: list[Transaction] = []
-    for group in by_fp.values():
-        if len(group) <= 1:
-            continue
-        group.sort(key=lambda t: -len(t.description or ""))
-        keepers.append(group[0])
-        for t in group[1:]:
-            db.delete(t)
-            deleted += 1
+    to_refingerprint: list[Transaction] = []
+    for fp, group in by_fp.items():
+        if len(group) > 1:
+            group.sort(key=lambda t: -len(t.description or ""))
+            to_refingerprint.append(group[0])
+            for t in group[1:]:
+                db.delete(t)
+                deleted += 1
+        else:
+            # Single row — re-fingerprint if stored hash drifted from current
+            # normalization (e.g. after a dedup.py logic upgrade).
+            r = group[0]
+            if r.fingerprint != fp:
+                to_refingerprint.append(r)
     db.commit()
-    # Re-fingerprint keepers (best-effort; ignore unique-constraint collisions).
+    # Re-fingerprint (best-effort; skip on unique-constraint collision).
     updated = 0
-    for k in keepers:
-        new_fp = transaction_fingerprint(
-            str(k.account_id), k.date, k.amount, k.transaction_type,
-            k.description or "", k.reference_number,
-        )
+    for k in to_refingerprint:
+        new_fp = fp_map[str(k.id)]
         if k.fingerprint == new_fp:
             continue
         k.fingerprint = new_fp
