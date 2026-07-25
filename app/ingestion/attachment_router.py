@@ -1,11 +1,18 @@
 """
 Routes each downloaded attachment to the correct parser,
 then persists the results via the ETL pipeline.
+
+Parsing is CPU/IO-bound and independent per file, so process_attachments
+fans out parse work across a thread pool (default 6 workers, tunable via
+PARSE_WORKERS env var).  Persistence stays serial on one DB session to
+avoid account-creation races and keep transaction ordering predictable.
 """
 from __future__ import annotations
 
 import logging
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app.ingestion.email_fetcher import FetchedAttachment
@@ -113,22 +120,52 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
     return None
 
 
+_PARSE_WORKERS = int(os.environ.get("PARSE_WORKERS", "6"))
+
+
+def _parse_one(item: tuple[int, FetchedAttachment]) -> tuple[int, FetchedAttachment, object]:
+    """Worker: parse one attachment and return (original_index, attachment, result)."""
+    idx, att = item
+    result = route_and_parse(att)
+    if result is not None:
+        result.source_file = str(att.file_path)
+    return idx, att, result
+
+
 def process_attachments(attachments: list[FetchedAttachment], db) -> dict[str, int]:
     """
-    Parse all attachments and persist to DB.
-    Returns summary counts.
+    Parse all attachments (parallel) then persist to DB (serial).
+
+    Parsing is CPU/IO-bound and fully independent per file — a thread pool
+    runs all parsers concurrently.  Persistence stays on a single DB session
+    to avoid account-creation races and keep insertion order predictable.
+    Results are persisted in the original attachment order so determinism is
+    maintained across reruns.
     """
     from app.etl.normalizer import persist_parse_result
 
     summary = {"parsed": 0, "failed": 0, "transactions": 0, "holdings": 0}
+    if not attachments:
+        return summary
 
-    for att in attachments:
-        result = route_and_parse(att)
+    n_workers = min(_PARSE_WORKERS, len(attachments))
+    parse_results: list[tuple[FetchedAttachment, object] | None] = [None] * len(attachments)
+
+    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futures = {pool.submit(_parse_one, (i, att)): i for i, att in enumerate(attachments)}
+        for future in as_completed(futures):
+            try:
+                idx, att, result = future.result()
+                parse_results[idx] = (att, result)
+            except Exception as exc:
+                orig_idx = futures[future]
+                logger.error("Unexpected parse worker error (idx=%d): %s", orig_idx, exc, exc_info=True)
+                parse_results[orig_idx] = (attachments[orig_idx], None)
+
+    for att, result in parse_results:
         if result is None:
             summary["failed"] += 1
             continue
-
-        result.source_file = str(att.file_path)
         counts = persist_parse_result(result, att.owner_id, db)
         summary["parsed"] += 1
         summary["transactions"] += counts.get("transactions", 0)

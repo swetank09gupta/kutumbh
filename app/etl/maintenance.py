@@ -270,7 +270,14 @@ def _synth_ghost_redemptions(db: Session) -> dict[str, int]:
 # 6. Re-categorize
 # ─────────────────────────────────────────────────────────────────────────────
 def _recategorize(db: Session) -> dict[str, int]:
-    rows = db.query(Transaction).all()
+    # Only touch rows with a missing category — the normalizer already categorizes
+    # on insert, so the only uncategorized rows are those created by other maintenance
+    # steps (e.g. SYNTH rows from _synth_ghost_redemptions).
+    # Full re-categorization after rule updates is handled by POST /api/sync/recategorize.
+    from sqlalchemy import or_
+    rows = db.query(Transaction).filter(
+        or_(Transaction.category.is_(None), Transaction.subcategory.is_(None))
+    ).all()
     changed = 0
     for t in rows:
         new = categorise(t.description or "")
