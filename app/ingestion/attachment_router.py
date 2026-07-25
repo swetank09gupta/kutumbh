@@ -15,6 +15,8 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from app.ingestion.email_fetcher import _worker_count
+
 from app.ingestion.email_fetcher import FetchedAttachment
 from app.ingestion.parsers.base import ParseResult
 
@@ -120,7 +122,9 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
     return None
 
 
-_PARSE_WORKERS = int(os.environ.get("PARSE_WORKERS", "6"))
+# PDF parsing is CPU/IO-mixed: default to 1 worker per logical CPU, hard cap 8.
+# Override with PARSE_WORKERS env var (e.g. PARSE_WORKERS=2 on a 512 MB VPS).
+_PARSE_WORKERS = _worker_count("PARSE_WORKERS", cpu_ratio=1.0, cap=8)
 
 
 def _parse_one(item: tuple[int, FetchedAttachment]) -> tuple[int, FetchedAttachment, object]:
