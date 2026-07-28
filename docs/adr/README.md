@@ -25,3 +25,4 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0019](0019-goal-projection-model.md) | Goal projection model | Accepted |
 | [0020](0020-sip-detection.md) | SIP detection | Accepted |
 | [0021](0021-employer-patterns-in-config.md) | Employer salary patterns in config, not source | Accepted |
+| [0022](0022-tradebook-import-strategy.md) | Tradebook import strategy — exact dates over AGTS annual aggregates | Accepted |

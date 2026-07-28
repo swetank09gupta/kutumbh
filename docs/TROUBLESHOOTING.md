@@ -129,6 +129,22 @@ If neither matches, check the Coin PDF visually — if it looks like a new layou
 
 ---
 
+### High `parse_errors` count despite normal-looking sync
+
+Some document types that arrive as PDF email attachments are **not** transaction statements and are intentionally skipped without counting as errors. If you see more errors than expected after a fresh sync, check first whether the emails in question match these known non-statement categories:
+
+| Pattern | What it is | Behaviour |
+|---------|-----------|-----------|
+| HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_FINAL`, `IT_PROV`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, and interest/tax certificates | Silently skipped (`DEBUG` log) |
+| Any filename containing `TDS.CERTIFICATE` | Bank TDS / interest certificate (Axis, HDFC, SBI) | Silently skipped |
+| Union Bank PDF < 50 KB with all passwords failing | Cheque-clearance / debit-alert / KYC notification letter | Skipped with `INFO` log |
+
+These are filtered in `app/ingestion/attachment_router.py` before the parser is invoked, so they do not appear in the `parse_errors` counter in the sync response. If you see them in `docker logs finance_app` at `DEBUG` level, that is expected.
+
+If you believe a file is incorrectly skipped (e.g. HDFC renames a genuine statement to match a skip pattern), adjust the regex in `attachment_router.py → route_and_parse()`.
+
+---
+
 ### Ollama fallback not working
 
 If the deterministic parser fails and Ollama is the fallback:
