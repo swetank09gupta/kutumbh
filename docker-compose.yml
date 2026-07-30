@@ -66,6 +66,34 @@ services:
       - ./config:/app/config
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Runs once on every `docker compose up`.
+  # Checks if the DB is empty — if so, restores the latest config backup from
+  # data/backup/ and triggers a reprocess of all files already in data/raw/.
+  # Exits immediately (no-op) when data is already present.
+  bootstrap:
+    image: postgres:16-alpine
+    container_name: finance_bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-financepass}
+      POSTGRES_USER: ${POSTGRES_USER:-financeuser}
+      POSTGRES_DB: ${POSTGRES_DB:-financedb}
+    volumes:
+      - ./data:/data
+      - ./scripts:/scripts
+    entrypoint: ["/bin/sh", "/scripts/docker-init.sh"]
+    restart: "no"
 
   grafana:
     image: grafana/grafana:11.2.2

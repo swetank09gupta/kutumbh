@@ -3,6 +3,7 @@
 config/accounts.yml
 data/raw/
 data/processed/
+data/backup/
 data/cache/
 data/metal_prices_cache.json
 data/metal_history_cache.json
