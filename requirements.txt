@@ -3,21 +3,21 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 
 # Database
-sqlalchemy==2.0.36
+sqlalchemy==2.0.51
 alembic==1.13.3
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
 
 # Settings / validation
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
-pyyaml==6.0.2
+pyyaml==6.0.3
 
 # Email
 imapclient==3.0.1
 
 # PDF parsing (bank statements)
-pdfplumber==0.11.4
+pdfplumber==0.11.10
 
 # Data processing
 pandas==2.2.3
