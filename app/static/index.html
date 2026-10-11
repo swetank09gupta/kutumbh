@@ -494,7 +494,7 @@
 
       <div class="card" id="alerts-card" style="margin-bottom:16px;display:none">
         <div class="card-title" style="margin:0 0 2px">Since the last statement <span id="alerts-count" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From bank alert e-mails. These are not in any total above until the statement arrives, then they are matched to it.</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From bank alert e-mails. Not in the spending / income totals until the statement arrives and they are matched to it; bank balances already include them.</div>
         <div id="alerts-body"></div>
       </div>
 
@@ -1903,23 +1903,23 @@ function _renderReturnsStrip() {
   // Active class data — either total (when 'all') or the matching by_class entry
   let chips = '';
   if (_classFilter === 'all') {
-    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, null);
+    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, t.gain_pct, t.note);
     for (const c of bc) {
       const lbl = (_CLASS_LABELS[c.class] || c.class) + ' XIRR';
-      chips += _xirrChip(lbl, c.xirr_pct, c.invested, c.current, c.gain, null, c.exclusion_reason);
+      chips += _xirrChip(lbl, c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note);
     }
   } else {
     const c = bc.find(x => x.class === _classFilter);
     if (c) {
       chips += _xirrChip((_CLASS_LABELS[c.class] || c.class) + ' XIRR',
-                         c.xirr_pct, c.invested, c.current, c.gain, null, c.exclusion_reason);
+                         c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note);
       // Add CAGR + period chips for context
       chips += _xirrChip('CAGR', c.cagr_pct, c.invested, c.current, c.gain, null);
       const yrLabel = c.years != null ? `${c.years.toFixed(1)} yrs` : '—';
       chips += `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:10px 16px;min-width:140px">
         <div style="font-size:11px;color:#64748b;margin-bottom:4px">Period</div>
         <div style="font-size:18px;font-weight:600;color:#cbd5e1">${yrLabel}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:4px">${c.count} account${c.count===1?'':'s'}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">${c.count} position${c.count===1?'':'s'}</div>
       </div>`;
     }
   }
@@ -1934,11 +1934,17 @@ function _renderReturnsStrip() {
                   (g.goal_tag.charAt(0).toUpperCase() + g.goal_tag.slice(1).replace(/_/g, ' '));
       const pct = g.xirr_pct;
       const color = pct == null ? '#94a3b8' : pct > 0 ? '#4ade80' : '#f87171';
-      const val = pct == null ? '—' : `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+      const shown = pct != null ? pct : g.gain_pct;                // no annual rate: show the plain gain
+      const val = shown == null ? '—' : `${shown > 0 ? '+' : ''}${shown.toFixed(1)}%`;
+      const kind = pct == null && g.gain_pct != null ? '<span style="font-size:9px;color:#64748b;margin-left:4px">gain</span>' : '';
+      const cov = g.coverage_pct != null && g.coverage_pct < 99.5
+        ? `<div style="font-size:10px;color:#92400e;margin-top:2px">on ${g.coverage_pct.toFixed(0)}% of value</div>` : '';
+      const why = pct == null && g.returns_withheld
+        ? `<div style="font-size:10px;color:#92400e;margin-top:2px;max-width:150px">${_esc(g.returns_withheld)}</div>` : '';
       return `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:8px 12px;min-width:130px">
         <div style="font-size:11px;color:#64748b;margin-bottom:2px">${tag}</div>
-        <div style="font-size:16px;font-weight:600;color:${color}">${val}</div>
-        <div style="font-size:10px;color:#64748b;margin-top:2px">${g.count} hldg · ₹${fmt(g.current)}</div>
+        <div style="font-size:16px;font-weight:600;color:${shown == null ? '#94a3b8' : shown > 0 ? '#4ade80' : '#f87171'}">${val}${kind}</div>
+        <div style="font-size:10px;color:#64748b;margin-top:2px">${g.count} hldg · ₹${fmt(g.current)}</div>${cov}${why}
       </div>`;
     }).join('');
     goalRow = `<div style="margin-top:10px">
@@ -1958,8 +1964,8 @@ function _renderReturnsStrip() {
     if (filtered.length > 0) {
       const rows = filtered.map(i => {
         const xv = i.xirr_pct, cv = i.cagr_pct;
-        const display = xv != null ? xv : cv;
-        const lbl = xv != null ? 'XIRR' : 'CAGR';
+        const display = xv != null ? xv : (cv != null ? cv : i.gain_pct);
+        const lbl = xv != null ? 'XIRR' : (cv != null ? 'CAGR' : 'gain');
         const color = display == null ? '#94a3b8' : display > 0 ? '#4ade80' : '#f87171';
         const valStr = display == null ? '—' : `${display.toFixed(1)}%`;
         return `<tr>
@@ -1967,7 +1973,7 @@ function _renderReturnsStrip() {
           <td style="padding:6px 10px;font-size:11px;color:#64748b">${i.owner}</td>
           <td style="padding:6px 10px;font-size:12px;color:#94a3b8;text-align:right">${i.units.toFixed(2)}</td>
           <td style="padding:6px 10px;font-size:12px;color:#cbd5e1;text-align:right">₹${fmt(i.current)}</td>
-          <td style="padding:6px 10px;font-size:12px;color:${i.gain==null?'#64748b':i.gain>=0?'#4ade80':'#f87171'};text-align:right">${i.gain==null?'—':(i.gain>=0?'+':'')+'₹'+fmt(Math.abs(i.gain))}</td>
+          <td style="padding:6px 10px;font-size:12px;color:${i.gain==null?'#64748b':i.gain>=0?'#4ade80':'#f87171'};text-align:right">${i.gain==null?'—':(i.gain>=0?'+':'−')+'₹'+fmt(Math.abs(i.gain))}</td>
           <td style="padding:6px 10px;font-size:12px;text-align:right;color:${color}">${valStr}<span style="font-size:9px;color:#64748b;margin-left:4px">${lbl}</span></td>
         </tr>`;
       }).join('');
@@ -2006,24 +2012,23 @@ function setClassFilter(cls) {
 }
 
 function _xirrChip(label, xirr_v, invested, current, gain, total_return, note) {
-  // Primary: XIRR; fallback to total_return_pct when XIRR unavailable
+  // Primary: XIRR; when no annual rate exists show the plain gain % and say so
   const display_v   = xirr_v   != null ? xirr_v   : total_return;
-  const display_lbl = xirr_v   != null ? 'XIRR'   : (total_return != null ? 'return' : null);
+  const display_lbl = xirr_v   != null ? 'XIRR'   : (total_return != null ? 'gain, no annual rate' : null);
   const color = display_v == null ? '#94a3b8' : display_v > 0 ? '#4ade80' : '#f87171';
   const val   = display_v != null
     ? `${display_v > 0 ? '+' : ''}${display_v.toFixed(1)}%`
     : '—';
   const subtitle_lbl = display_lbl ? `<div style="font-size:10px;color:#64748b;margin-top:1px">${display_lbl}</div>` : '';
 
-  // Only show "gain on invested" when invested > 0
   let detail = '';
   if (gain != null && invested > 0) {
-    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':''}₹${fmt(Math.abs(gain))} on ₹${fmt(invested)}</div>`;
+    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} on ₹${fmt(invested)}</div>`;
   } else if (gain != null && current > 0) {
-    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':''}₹${fmt(Math.abs(gain))} P&L · ₹${fmt(current)} value</div>`;
+    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} P&L · ₹${fmt(current)} value</div>`;
   }
-
-  if (display_v == null && note) detail = `<div style="font-size:10px;color:#92400e;margin-top:4px;max-width:200px">${note}</div>`;
+  if (gain == null && invested == null && current > 0) detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">₹${fmt(current)} value</div>`;
+  if (note) detail += `<div style="font-size:10px;color:#92400e;margin-top:4px;max-width:210px">${_esc(note)}</div>`;
   return `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:10px 16px;min-width:160px">
     <div style="font-size:11px;color:#64748b;margin-bottom:4px">${label}</div>
     <div style="font-size:20px;font-weight:700;color:${color}">${val}</div>
@@ -2440,7 +2445,7 @@ async function loadManualAssets() {
     strip.innerHTML = [
       { label: 'Total Assets',      value: totalAssets, color: '#a5b4fc' },
       { label: 'Total Liabilities', value: totalLiabs,  color: '#fca5a5' },
-      { label: 'Net Worth',         value: netWorth,    color: netWorth >= 0 ? '#4ade80' : '#f87171' },
+      { label: 'Manual assets, net', value: netWorth,    color: netWorth >= 0 ? '#4ade80' : '#f87171' },
     ].map(c => `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:10px 18px;min-width:150px">
       <div style="font-size:11px;color:#64748b;margin-bottom:4px">${c.label}</div>
       <div style="font-size:18px;font-weight:700;color:${c.color}">₹${fmt(Math.abs(c.value))}</div>
@@ -2926,8 +2931,9 @@ async function loadAlerts() {
     const owner = _currentOwner;
     const keep = r => owner === 'family' || r.owner === owner;
     const rows = a.pending.filter(keep);
-    const untracked = a.accounts_without_statements.filter(keep);
-    if (!rows.length && !untracked.length) { card.style.display = 'none'; return; }
+    const drift = (a.deposit_accounts || []).filter(keep).filter(d => Math.abs(d.difference) > 1);
+    const untracked = (a.accounts_missing_from_assets || []).filter(keep);
+    if (!rows.length && !untracked.length && !drift.length) { card.style.display = 'none'; return; }
     card.style.display = 'block';
     const out = rows.filter(r => r.direction === 'debit').reduce((n, r) => n + r.amount, 0);
     const inn = rows.filter(r => r.direction === 'credit').reduce((n, r) => n + r.amount, 0);
@@ -2937,7 +2943,8 @@ async function loadAlerts() {
           <td style="color:#64748b;white-space:nowrap">${fmtDate(r.date)}</td><td>${_esc(r.bank)} ${_esc(r.account || '')}</td>
           <td>${_esc(r.payee || r.kind)}</td>
           <td style="text-align:right;color:${r.direction === 'debit' ? '#fca5a5' : '#86efac'}">${r.direction === 'debit' ? '−' : '+'}₹${fmt(r.amount)}</td></tr>`).join('')}</tbody></table>` : '') +
-      (untracked.length ? `<div style="margin-top:10px;font-size:11px;color:#94a3b8">Accounts that send alerts but whose statements are never received (not in net worth unless added manually): ${untracked.map(u => `${_esc(u.bank)} …${_esc(u.account)} ₹${fmt(u.last_balance)} (${fmtDate(u.as_of)})`).join(' · ')}</div>` : '');
+      (drift.length ? `<div style="margin-top:10px;font-size:11px;color:#94a3b8">Deposit balances that differ from Manual Assets: ${drift.map(d => `${_esc(d.asset)} ₹${fmt(d.asset_value)} → alert says ₹${fmt(d.alert_balance)} (${fmtDate(d.as_of)})`).join(' · ')}</div>` : '') +
+      (untracked.length ? `<div style="margin-top:6px;font-size:11px;color:#fca5a5">Hold money but are not in Manual Assets: ${untracked.map(u => `${_esc(u.bank)} …${_esc(u.account)} ₹${fmt(u.alert_balance)} (${fmtDate(u.as_of)})`).join(' · ')}</div>` : '');
   } catch (e) { card.style.display = 'none'; }
 }
 

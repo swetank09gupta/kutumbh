@@ -1,7 +1,7 @@
 """
 XIRR and CAGR computation engine.
 
-XIRR is computed via Newton-Raphson iteration over the NPV equation:
+XIRR is the root of the NPV equation (bracketed, then bisected):
   NPV(r) = Σ CF_i / (1+r)^((t_i - t_0) / 365.25) = 0
 
 Cash-flow sign convention (matches finance standard):
@@ -18,55 +18,55 @@ from typing import Optional
 def xirr(
     cashflows: list[tuple[date, float]],
     guess: float = 0.15,
-    tol: float = 1e-7,
-    max_iter: int = 500,
+    tol: float = 1e-9,
+    max_iter: int = 200,
 ) -> Optional[float]:
     """
-    Returns annualised XIRR as a percentage (e.g. 14.2 for 14.2%), or None if
-    the cashflow series is degenerate / doesn't converge.
+    Returns annualised XIRR as a percentage (e.g. 14.2 for 14.2%), or None when the
+    cash flows have no rate in (-99.9%, +1000%] — all one sign, or money that went in
+    and came out within days so any rate "fits".
 
-    cashflows: list of (date, signed_amount) tuples.
+    Solved by bracketing, not Newton: Newton diverges on cash-flow streams that
+    change sign several times (a family's combined trades), which silently turned
+    valid returns into "—". `guess` is kept for API compatibility.
     """
     if len(cashflows) < 2:
         return None
-
-    # Need at least one negative and one positive cash flow
     amounts = [c for _, c in cashflows]
     if all(a >= 0 for a in amounts) or all(a <= 0 for a in amounts):
         return None
 
     t0 = min(d for d, _ in cashflows)
-    years = [(d - t0).days / 365.25 for d, _ in cashflows]
+    pts = [((d - t0).days / 365.25, c) for d, c in cashflows]
 
     def npv(r: float) -> float:
-        if r <= -1:
-            return float("inf")
-        return sum(c / (1.0 + r) ** t for (_, c), t in zip(cashflows, years))
+        base = 1.0 + r
+        return sum(c / base ** t for t, c in pts)
 
-    def dnpv(r: float) -> float:
-        if r <= -1:
-            return float("inf")
-        return sum(-t * c / (1.0 + r) ** (t + 1) for (_, c), t in zip(cashflows, years))
-
-    # Try multiple starting guesses if first doesn't converge
-    for start in [guess, 0.0, -0.05, 0.5, -0.5]:
-        r = start
-        try:
-            for _ in range(max_iter):
-                f = npv(r)
-                fp = dnpv(r)
-                if abs(fp) < 1e-14:
-                    break
-                step = f / fp
-                r -= step
-                if abs(step) < tol:
-                    # Guard: result must be sane (between -100% and +1000%)
-                    if -1.0 < r < 10.0:
-                        return round(r * 100, 2)
-                    break
-        except (OverflowError, ZeroDivisionError, ValueError):
-            continue
-
+    # Scan upward from deep loss to 1000% for the first sign change, then bisect inside it.
+    grid = [-0.999, -0.99, -0.95, -0.9, -0.8, -0.6, -0.4, -0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2,
+            0.35, 0.5, 0.75, 1.0, 2.0, 4.0, 7.0, 10.0]
+    try:
+        prev_r, prev_f = grid[0], npv(grid[0])
+        for r in grid[1:]:
+            f = npv(r)
+            if prev_f == 0.0:
+                return round(prev_r * 100, 2)
+            if prev_f * f < 0:
+                lo, hi, flo = prev_r, r, prev_f
+                for _ in range(max_iter):
+                    mid = (lo + hi) / 2.0
+                    fm = npv(mid)
+                    if abs(hi - lo) < tol:
+                        break
+                    if flo * fm <= 0:
+                        hi = mid
+                    else:
+                        lo, flo = mid, fm
+                return round(((lo + hi) / 2.0) * 100, 2)
+            prev_r, prev_f = r, f
+    except (OverflowError, ZeroDivisionError, ValueError):
+        return None
     return None
 
 

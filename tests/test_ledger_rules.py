@@ -182,6 +182,25 @@ class Positions(unittest.TestCase):
         self.assertEqual(s.position.quality, "partial")
         self.assertIsNone(s.position.invested)
 
+    def test_trade_settling_across_month_end_does_not_make_cost_partial(self):
+        # bought 2 on Aug 31: the depository credited it by month-end, our T+1 rule settles it in September
+        t = [T(1, date(2026, 8, 31), "B", "2", "100"), T(2, date(2026, 9, 10), "B", "3", "100")]
+        s = compute_isin_state(ISIN, t, [], [B(2026, 7, 31, 0), B(2026, 8, 31, 2), B(2026, 9, 30, 5)])
+        self.assertEqual([iv.residual for iv in s.intervals], [D(2), D(-2)])
+        self.assertEqual(s.position.quality, "exact")
+        self.assertEqual(s.position.invested, D(500))
+
+    def test_units_with_no_trade_cost_the_published_sgb_issue_price(self):
+        sgb = "IN0020210178"
+        s = compute_isin_state(sgb, [], [], [(date(2026, 8, 31), D(25))])
+        self.assertEqual(s.position.quality, "exact")
+        self.assertEqual(s.position.invested, D(25) * D("4761"))
+        self.assertEqual(s.position.first_buy_date, date(2021, 11, 2))
+
+    def test_untraced_units_of_an_ordinary_fund_stay_partial(self):
+        s = compute_isin_state(ISIN, [], [], [(date(2026, 8, 31), D(25))])
+        self.assertEqual(s.position.quality, "partial")
+
     def test_fully_traced_position_is_exact_with_weighted_average(self):
         trades = [T(1, date(2026, 8, 3), "B", "10", "100"), T(2, date(2026, 8, 4), "B", "10", "120")]
         s = compute_isin_state(ISIN, trades, [], [B(2026, 7, 31, 0), B(2026, 8, 31, 20)])

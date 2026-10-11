@@ -224,6 +224,10 @@ def _compute_returns(a: ManualAsset) -> dict:
 
     if current <= 0 or invested <= 0:
         return result
+    if a.asset_type in ("fd", "rd"):
+        # A deposit earns its stated rate. Principal vs "invested" is not a return (renewals, part
+        # withdrawals and sweep-ins change the principal), so no XIRR/CAGR is derived from them.
+        return result
 
     result["total_return_pct"] = round((current / invested - 1) * 100, 2)
 

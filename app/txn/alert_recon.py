@@ -133,16 +133,65 @@ def alert_summary(db: Session, recent: int = 40) -> dict:
     for a in (db.query(BankAlertRow).filter(BankAlertRow.balance_after.isnot(None))
               .order_by(BankAlertRow.txn_date, BankAlertRow.sent_at).all()):
         latest[(a.owner_id, a.bank, a.account_last4)] = a
+
+    from app.models.schemas import ManualAsset
+    assets = db.query(ManualAsset).all()
+    deposits, missing = [], []
+    for (o, b, last4), a in sorted(latest.items(), key=lambda kv: -float(kv[1].balance_after)):
+        if a.status != "untracked":
+            continue                                          # has statements: the statement path covers it
+        bal = float(a.balance_after)
+        mine = [m for m in assets if m.owner_id == o]
+        hit = [m for m in mine if last4 and last4 in (m.name or "")] \
+            or [m for m in mine if m.current_value is not None and abs(float(m.current_value) - bal) <= 1.0]
+        row = {"owner": o, "bank": b, "account": last4, "alert_balance": bal, "as_of": a.txn_date.isoformat()}
+        if hit:
+            m = hit[0]
+            row.update({"asset": m.name, "asset_value": float(m.current_value or 0),
+                        "difference": round(bal - float(m.current_value or 0), 2)})
+            deposits.append(row)
+        elif bal > 0:
+            missing.append(row)
     return {
         "counts": counts,
         "pending_by_bank": [{"bank": b, "owner": o, "direction": d, "count": n, "amount": float(v or 0),
                              "since": str(since)} for b, o, d, n, v, since in pend],
         "pending": rows("pending", recent),
         "unmatched": rows("unmatched", recent),
-        "accounts_without_statements": [
-            {"owner": o, "bank": b, "account": last4, "last_balance": float(a.balance_after),
-             "as_of": a.txn_date.isoformat(), "alerts": db.query(func.count(BankAlertRow.id)).filter(
-                 BankAlertRow.owner_id == o, BankAlertRow.bank == b, BankAlertRow.account_last4 == last4).scalar()}
-            for (o, b, last4), a in sorted(latest.items(), key=lambda kv: -float(kv[1].balance_after))
-            if a.status == "untracked"],
+        "deposit_accounts": deposits,                          # alert account <-> Manual Asset, with the difference
+        "accounts_missing_from_assets": missing,               # sends alerts, holds money, nothing records it
     }
+
+
+def alert_balance(db: Session, account: Account):
+    """
+    The bank account's balance as the alerts last told it: (balance, as_of date, alerts applied) or None.
+
+    The newest alert that prints a balance is the base; alerts after it that print none (HDFC UPI
+    alerts) are applied as credits/debits. SBI alerts show the real account number while statements
+    show a masked reference, so an alert account belongs to this account once one of its alerts
+    matched a statement row of it; HDFC alerts carry the same last four digits as the account.
+    """
+    last4 = {(a.bank, a.account_last4) for a in
+             db.query(BankAlertRow).join(Transaction, Transaction.id == BankAlertRow.matched_txn_id)
+             .filter(Transaction.account_id == account.id, BankAlertRow.account_last4.isnot(None)).all()}
+    if (account.account_ref or "")[-4:].isdigit():
+        last4.add(((account.institution or "").upper(), account.account_ref[-4:]))
+    if not last4:
+        return None
+    rows = [a for a in db.query(BankAlertRow).filter(BankAlertRow.owner_id == account.owner_id).all()
+            if (a.bank, a.account_last4) in last4]
+    from datetime import datetime, time, timezone
+
+    def when(a):
+        return a.sent_at or datetime.combine(a.txn_date, time(23, 59), tzinfo=timezone.utc)
+    rows.sort(key=lambda a: (a.txn_date, when(a)))
+    base = next((a for a in reversed(rows) if a.balance_after is not None), None)
+    if base is None:
+        return None
+    later = [a for a in rows if a is not base and (a.txn_date, when(a)) > (base.txn_date, when(base))
+             and a.balance_after is None]
+    bal = Decimal(base.balance_after)
+    for a in later:
+        bal += Decimal(a.amount) if a.direction == "credit" else -Decimal(a.amount)
+    return bal, max([base.txn_date] + [a.txn_date for a in later]), len(later)

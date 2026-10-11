@@ -45,6 +45,7 @@ def _migrate_db() -> None:
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS cost_basis_quality VARCHAR(10)",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS price_source VARCHAR(20)",
         "ALTER TABLE instrument_trades ADD COLUMN IF NOT EXISTS settle_date DATE",
+        "ALTER TABLE instrument_trades ADD COLUMN IF NOT EXISTS isin_override VARCHAR(12)",
         # Transaction tagging provenance + review queue (app.txn)
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_source VARCHAR(10)",
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_conf NUMERIC(4,2)",

@@ -59,3 +59,8 @@ Re-derived on every run; issues that stop being detected are marked resolved.
 - ❌ History before the earliest contract note/Coin e-mail stays `partial` until a tradebook CSV or Console holdings export supplies it.
 - ❌ Exchange holidays are not modelled in T+1; a boundary trade can show as pending for a month, visible in the reconciliation.
 - ❌ Corporate actions are not auto-adjusted; they surface as `corporate_action`/`untraced_change`.
+
+
+## Addendum (ADR-0026)
+
+Units the depository shows with no trade are no longer left as unknown cost when the evidence exists: `app/ledger/derive.py` turns them into `derived` trades (units/date from the line, price from the AMFI NAV, cash from the bank debit). Source rank `derived` is lowest and the rows are rebuilt on every refresh.

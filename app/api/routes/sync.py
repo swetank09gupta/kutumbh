@@ -171,6 +171,13 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
             logger.error("Bank alert ingestion failed: %s", exc, exc_info=True)
             db.rollback()
 
+        try:
+            from app.ingestion.loan_fetcher import ingest_loan_letters
+            totals["loan_letters"] = ingest_loan_letters(db, since_days=max(since_days, 7))
+        except Exception as exc:
+            logger.error("Loan letter ingestion failed: %s", exc, exc_info=True)
+            db.rollback()
+
         # Maintenance and snapshot run once over the full dataset.
         # Ledger first: it rebuilds today's holdings, which the snapshot reads.
         from app.ledger import refresh as _ledger_refresh

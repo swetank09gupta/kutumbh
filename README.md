@@ -137,7 +137,7 @@ Every bank and broker ships a different PDF layout, CSV schema, and date format.
 Reprocessing a statement must never double-count. Each transaction gets a stable fingerprint (account + date + amount + normalised ref/narration) that survives whitespace, padding, and Decimal precision drift.
 
 ### Instrument ledger — current holdings, exact cost, provable correctness
-Statements arrive monthly but trades arrive daily. Trades (contract notes, Coin) give exact date, price and FIFO cost; the month-end demat balance gives quantity truth; every change between two balances must be explained by trades, and anything that isn't is listed (`/api/ledger/issues`) instead of absorbed. Today's holdings = last statement + trades since. See [ADR-0023](docs/adr/0023-instrument-ledger.md).
+Statements arrive monthly but trades arrive daily. Trades (contract notes, Coin) give exact date, price and FIFO cost; the month-end demat balance gives quantity truth; every change between two balances must be explained by trades, and anything that isn't is listed (`/api/ledger/issues`) instead of absorbed. Today's holdings = last statement + trades since. Units no trade explains are derived from the demat line + the day's AMFI NAV + the bank debit (never invented), and returns are computed from one position model with cost coverage stated, not withheld ([ADR-0026](docs/adr/0026-returns-from-evidence.md)). See [ADR-0023](docs/adr/0023-instrument-ledger.md).
 
 ### Portfolio XIRR across heterogeneous vehicles
 Money-weighted returns computed across mutual funds, direct equity, SGBs, FDs/RDs, and PPF — at family / class / owner / instrument / goal granularity. Coin transactions are joined to holdings via AMFI ISIN lookup (NAVAll.txt cached 24h, scheme renames handled). SGB purchases synthesized at RBI tranche date; FD principals compounded at stated rate.
@@ -333,7 +333,7 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/ledger/positions` | GET | Ledger positions: qty, FIFO avg cost, traced vs untraced units, cost quality |
 | `/api/ledger/verify` | POST | Diff quantities copied from Zerodha Console against the ledger |
 | `/api/ledger/dedupe?apply=false` | POST | Cross-source duplicate trades (dry run by default) |
-| `/api/portfolio/returns?owner_id=family` | GET | Total + per-class + per-instrument + per-goal XIRR / CAGR; Coin txns ISIN-matched via AMFI |
+| `/api/portfolio/returns?owner_id=family` | GET | Total + per-class + per-instrument + per-goal XIRR and gain from one position model; each row says what share of its value has a known cost (`coverage_pct`, `note`) |
 | `/api/profile/{owner_id}` | PUT | Edit owner's tax regime, EPF, home-loan share% (drives 80C check) |
 | `/api/manual/assets` | GET/POST | PPF, FD, NPS, liabilities (EMI + interest_rate on loan rows) |
 

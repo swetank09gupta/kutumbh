@@ -82,13 +82,18 @@ def returns_match_holdings(db: Session) -> dict:
     from app.engine.portfolio_xirr import compute_owner_returns
     bad = {}
     for o in _owners(db):
-        ret = {c["class"]: float(c["current"]) for c in compute_owner_returns(db, o)["by_class"]}
+        ret = {c["class"]: float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"]}
         held = defaultdict(float)
         for h in latest_holdings(db, owner_ids=[o]):
             held[h.holding_type or "equity"] += float(h.current_value or 0)
-        for cls in ("equity", "mutual_fund"):      # bonds are re-priced live in returns by design
+        for cls in ("equity", "mutual_fund", "bonds"):
             if abs(ret.get(cls, 0.0) - held.get(cls, 0.0)) > TOL:
                 bad.setdefault(o, {})[cls] = {"returns": ret.get(cls, 0.0), "holdings": held.get(cls, 0.0)}
+    nw = _latest_nw(db)
+    for o in _owners(db):                                   # deposits: returns page value == net-worth value
+        fd = next((float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"] if c["class"] == "fd"), 0.0)
+        if o in nw and abs(fd - float(nw[o].fd_value or 0)) > TOL:
+            bad.setdefault(o, {})["fd"] = {"returns": fd, "net_worth": float(nw[o].fd_value or 0)}
     return _check("returns_match_holdings", not bad,
                   "Returns page values equal the Investments table" if not bad else
                   "Returns page values differ from the Investments table", differences=bad)
@@ -215,11 +220,28 @@ def alerts_match_statements(db: Session) -> dict:
                   "warn", **r)
 
 
+def deposits_match_alerts(db: Session) -> dict:
+    """SBI deposit accounts have no statements; their alerts are the only live balance. They must agree with Manual Assets."""
+    from app.txn.alert_recon import alert_summary
+    a = alert_summary(db, recent=1)
+    drift = [d for d in a["deposit_accounts"] if abs(d["difference"]) > 1.0]
+    miss = a["accounts_missing_from_assets"]
+    ok = not drift and not miss
+    parts = []
+    if drift:
+        parts.append(f"{len(drift)} deposit balances differ from Manual Assets (net ₹{sum(d['difference'] for d in drift):,.0f})")
+    if miss:
+        parts.append(f"{len(miss)} accounts hold money (₹{sum(m['alert_balance'] for m in miss):,.0f}) but are not in Manual Assets")
+    return _check("deposit_accounts_match_alerts", ok, "Every deposit account seen in alerts is in Manual Assets at the same balance"
+                  if ok else "; ".join(parts) + " — see /api/health/alerts", "warn", drift=drift, missing=miss)
+
+
 CHECKS: list[Callable[[Session], dict]] = [
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
+    deposits_match_alerts,
 ]
 
 

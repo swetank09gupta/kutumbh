@@ -25,5 +25,6 @@ SBI alerts carry the real account number, statements only a masked reference, so
 ## Consequences
 
 - `/api/health/alerts` and the `alerts_have_statement_rows` check expose parser gaps the day statements arrive.
-- Alert balances (`balance_after`) are stored but do not feed net worth; doing that would need a freshness rule between statement and alert balances.
+- Today's bank balance in net worth is the newest of the statement balance and the alert chain (`alert_balance`): last alert that prints a balance, plus later alerts that print none (HDFC UPI). Only for accounts that already have statements; history still uses statements.
+- SBI deposit/sweep accounts have no statements; their alerts are compared with the Manual Assets rows (`deposit_accounts_match_alerts`).
 - A new alert wording that does not parse is silently skipped; `PARSERS.md` lists the supported templates.

@@ -31,7 +31,7 @@ MATCH_DAYS_BEFORE = 10               # a movement settles up to 10 days after th
 MATCH_DAYS_AFTER = 3                 # ...and rarely a day or two before the trade date we parsed
 
 # Lower rank wins when two sources describe the same (isin, date, side).
-SOURCE_RANK = {"contract_note": 1, "coin": 1, "tradebook": 2}
+SOURCE_RANK = {"contract_note": 1, "coin": 1, "tradebook": 2, "derived": 3}
 
 
 # ── value objects ────────────────────────────────────────────────────────────
@@ -273,6 +273,21 @@ class Interval:
         return abs(self.residual) <= self.tol
 
 
+def boundary_indices(ivs: list["Interval"]) -> set[int]:
+    """
+    Adjacent intervals whose residuals cancel (+q then -q, or -q then +q): one trade settled
+    across the month-end statement date. Nothing is missing, so neither side is an error and
+    neither creates an untraced lot.
+    """
+    out: set[int] = set()
+    for i in range(len(ivs) - 1):
+        a, b = ivs[i], ivs[i + 1]
+        if (not a.reconciled and not b.reconciled and abs(a.residual + b.residual) <= a.tol
+                and abs(a.residual) > a.tol):
+            out.update((i, i + 1))
+    return out
+
+
 @dataclass
 class Position:
     isin: str
@@ -375,8 +390,9 @@ def compute_isin_state(
     events: list[tuple] = []
     for t in trades:
         events.append((t.trade_date, 0 if t.side == "B" else 1, t.side, t.qty, t.price))
-    for iv in intervals:
-        if iv.residual > iv.tol:
+    boundary = boundary_indices(intervals)
+    for i, iv in enumerate(intervals):
+        if iv.residual > iv.tol and i not in boundary:
             events.append((iv.start, 0, "B", iv.residual, None))        # untraced inflow, unknown cost
     for a in alert_only:
         events.append((a.move_date, 0 if a.side == "B" else 1, a.side, a.qty, None))
@@ -426,6 +442,16 @@ def compute_isin_state(
         if "pre_history_exceeds" not in pos.flags and "ledger_exceeds_statement" not in pos.flags:
             pos.flags.append("ledger_exceeds_statement")
         consume(-residual)          # drop the oldest excess units; statement quantity wins
+
+    # Units with no trade whose tranche terms are published (SGBs) cost the issue price from the issue date.
+    from app.ledger.sgb import issue_terms
+    terms = issue_terms(isin)
+    if terms:
+        for l in lots:
+            if l[1] is None:
+                l[1], l[2] = terms[1], terms[0]
+                if "issue_price_cost" not in pos.flags:
+                    pos.flags.append("issue_price_cost")
 
     pos.known_qty = sum((l[0] for l in lots if l[1] is not None), ZERO)
     pos.unknown_qty = sum((l[0] for l in lots if l[1] is None), ZERO)

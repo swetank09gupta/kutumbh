@@ -18,7 +18,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.ledger import rules
@@ -228,7 +228,7 @@ def canonicalize_isins(db: Session) -> dict:
     for r in db.query(InstrumentTrade).filter(InstrumentTrade.isin.isnot(None)).all():
         parts = (r.natural_key or "").split("|")
         orig = parts[2] if len(parts) > 2 and len(parts[2]) == 12 and parts[2][:2] == "IN" else r.isin
-        want = aliases.get((r.owner_id, orig), orig)
+        want = r.isin_override or aliases.get((r.owner_id, orig), orig)
         if r.isin != want:
             r.isin = want
             repointed += 1
@@ -237,7 +237,14 @@ def canonicalize_isins(db: Session) -> dict:
                     .update({"isin": want}, synchronize_session=False)
     if repointed:
         db.flush()
-    return {"aliases": len(aliases), "trades_repointed": repointed, "cashflows_repointed": cashflows}
+    # Every trade's cashflow row carries the trade's ISIN (a Coin mail names the fund but not
+    # the ISIN; the ledger resolved it, the cashflow row must say the same or per-fund returns
+    # silently lose that money).
+    synced = db.execute(text(
+        "UPDATE transactions t SET isin = i.isin FROM instrument_trades i "
+        "WHERE i.txn_fingerprint = t.fingerprint AND i.isin IS NOT NULL AND t.isin IS DISTINCT FROM i.isin")).rowcount
+    return {"aliases": len(aliases), "trades_repointed": repointed, "cashflows_repointed": cashflows,
+            "cashflow_isins_synced": synced}
 
 
 def learn_twin_aliases(db: Session, led: OwnerLedger) -> int:
@@ -268,6 +275,29 @@ def learn_twin_aliases(db: Session, led: OwnerLedger) -> int:
         if len(keepers) == 1 and trade_isin not in existing and trade_isin not in depo:
             db.add(IsinAlias(owner_id=oid, alias_isin=trade_isin, isin=next(iter(keepers)), votes=1))
             learned += 1
+
+    # Mirror residuals are evidence for ONE trade, not for a whole ISIN: the same fund can sit
+    # under two ISINs (Coin and the depository), and a fund renamed in a Coin mail can resolve to
+    # the wrong sibling. Re-point exactly the trade that explains the mirrored residual.
+    for mine, theirs in ((neg_res, pos_res), (pos_res, neg_res)):
+        for key, trade_isin in mine.items():
+            keeper = theirs.get(key)
+            if not keeper or keeper == trade_isin or keeper not in depo:
+                continue
+            st = led.states.get(trade_isin)
+            if st is None:
+                continue
+            end, q = key
+            for iv in st.intervals:
+                if iv.end != end or iv.reconciled or abs(abs(iv.residual) - q) > Decimal("0.001"):
+                    continue
+                hit = [t for t in iv.trades if abs(t.signed + iv.residual) <= Decimal("0.001")]
+                if len(hit) != 1:
+                    continue
+                row = db.get(InstrumentTrade, uuid.UUID(hit[0].id))
+                if row is not None and row.isin_override != keeper:
+                    row.isin_override = keeper
+                    learned += 1
     if learned:
         db.flush()
     return learned
@@ -393,12 +423,10 @@ def _interval_findings(led: OwnerLedger) -> list[Finding]:
         ivs = st.intervals
         # A trade straddling a month-end (settles on the 1st) shows as +q in one interval and
         # -q in the next. The pair cancels: report it as information, not as two errors.
-        boundary: set[int] = set()
+        boundary = rules.boundary_indices(ivs)
         for i in range(len(ivs) - 1):
             a, b = ivs[i], ivs[i + 1]
-            if (not a.reconciled and not b.reconciled and abs(a.residual + b.residual) <= a.tol
-                    and abs(a.residual) > a.tol):
-                boundary.update((i, i + 1))
+            if i in boundary and i + 1 in boundary and abs(a.residual + b.residual) <= a.tol and not a.reconciled:
                 out.append(Finding(
                     "settlement_boundary", "info", oid, isin, nm, b.start,
                     f"{a.residual:+} in {a.start}→{a.end} and {b.residual:+} in {b.start}→{b.end} cancel: "

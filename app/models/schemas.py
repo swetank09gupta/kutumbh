@@ -348,6 +348,7 @@ class InstrumentTrade(Base):
     natural_key      = Column(String(300), nullable=False, unique=True)
     txn_fingerprint  = Column(String(64))              # link to the cashflow row in transactions
     settled_movement_id = Column(UUID(as_uuid=True))   # DematMovement that settled it (set by reconcile)
+    isin_override    = Column(String(12))              # this one trade belongs to another ISIN of the scheme (learned)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -457,6 +458,29 @@ class BankAlertRow(Base):
     matched_txn_id = Column(UUID(as_uuid=True))
     natural_key    = Column(String(300), nullable=False, unique=True)
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class LoanAnchor(Base):
+    """
+    What the lender says is still owed, straight from its own letter (HDFC part-prepayment
+    confirmation: "principal outstanding after this prepayment ... will be Rs. N"). The newest
+    anchor, rolled forward by the EMIs debited since, is the loan liability in net worth.
+    """
+    __tablename__ = "loan_anchors"
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id        = Column(String(20), nullable=False)
+    lender          = Column(String(20), nullable=False)
+    loan_no         = Column(String(30), nullable=False)
+    as_on           = Column(Date, nullable=False)
+    prepaid         = Column(Numeric(15, 2))
+    principal_after = Column(Numeric(15, 2), nullable=False)
+    emi             = Column(Numeric(15, 2))
+    rate            = Column(Numeric(6, 3))
+    emis_left       = Column(Integer)
+    source_file     = Column(String(300))
+    natural_key     = Column(String(120), nullable=False, unique=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class PayeeMemory(Base):

@@ -117,6 +117,10 @@ Also handled: **"Purchase confirmation"** (Coin v3, 2025+; same block layout as 
 
 **File:** `app/ingestion/parsers/bank_alert.py` — body-only mails from `hdfcbank.bank.in` / `hdfcbank.net` / `alerts.sbi.bank.in`, parsed straight from IMAP into `bank_alerts` (nothing saved under `data/raw`). Evidence only; see ADR-0025. Supported templates: HDFC UPI debit ("You have done a UPI txn") and credit, ACH/UMRN debit, "New Deposit Alert"; SBI "Debited/Credited INR … -<narration>. Avl Bal", NACH debit, "has credit/debit for UPI/…", NEFT originated/received (UTR), standing-instruction "Transaction success". Anything else (TDS, interest certificates, marketing) is ignored.
 
+## HDFC home-loan prepayment letters
+
+**File:** `app/ingestion/parsers/loan_letter.py` (fetched by `loan_fetcher.py`) — PDF attached to "Prepayment Letter - HDFC Bank Ltd Home Loan" mails. Only the *receipt* wording ("We are in receipt of Rs. N towards Part prepayment") is an event; the enquiry wording is a quote and is skipped. Gives loan number, date, amount prepaid, principal outstanding afterwards, revised EMI, rate and EMIs left.
+
 ## CDSL transaction alerts
 
 **File:** `app/ingestion/parsers/cdsl_alert.py` — body-only mails from `services@cdslindia.co.in`, subject "Transactions In Your Demat Account": one row per ISIN with units, Credit/Debit and timestamp, plus the demat suffix (`*08489463`). Quantity only (no price, no amount), so they are stored as demat movements for the ledger and never become cashflows. Saved as `<date>_cdslalert_<id>.html`.

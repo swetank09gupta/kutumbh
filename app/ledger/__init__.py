@@ -14,6 +14,13 @@ def refresh(db) -> dict:
     """
     out: dict = {}
     try:
+        from app.ledger.derive import derive_all
+        out["derive"] = derive_all(db)
+    except Exception as exc:
+        logger.error("Deriving trades from demat evidence failed: %s", exc, exc_info=True)
+        db.rollback()
+        out["derive"] = {"error": str(exc)}
+    try:
         from app.ledger.engine import reconcile
         out["reconcile"] = reconcile(db)
     except Exception as exc:

@@ -7,7 +7,8 @@ Run after every full-sync or reprocess to keep derived state honest:
   2. dedup_unknown_accounts — merge "unknown"-ref account rows into canonical
   3. backfill_coin_isins    — tag Coin txns with ISIN from AMFI
   4. refresh_mf_navs        — restamp MF holdings to today's NAVs
-  5. synth_ghost_redemptions — synthetic break-even credits for redeemed funds
+  5. purge_synthetic_redemptions — remove invented break-even credits an older version left (none are created now)
+  5b. loan_outstanding      — home-loan liability from the lender's prepayment letters (app.engine.loan)
   6. recategorize           — re-run categorizer on every txn (catches rule updates)
 
 Each step is independent and safe to skip on error. Returns a dict of counts
@@ -212,69 +213,18 @@ def _refresh_mf_navs(db: Session) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Ghost redemption synthesis
 # ─────────────────────────────────────────────────────────────────────────────
-_SYNTH_REF_PREFIX = "SYNTH:"
-_SYNTH_DESC = "[SYNTH] break-even redemption (missing email)"
-
-
-def _synth_ghost_redemptions(db: Session) -> dict[str, int]:
-    coin_accts = db.query(Account).filter(Account.institution.ilike("%Coin%")).all()
-    if not coin_accts:
-        return {"ghost_funds": 0, "synth_credit": 0}
-    today = date.today()
-    synth_total = 0.0
-    n_ghosts = 0
-    for coin in coin_accts:
-        # Wipe prior synth rows (idempotent re-runs).
-        db.query(Transaction).filter(
-            Transaction.account_id == coin.id,
-            Transaction.reference_number.like(f"{_SYNTH_REF_PREFIX}%"),
-        ).delete(synchronize_session=False)
-        rows = db.query(
-            Transaction.isin,
-            func.sum(Transaction.amount),
-            func.max(Transaction.date),
-        ).filter(
-            Transaction.account_id == coin.id,
-            Transaction.transaction_type == "debit",
-            Transaction.isin.isnot(None),
-        ).group_by(Transaction.isin).all()
-        # Real redemptions already on file for each ISIN. The synthetic credit only
-        # covers what is still unaccounted for — otherwise a fund with a genuine
-        # redemption e-mail would be credited twice and its XIRR inflated.
-        credited = {
-            isin: Decimal(str(total or 0))
-            for isin, total in db.query(Transaction.isin, func.sum(Transaction.amount)).filter(
-                Transaction.account_id == coin.id,
-                Transaction.transaction_type == "credit",
-                Transaction.isin.isnot(None),
-            ).group_by(Transaction.isin).all()
-        }
-        # Holdings currently held under same owner.
-        from app.engine.holdings_view import latest_holdings
-        held = latest_holdings(db, owner_ids=[coin.owner_id])
-        held_isins = {h.isin for h in held if h.holding_type == "mutual_fund" and h.isin}
-        for isin, total, last_buy in rows:
-            if isin in held_isins:
-                continue
-            amount = Decimal(str(total or 0)) - credited.get(isin, Decimal(0))
-            if amount <= 0:
-                continue
-            synth_date = min(last_buy + timedelta(days=90), today)
-            ref = f"{_SYNTH_REF_PREFIX}{isin}"
-            fp  = transaction_fingerprint(
-                str(coin.id), synth_date, amount, "credit", _SYNTH_DESC, ref,
-            )
-            db.add(Transaction(
-                account_id=coin.id, date=synth_date,
-                amount=amount, transaction_type="credit",
-                description=_SYNTH_DESC, raw_description=_SYNTH_DESC,
-                reference_number=ref, isin=isin,
-                fingerprint=fp,
-            ))
-            n_ghosts += 1
-            synth_total += float(amount)
+def _purge_synthetic_redemptions(db: Session) -> dict[str, int]:
+    """
+    Earlier versions invented a break-even redemption 90 days after the last buy of any fund that
+    was no longer held. A made-up credit is not evidence (it assumed a 0% return), so none is
+    created any more: a sale is a trade (Coin mail, tradebook, or derived from the demat line and
+    the NAV, app.ledger.derive) or the fund is reported as having no purchase history. This only
+    removes rows an older run left behind.
+    """
+    n = db.query(Transaction).filter(Transaction.reference_number.like("SYNTH:%")).delete(synchronize_session=False)
     db.commit()
-    return {"ghost_funds": n_ghosts, "synth_credit": int(synth_total)}
+    return {"removed": n}
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -283,7 +233,7 @@ def _synth_ghost_redemptions(db: Session) -> dict[str, int]:
 def _recategorize(db: Session) -> dict[str, int]:
     # Only touch rows with a missing category — the normalizer already categorizes
     # on insert, so the only uncategorized rows are those created by other maintenance
-    # steps (e.g. SYNTH rows from _synth_ghost_redemptions).
+    # steps.
     # Full re-categorization after rule updates is handled by POST /api/sync/recategorize.
     from sqlalchemy import or_
     rows = db.query(Transaction).filter(
@@ -343,6 +293,11 @@ def _txn_retag(db: Session) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
+def _loan_outstanding(db: Session) -> dict:
+    from app.engine.loan import apply_loan_anchors
+    return apply_loan_anchors(db)
+
+
 def run_all(db: Session) -> dict[str, Any]:
     """Run every post-sync maintenance step. Each is wrapped in try/except so
     one failure doesn't sink the others. Returns counts for surfacing in the
@@ -356,7 +311,8 @@ def run_all(db: Session) -> dict[str, Any]:
         ("txn_dedupe",              _txn_dedupe),
         ("txn_pair_transfers",      _txn_pair_transfers),
         ("refresh_mf_navs",         _refresh_mf_navs),
-        ("synth_ghost_redemptions", _synth_ghost_redemptions),
+        ("purge_synthetic_redemptions", _purge_synthetic_redemptions),
+        ("loan_outstanding",        _loan_outstanding),
         ("recategorize",            _recategorize),
         ("txn_retag",               _txn_retag),   # last: one authority decides every category
     ]

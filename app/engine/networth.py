@@ -24,11 +24,22 @@ ZERO = Decimal(0)
 
 
 def _latest_balance(db: Session, account_id, as_of: date | None = None) -> Decimal:
-    q = db.query(Balance.balance).filter_by(account_id=account_id)
+    q = db.query(Balance.balance, Balance.snapshot_date).filter_by(account_id=account_id)
     if as_of:
         q = q.filter(Balance.snapshot_date <= as_of)       # history: what the statement said back then
     row = q.order_by(Balance.snapshot_date.desc()).first()
-    return row[0] if row else ZERO
+    stmt_bal, stmt_date = (row[0], row[1]) if row else (ZERO, None)
+    if as_of is None or as_of >= date.today():
+        # Today: statements arrive weeks late, bank alerts the same minute. When an alert is newer
+        # than the newest statement balance, it is the better answer (ADR-0025).
+        from app.models.schemas import Account
+        from app.txn.alert_recon import alert_balance
+        acc = db.get(Account, account_id)
+        if acc is not None and acc.account_type == "bank":
+            fresh = alert_balance(db, acc)
+            if fresh and stmt_date is not None and fresh[1] > stmt_date:    # refines a statement-tracked account
+                return fresh[0]
+    return stmt_bal
 
 
 def _latest_holdings_value(db: Session, account_id) -> Decimal:
@@ -197,6 +208,11 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
         if snap_date < date.today() and asset.start_date and asset.start_date > snap_date:
             continue
         val = asset.current_value or ZERO
+        if asset.asset_type == "liability" and asset.institution == "HDFC" and snap_date < date.today():
+            from app.engine.loan import principal_on             # what was owed THEN, from the lender's letters
+            then = principal_on(db, owner_id, snap_date, asset.invested_amount)
+            if then is not None:
+                val = -then
         if asset.asset_type == "liability" or val < ZERO:
             total_liabilities += abs(val)
         elif asset.asset_type == "ppf":
@@ -245,7 +261,7 @@ def snapshot_all(db: Session) -> list[dict]:
     return results
 
 
-def backfill_snapshots(db: Session) -> int:
+def backfill_snapshots(db: Session, force: bool = False) -> int:
     """
     Compute and persist historical net-worth snapshots for every date where
     we have dated holding data (e.g. monthly CDSL CAS snapshots).
@@ -268,7 +284,7 @@ def backfill_snapshots(db: Session) -> int:
     created = 0
 
     for snap_date in all_dates:
-        if snap_date in existing:
+        if snap_date in existing and not force:
             continue  # already computed
 
         family = {
