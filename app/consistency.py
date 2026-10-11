@@ -204,11 +204,22 @@ def unreviewed_payees(db: Session) -> dict:
                   "warn", rows=n)
 
 
+def alerts_match_statements(db: Session) -> dict:
+    """An alert inside a statement's date range with no matching row = the statement parse lost a transaction."""
+    from app.txn.alert_recon import reconcile_alerts
+    r = reconcile_alerts(db)
+    return _check("alerts_have_statement_rows", r["unmatched"] == 0,
+                  f"Every bank alert inside a statement period has its statement row "
+                  f"({r['matched']} matched, {r['pending']} awaiting statements)" if r["unmatched"] == 0 else
+                  f"{r['unmatched']} bank alerts have no row in a statement that covers their date — see /api/health/alerts",
+                  "warn", **r)
+
+
 CHECKS: list[Callable[[Session], dict]] = [
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
-    data_freshness, unreviewed_payees,
+    data_freshness, unreviewed_payees, alerts_match_statements,
 ]
 
 

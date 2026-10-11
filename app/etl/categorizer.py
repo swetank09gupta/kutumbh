@@ -44,7 +44,7 @@ def _load_employer_salary_rules() -> list[tuple[re.Pattern, Category]]:
 # Ordered — first match wins
 _RULES: list[tuple[re.Pattern, Category]] = [
     # ── ATM / Cash — checked FIRST so location names don't trigger income rules ─
-    (re.compile(r"atm\s+wd|cash\s+withdrawal|atm\s+cash|atm\s+withdrawal|atw", re.I),
+    (re.compile(r"atm\s+wd|cash\s+withdrawal|atm[-\s]*cash|atm\s+withdrawal|atw", re.I),
      Category("cash", None)),
 
     # ── Income ────────────────────────────────────────────────────────────────

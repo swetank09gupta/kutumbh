@@ -162,6 +162,15 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
 
             fetch_thread.join()
 
+        # Bank alert e-mails: evidence for what the statements have not delivered yet.
+        # A failure here must never block the statement pipeline.
+        try:
+            from app.ingestion.alert_fetcher import ingest_alerts
+            totals["alerts"] = ingest_alerts(db, since_days=max(since_days, 7))
+        except Exception as exc:
+            logger.error("Bank alert ingestion failed: %s", exc, exc_info=True)
+            db.rollback()
+
         # Maintenance and snapshot run once over the full dataset.
         # Ledger first: it rebuilds today's holdings, which the snapshot reads.
         from app.ledger import refresh as _ledger_refresh

@@ -430,6 +430,35 @@ class StatementBalance(Base):
     __table_args__ = (UniqueConstraint("owner_id", "family", "as_on", "isin", name="uq_statement_balance"),)
 
 
+class BankAlertRow(Base):
+    """
+    One bank alert e-mail (HDFC Insta Alert, SBI CBSSBI/NEFT/YONO). Evidence only — it is never
+    counted as spending or income. app.txn.alert_recon links it to the statement row that later
+    confirms it (status 'matched'), leaves it 'pending' while the statement has not arrived, and
+    flags 'unmatched' when the statement covers the date but has no such row (a parse gap).
+    """
+    __tablename__ = "bank_alerts"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id       = Column(String(20), nullable=False)
+    bank           = Column(String(10), nullable=False)
+    account_last4  = Column(String(4))
+    direction      = Column(String(6), nullable=False)
+    amount         = Column(Numeric(15, 2), nullable=False)
+    txn_date       = Column(Date, nullable=False)
+    kind           = Column(String(10), nullable=False)
+    payee          = Column(String(200))
+    vpa            = Column(String(120))
+    ref            = Column(String(80))
+    balance_after  = Column(Numeric(15, 2))
+    narration      = Column(String(300))
+    sent_at        = Column(DateTime(timezone=True))
+    status         = Column(String(10), nullable=False, default="new")   # new|matched|pending|unmatched|dup|outside|untracked
+    matched_txn_id = Column(UUID(as_uuid=True))
+    natural_key    = Column(String(300), nullable=False, unique=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class PayeeMemory(Base):
     """
     What a payee (UPI/IMPS counterparty) is, learned once and applied everywhere.

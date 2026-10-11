@@ -28,3 +28,4 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0022](0022-tradebook-import-strategy.md) | Tradebook import strategy — exact dates over AGTS annual aggregates | Accepted |
 | [0023](0023-instrument-ledger.md) | Instrument ledger — trades for cost/dates, statements for quantity, reconciliation between | Accepted |
 | [0024](0024-single-definitions-and-consistency.md) | One definition per number, one authority per tag, and a guard that proves they agree | Accepted |
+| [0025](0025-bank-alerts-as-evidence.md) | Bank alert e-mails are evidence, not cashflow | Accepted |

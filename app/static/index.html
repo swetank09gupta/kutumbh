@@ -492,6 +492,12 @@
         </select>
       </div>
 
+      <div class="card" id="alerts-card" style="margin-bottom:16px;display:none">
+        <div class="card-title" style="margin:0 0 2px">Since the last statement <span id="alerts-count" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From bank alert e-mails. These are not in any total above until the statement arrives, then they are matched to it.</div>
+        <div id="alerts-body"></div>
+      </div>
+
       <div class="card" id="review-card" style="margin-bottom:16px;display:none">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="card-title" style="margin:0 0 2px">Label payees <span id="review-count" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
@@ -1283,7 +1289,7 @@ function nav(id, opts = {}) {
 
   if (id === 'overview')     { loadNetworth(); loadCashflow(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
-  if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); }
+  if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
   if (id === 'goals')        { loadGoals(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
   if (id === 'accounts')     { loadAccounts(); }
@@ -1323,7 +1329,7 @@ function switchOwner(o) {
   loadNetworth();
   loadCashflow();
   ['overview', 'transactions', 'investments'].forEach(refreshGrafana);
-  if (active === 'transactions') _applyTxPageFilter();
+  if (active === 'transactions') { _applyTxPageFilter(); loadAlerts(); }
   if (active === 'investments')  { loadHoldings(); loadPortfolioReturns(); }
 }
 
@@ -2870,6 +2876,7 @@ async function loadReview() {
         const sel = sug && sug.category === cat && (sug.subcategory || '') === sub ? 'selected' : '';
         return `<option value="${_esc(val)}" ${sel}>${_esc(sub ? cat + ' / ' + sub : cat)}</option>`;
       }).join('');
+      const chosen = !!sug;
       const money = [r.debit_total ? `out ₹${fmt(r.debit_total)}` : '', r.credit_total ? `in ₹${fmt(r.credit_total)}` : ''].filter(Boolean).join(' · ');
       return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1e2738;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
@@ -2877,8 +2884,9 @@ async function loadReview() {
           <div style="font-size:11px;color:#64748b">${r.count}× · ${money} · last ${_esc(r.last_date)}</div>
           <div style="font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px">${_esc(r.sample)}</div>
         </div>
-        <select id="review-sel-${i}" style="font-size:12px;min-width:200px">${opts}</select>
-        <button class="btn btn-primary btn-sm" onclick="applyLabel(${i})">Apply</button>
+        <select id="review-sel-${i}" style="font-size:12px;min-width:200px" onchange="$('review-apply-${i}').disabled = !this.value">
+          <option value="" ${chosen ? '' : 'selected'}>Choose a category…</option>${opts}</select>
+        <button class="btn btn-primary btn-sm" id="review-apply-${i}" ${chosen ? '' : 'disabled'} onclick="applyLabel(${i})">Apply</button>
       </div>`;
     }).join('');
   } catch (e) { card.style.display = 'none'; }
@@ -2896,7 +2904,9 @@ async function suggestLabels() {
 
 async function applyLabel(i) {
   const r = _reviewRows[i];
-  const [category, subcategory] = $('review-sel-' + i).value.split('|');
+  const picked = $('review-sel-' + i).value;
+  if (!picked) return;
+  const [category, subcategory] = picked.split('|');
   try {
     const out = await apiFetch('/api/transactions/review/label', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2905,6 +2915,30 @@ async function applyLabel(i) {
     toast(`Labelled: ${out.transactions_updated} payments updated`);
     loadReview(); _applyTxPageFilter(); loadCashflow(); loadHealth();
   } catch (e) { toast(e.message, true); }
+}
+
+/* ── bank alerts: what happened since the last statement ────────── */
+async function loadAlerts() {
+  const card = $('alerts-card');
+  if (!card) return;
+  try {
+    const a = await apiFetch('/api/health/alerts');
+    const owner = _currentOwner;
+    const keep = r => owner === 'family' || r.owner === owner;
+    const rows = a.pending.filter(keep);
+    const untracked = a.accounts_without_statements.filter(keep);
+    if (!rows.length && !untracked.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const out = rows.filter(r => r.direction === 'debit').reduce((n, r) => n + r.amount, 0);
+    const inn = rows.filter(r => r.direction === 'credit').reduce((n, r) => n + r.amount, 0);
+    $('alerts-count').textContent = rows.length ? `· ${rows.length} payments · out ₹${fmt(out)} · in ₹${fmt(inn)}` : '';
+    $('alerts-body').innerHTML =
+      (rows.length ? `<table style="width:100%;font-size:12px"><tbody>${rows.slice(0, 12).map(r => `<tr>
+          <td style="color:#64748b;white-space:nowrap">${fmtDate(r.date)}</td><td>${_esc(r.bank)} ${_esc(r.account || '')}</td>
+          <td>${_esc(r.payee || r.kind)}</td>
+          <td style="text-align:right;color:${r.direction === 'debit' ? '#fca5a5' : '#86efac'}">${r.direction === 'debit' ? '−' : '+'}₹${fmt(r.amount)}</td></tr>`).join('')}</tbody></table>` : '') +
+      (untracked.length ? `<div style="margin-top:10px;font-size:11px;color:#94a3b8">Accounts that send alerts but whose statements are never received (not in net worth unless added manually): ${untracked.map(u => `${_esc(u.bank)} …${_esc(u.account)} ₹${fmt(u.last_balance)} (${fmtDate(u.as_of)})`).join(' · ')}</div>` : '');
+  } catch (e) { card.style.display = 'none'; }
 }
 
 /* ── consistency banner: every page must agree, or say why not ──── */
