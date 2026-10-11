@@ -20,6 +20,13 @@ class ParsedTransaction:
     balance_after:    Optional[Decimal] = None
     counterparty:     Optional[str]  = None
     isin:             Optional[str]  = None  # set for equity demat transactions
+    # Instrument-ledger fields (set for equity/MF trades and demat movements)
+    quantity:         Optional[Decimal] = None  # shares / units traded or moved
+    price:            Optional[Decimal] = None  # gross per-unit price / NAV
+    running_qty:      Optional[Decimal] = None  # demat balance after this movement
+    kind:             Optional[str]  = None  # contract_note | coin | tradebook | demat
+    seq:              Optional[int]  = None  # line order within one ISIN block of a demat statement
+    settle_date:      Optional[date] = None  # contract notes print the settlement date
 
 
 @dataclass
@@ -86,7 +93,7 @@ class BaseParser:
 
     # Bump when the ParseResult / Parsed* dataclasses change shape — invalidates
     # all cached pickles so we don't deserialize stale schemas.
-    _CACHE_SCHEMA = "v1"
+    _CACHE_SCHEMA = "v9"  # v9: tradebook qty/price/kind; v8: Coin purchase-confirmation + redemption mails; v7: 2021 holdings layout; v6/v5: as-on dates; v4: demat movements = balance deltas; v3: contract-note text layouts; v2: ledger fields
 
     def __init__(self, pdf_password: str = ""):
         self.pdf_password = pdf_password

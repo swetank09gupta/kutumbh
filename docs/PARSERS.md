@@ -86,6 +86,13 @@ Three CSV types detected by filename / column headers:
 
 ISIN values in the holdings CSV are used to join Coin mutual fund transactions via the AMFI NAV file.
 
+**Contract-note PDFs** come in three layouts, all feeding the instrument ledger (quantity, price, trade no, printed settlement date):
+- table layout (mid-2024+): per-ISIN buy/sell columns
+- text-line layout (2022 → mid-2024): `order# time trade# time SYMBOL - EQ / B NSE qty rate net (total)` with the ISIN on the next line
+- text-line layout with `SYMBOL-EQ/ISIN` in one cell
+
+**Monthly demat statement** (`…-sot.pdf`, `transaction-with-holding-statement`): the true date is "Holdings as on …". Movement lines are recorded as the change in the Balance column (Zerodha's "Early Pay-in" lines list a debit and its reversal while the balance does not move). The 2021 layout (`HOLDING AS ON dd/mm/yyyy`, collapsed columns) has its own deterministic parser — the LLM fallback once read the ₹ value column as units. Closing balances are stored per statement family in `statement_balances` (Zerodha / CDSL), never merged: CDSL also lists holdings outside this demat.
+
 ---
 
 ## Zerodha Coin
@@ -101,6 +108,14 @@ Tabular PDF — one row per allotment/redemption with scheme name, units, NAV, a
 Block-style PDF — per-fund sections with Folio number, NAV, ₹ amount, and unit count on separate lines. The parser matches fund names to AMFI ISINs via `NAVAll.txt` to enable XIRR calculation.
 
 If old-format rows are detected they take priority (they're more reliable). The new-format parser falls back gracefully if blocks don't parse.
+
+Also handled: **"Purchase confirmation"** (Coin v3, 2025+; same block layout as the new format) and **"mutual fund redemption has been processed"** (a `Fund Settl. type Units Nav Amount` table — the one that carries units, NAV and amount for a sale). "Your sell order was processed" is deliberately skipped (it restates the redemption mail). "Order placed" / SIP-placed / IPO-not-allotted / AMC notices carry no trade and are ignored. The filename has no year ("Tue,_06_May_…"); the year is the latest one in which that day falls on that weekday.
+
+---
+
+## CDSL transaction alerts
+
+**File:** `app/ingestion/parsers/cdsl_alert.py` — body-only mails from `services@cdslindia.co.in`, subject "Transactions In Your Demat Account": one row per ISIN with units, Credit/Debit and timestamp, plus the demat suffix (`*08489463`). Quantity only (no price, no amount), so they are stored as demat movements for the ledger and never become cashflows. Saved as `<date>_cdslalert_<id>.html`.
 
 ---
 

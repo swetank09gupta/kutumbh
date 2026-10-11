@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -130,6 +131,7 @@ class ZerodhaParser(BaseParser):
                 reference_number=trade_id or None,
                 counterparty=symbol,
                 isin=isin or None,
+                quantity=qty, price=price, kind="tradebook",
             ))
 
         return ParseResult(
@@ -143,6 +145,7 @@ class ZerodhaParser(BaseParser):
         transactions: list[ParsedTransaction] = []
 
         parse_warnings: list[str] = []
+        statement_date = None
 
         with self._open_pdf(path) as pdf:
             full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
@@ -170,9 +173,14 @@ class ZerodhaParser(BaseParser):
             if is_contract_note:
                 transactions = self._parse_contract_note(pdf, path)
             elif is_monthly:
-                holdings, transactions = self._parse_monthly_demat(pdf)
+                holdings, transactions, statement_date = self._parse_monthly_demat(pdf)
             else:
                 holdings = self._parse_generic_pdf(pdf)
+
+        # 2021 layout: "HOLDING AS ON dd/mm/yyyy" with whitespace-collapsed columns. Parse it
+        # deterministically — the LLM fallback once read the ₹ value column as units.
+        if not holdings and not is_contract_note:
+            holdings = self._parse_old_layout_holdings(full_text)
 
         # If the PDF contains a holdings section but regex extracted nothing, try LLM.
         has_holdings_section = bool(
@@ -202,15 +210,25 @@ class ZerodhaParser(BaseParser):
                 except Exception as exc:
                     logger.warning("Zerodha LLM holding conversion failed: %s — %s", rec, exc)
 
+        # Older layouts print "HOLDING AS ON 30/09/2021" (no ISO date). Without a statement
+        # date the snapshot would be filed under today's date and masquerade as the current
+        # position. Runs after the LLM fallback so holdings extracted that way are dated too.
+        if statement_date is None and holdings:
+            dm = re.search(r'Holdings?\s+as\s+on\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+                           full_text, re.I)
+            if dm:
+                statement_date = self._parse_date(dm.group(1), DATE_FMTS)
+
         return ParseResult(
             institution=self.institution, account_type="stocks",
             holdings=holdings, transactions=transactions,
             source_file=str(path),
             parse_warnings=parse_warnings,
             complete_holdings_snapshot=is_monthly and bool(holdings),
+            statement_date=statement_date,
         )
 
-    def _parse_monthly_demat(self, pdf) -> tuple[list[ParsedHolding], list[ParsedTransaction]]:
+    def _parse_monthly_demat(self, pdf) -> tuple[list[ParsedHolding], list[ParsedTransaction], Optional[date]]:
         """
         Monthly demat PDFs store all data as plain text, not tables.
         Transaction section: ISIN/Symbol header lines + dated transaction lines.
@@ -218,6 +236,7 @@ class ZerodhaParser(BaseParser):
         """
         holdings:     list[ParsedHolding]     = []
         transactions: list[ParsedTransaction] = []
+        as_on: Optional[date] = None   # "Holdings as on" date = the statement's true date
 
         ISIN_HDR_RE  = re.compile(r'ISIN:\s*([A-Z]{2}[A-Z0-9]{9}[0-9])\s+Symbol:\s*(\S+)', re.I)
         # Last 3 decimal numbers = buy_qty, sell_qty, balance
@@ -225,6 +244,7 @@ class ZerodhaParser(BaseParser):
             r'^(\d{4}-\d{2}-\d{2})\s+(.+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s+(\d+\.\d+)\s*$'
         )
         HOLDINGS_RE  = re.compile(r'Holdings as on (\d{4}-\d{2}-\d{2})', re.I)
+        OPENING_RE   = re.compile(r'^Opening\s+balance\s*:?\s*([\d,]+(?:\.\d+)?)', re.I)
         # ISIN + company name (non-greedy) + 9 decimal numbers.
         # Requires explicit decimal point in each number so that integer-like
         # tokens in bond names (e.g. "GOI SGB 30898 2029") are not parsed
@@ -244,6 +264,8 @@ class ZerodhaParser(BaseParser):
 
         current_isin   = None
         current_symbol = None
+        line_seq       = 0
+        prev_balance: Optional[Decimal] = None   # running balance before the next line of this ISIN
         in_holdings    = False
         holdings_lines: list[str] = []
 
@@ -256,6 +278,7 @@ class ZerodhaParser(BaseParser):
             if hm:
                 in_holdings  = True
                 current_isin = None
+                as_on = self._parse_date(hm.group(1), DATE_FMTS)
                 continue
 
             if in_holdings:
@@ -266,9 +289,14 @@ class ZerodhaParser(BaseParser):
             if im:
                 current_isin   = im.group(1)
                 current_symbol = im.group(2)
+                prev_balance   = None
                 continue
 
             if current_isin:
+                om = OPENING_RE.match(line)
+                if om:
+                    prev_balance = self._to_decimal(om.group(1))
+                    continue
                 tm = TXN_LINE_RE.match(line)
                 if tm:
                     date_val = self._parse_date(tm.group(1), DATE_FMTS)
@@ -276,20 +304,34 @@ class ZerodhaParser(BaseParser):
                         continue
                     buy_qty  = self._to_decimal(tm.group(3))
                     sell_qty = self._to_decimal(tm.group(4))
+                    balance  = self._to_decimal(tm.group(5))
 
-                    if buy_qty and buy_qty > 0:
-                        qty, txn_type = buy_qty, "credit"
-                    elif sell_qty and sell_qty > 0:
-                        qty, txn_type = sell_qty, "debit"
+                    # The Balance column is the truth. Lines such as "Early Pay-in" list a
+                    # debit and its reversal separately while the balance does not move, so
+                    # the movement is the change in balance, not the Buy/Sell columns.
+                    if prev_balance is not None and balance is not None:
+                        delta = balance - prev_balance
+                        prev_balance = balance
+                        if delta == 0:
+                            continue
+                        qty, txn_type = abs(delta), ("credit" if delta > 0 else "debit")
                     else:
-                        continue
+                        prev_balance = balance
+                        if buy_qty and buy_qty > 0:
+                            qty, txn_type = buy_qty, "credit"
+                        elif sell_qty and sell_qty > 0:
+                            qty, txn_type = sell_qty, "debit"
+                        else:
+                            continue
 
                     desc = f"DEMAT {txn_type.upper()} {qty} {current_symbol}"
                     transactions.append(ParsedTransaction(
                         date=date_val, amount=qty, transaction_type=txn_type,
                         description=desc, raw_description=tm.group(2).strip(),
                         counterparty=current_symbol, isin=current_isin,
+                        quantity=qty, running_qty=balance, kind="demat", seq=line_seq,
                     ))
+                    line_seq += 1
 
         # ── Merge continuation lines and parse holdings ───────────────────────
         merged: list[str] = []
@@ -345,7 +387,37 @@ class ZerodhaParser(BaseParser):
                 holding_type=htype,
             ))
 
-        return holdings, transactions
+        return holdings, transactions, as_on
+
+    _OLD_HOLDING_RE = re.compile(
+        r'^([A-Z]{2}[A-Z0-9]{9}[0-9])\s+(.+?)\s+([\d,]+\.\d+)\s+(?:[\d,]+\.\d+\s+)*([\d,]+\.\d+)\s+([\d,]+\.\d+)\s*$'
+    )
+
+    def _parse_old_layout_holdings(self, full_text: str) -> list[ParsedHolding]:
+        """
+        ISIN  NAME  CurrBal [FreeBal PldgBal ... Demat]  Rate  Value
+        Columns that are blank in the PDF collapse, so only the first number (units) and
+        the last two (rate, value) are positional.
+        """
+        start = re.search(r'HOLDINGS?\s+AS\s+ON', full_text, re.I)
+        if not start:
+            return []
+        out: list[ParsedHolding] = []
+        for line in full_text[start.end():].splitlines():
+            m = self._OLD_HOLDING_RE.match(line.strip())
+            if not m:
+                continue
+            isin, name = m.group(1), m.group(2).strip()
+            units, rate, value = (self._to_decimal(m.group(i)) for i in (3, 4, 5))
+            if not units or units <= 0:
+                continue
+            htype = "mutual_fund" if isin.startswith("INF") else "bonds" if isin.startswith("IN0") else "equity"
+            out.append(ParsedHolding(
+                instrument_name=name, symbol=name, isin=isin, units=units,
+                avg_cost_nav=rate, current_nav=rate, current_value=value or Decimal(0),
+                invested_value=None, holding_type=htype,
+            ))
+        return out
 
     # ── PDF — Contract Note (daily trade confirmation) ────────────────────────
     def _parse_contract_note(self, pdf, path: Path) -> list[ParsedTransaction]:
@@ -389,6 +461,17 @@ class ZerodhaParser(BaseParser):
                 seen.add(key)
                 unique.append(t)
 
+        # ── Plain-text layouts (2022 → mid-2024): pdfplumber finds no usable table ──
+        if not unique:
+            unique = self._parse_contract_note_text(all_text, trade_date)
+
+        # Contract notes print "Settlement Date: YYYY-MM-DD" — exact, no T+1 guessing.
+        sm = re.search(r'Settlement\s+Date\s*[:\-]?\s*(\d{4}-\d{2}-\d{2})', all_text, re.I)
+        settle = self._parse_date(sm.group(1), DATE_FMTS) if sm else None
+        if settle:
+            for t in unique:
+                t.settle_date = settle
+
         # ── LLM fallback if regex extracted nothing ───────────────────────────
         if not unique and len(all_text) > 300:
             logger.info("Contract note: trying LLM extraction for %s", path.name)
@@ -410,12 +493,64 @@ class ZerodhaParser(BaseParser):
                         date=trade_date, amount=amount, transaction_type=txn_type,
                         description=desc, raw_description=desc,
                         counterparty=symbol or None, isin=isin,
+                        quantity=qty, price=price, kind="contract_note",
                     ))
                 except Exception as exc:
                     logger.warning("LLM contract note trade conversion failed: %s — %s", rec, exc)
 
         logger.info("Contract note %s: %d trades on %s", path.name, len(unique), trade_date)
         return unique
+
+    # One trade per line:
+    #   2022: <order#> <time> <trade#> <time> LICI - EQ / B NSE 2 801.00 801.00 (1602.00)   + ISIN on next line
+    #   2024: <order#> <time> <trade#> <time> EMUDHRA-EQ/INE01QM01018 B NSE 3 875.00 875 (2625.00)
+    _CN_LINE_RE = re.compile(
+        r'^(\d{10,})\s+\d{2}:\d{2}:\d{2}\s+(\d+)\s+\d{2}:\d{2}:\d{2}\s+'
+        r'(?P<sec>.+?)\s+(?P<bs>[BS])\s+(?:NSE|BSE)\s+'
+        r'(?P<qty>[\d,]+(?:\.\d+)?)\s+(?P<gross>[\d,]+\.\d+)\s+(?P<net>[\d,]+(?:\.\d+)?)\s+'
+        r'\(?(?P<total>[\d,]+\.\d+)\)?\s*$'
+    )
+
+    def _parse_contract_note_text(self, all_text: str, trade_date) -> list[ParsedTransaction]:
+        lines = [ln.strip() for ln in all_text.splitlines()]
+        out: list[ParsedTransaction] = []
+        seen: set[tuple] = set()
+        for i, ln in enumerate(lines):
+            m = self._CN_LINE_RE.match(ln)
+            if not m:
+                continue
+            sec = m.group("sec").strip()
+            isin_m = re.search(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', sec)
+            isin = isin_m.group(0) if isin_m else None
+            if isin is None:
+                for nxt in lines[i + 1:i + 3]:
+                    if _ISIN_RE.match(nxt):
+                        isin = nxt
+                        break
+            symbol = re.sub(r'[A-Z]{2}[A-Z0-9]{9}[0-9]', '', sec)
+            symbol = re.sub(r'\s*[-/]\s*(EQ|BE|SM|BL|N\d)\b.*$', '', symbol, flags=re.I)
+            symbol = symbol.strip(' /-')
+            qty = self._to_decimal(m.group("qty"))
+            price = self._to_decimal(m.group("gross"))
+            total = self._to_decimal(m.group("total"))
+            if not qty or qty <= 0 or not price or not total:
+                continue
+            bs = m.group("bs")
+            trade_no = m.group(2)
+            key = (trade_no, bs, str(qty), str(price))
+            if key in seen:
+                continue
+            seen.add(key)
+            word = "BUY" if bs == "B" else "SELL"
+            out.append(ParsedTransaction(
+                date=trade_date, amount=total,
+                transaction_type="debit" if bs == "B" else "credit",
+                description=f"{word} {qty} × {symbol} @ {price}",
+                raw_description=symbol, counterparty=symbol or None,
+                reference_number=trade_no, isin=isin,
+                quantity=qty, price=price, kind="contract_note",
+            ))
+        return out
 
     def _parse_contract_note_table(
         self, table: list, trade_date
@@ -537,6 +672,7 @@ class ZerodhaParser(BaseParser):
                 counterparty=symbol or None,
                 reference_number=trade_no or None,
                 isin=isin,
+                quantity=qty, price=price, kind="contract_note",
             ))
 
         return transactions
@@ -624,6 +760,7 @@ class ZerodhaParser(BaseParser):
                     raw_description=symbol,
                     counterparty=symbol or None,
                     isin=isin,
+                    quantity=buy_qty, price=buy_price, kind="contract_note",
                 ))
 
             # Sell side
@@ -640,6 +777,7 @@ class ZerodhaParser(BaseParser):
                     raw_description=symbol,
                     counterparty=symbol or None,
                     isin=isin,
+                    quantity=sell_qty, price=sell_price, kind="contract_note",
                 ))
 
         return transactions

@@ -44,6 +44,13 @@ _FOLIO_NAV_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Your mutual fund redemption has been processed successfully" (2023–): one row per fund
+#   "... Fund Settl. type* Units Nav Amount Exit Load STT <FUND> T2 311.3640 121.1478 Rs. 37720.67 Rs. 0.00 Rs. 0.3800"
+_REDEEM_ROW_RE = re.compile(
+    r'(?P<fund>[A-Za-z0-9][^₹]*?)\s+T\d\s+(?P<units>[\d,]+\.\d+)\s+(?P<nav>[\d,]+\.\d+)\s+'
+    r'Rs\.\s*(?P<amt>[\d,]+(?:\.\d+)?)\s+Rs\.\s*[\d,.]+\s+Rs\.\s*[\d,.]+',
+)
+
 # Older Coin format (2021–2024): one row per allotment, columns separated by spaces.
 #   "2025-01-17 MOTILAL OSWAL MIDCAP FUND - DIRECT GROWTH 91061089716 Rs. 29998.5 Rs. 1.5 114.94 260.985"
 # Captures: trade_date | fund_name | folio | gross_amount | nav | units
@@ -82,10 +89,16 @@ class ZerodhaCoinParser(BaseParser):
         # Determine direction. "Allotment success" = buy (debit cashflow).
         # "Redemption" / "Redeem success" = sell (credit cashflow).
         upper = text.upper()
+        # "Your sell order was processed" only restates a redemption that a later
+        # "redemption has been processed" mail carries with units, NAV and amount — skip it
+        # rather than count the same sale twice.
+        if "SELL ORDER WAS PROCESSED" in upper:
+            return ParseResult(institution=self.institution, account_type=self.account_type,
+                               source_file=str(path))
         if "REDEMPTION" in upper or "REDEEM" in upper:
             txn_type = "credit"
             kind     = "REDEEM"
-        elif "ALLOTMENT" in upper:
+        elif "ALLOTMENT" in upper or "PURCHASE CONFIRMATION" in upper:
             txn_type = "debit"
             kind     = "BUY"
         else:
@@ -126,6 +139,7 @@ class ZerodhaCoinParser(BaseParser):
                     counterparty=fund or None,
                     reference_number=folio,
                     isin=_amfi_lookup_isin(fund),
+                    quantity=units, price=self._to_decimal(nav), kind="coin",
                 ))
             if transactions:
                 logger.info(
@@ -135,6 +149,29 @@ class ZerodhaCoinParser(BaseParser):
                     institution=self.institution, account_type=self.account_type,
                     transactions=transactions, source_file=str(path),
                 )
+
+        # ── Redemption table (2023+): "<fund> T2 <units> <nav> Rs. <amount> …" ──
+        if kind == "REDEEM":
+            tail_at = upper.find("EXIT LOAD STT")
+            tail = text[tail_at + len("Exit Load STT"):] if tail_at >= 0 else text
+            rows: list[ParsedTransaction] = []
+            for m in _REDEEM_ROW_RE.finditer(tail):
+                amt, units = self._to_decimal(m.group("amt")), self._to_decimal(m.group("units"))
+                fund = m.group("fund").strip()
+                if not amt or amt <= 0 or not units:
+                    continue
+                nav = m.group("nav")
+                rows.append(ParsedTransaction(
+                    date=trade_date, amount=amt, transaction_type="credit",
+                    description=f"REDEEM {units} units of {fund} @ NAV ₹{nav}"[:200],
+                    raw_description=fund, counterparty=fund,
+                    isin=_amfi_lookup_isin(fund),
+                    quantity=units, price=self._to_decimal(nav), kind="coin",
+                ))
+            if rows:
+                logger.info("Coin %s: %d REDEEM rows (processed format)", path.name, len(rows))
+                return ParseResult(institution=self.institution, account_type=self.account_type,
+                                   transactions=rows, source_file=str(path))
 
         # ── New format (mid-2024+): per-fund Folio/NAV + ₹amount/units blocks ─
         folio_navs = list(_FOLIO_NAV_RE.finditer(text))
@@ -180,6 +217,7 @@ class ZerodhaCoinParser(BaseParser):
                 counterparty=label or None,
                 reference_number=folio,
                 isin=_amfi_lookup_isin(fund_name) if fund_name else None,
+                quantity=units, price=self._to_decimal(nav) if nav else None, kind="coin",
             ))
 
         if transactions:
@@ -203,24 +241,22 @@ class ZerodhaCoinParser(BaseParser):
 
     @staticmethod
     def _extract_date_from_filename(path: Path) -> date | None:
-        # Filenames look like "Tue,_06_May_coin_<id>.html"
-        m = re.match(r'\w+,_(\d{2})_(\w{3})', path.name)
+        # Filenames look like "Tue,_06_May_coin_<id>.html": weekday, day, month — no year.
+        # Pick the most recent year (<= today) in which that day/month falls on that
+        # weekday; without this check a 2024 e-mail would be dated into the current year.
+        m = re.match(r'(\w{3}),_(\d{1,2})_(\w{3})', path.name)
         if not m:
             return None
-        for fmt in ["%d-%b-%Y", "%d-%b-%y"]:
+        weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        wd = weekdays.index(m.group(1).title()) if m.group(1).title() in weekdays else None
+        today = date.today()
+        for yr in range(today.year, today.year - 8, -1):
             try:
-                # Year is missing in filename — try current year, else current-1.
-                today = date.today()
-                for yr in (today.year, today.year - 1, today.year - 2):
-                    raw = f"{m.group(1)}-{m.group(2)}-{yr}"
-                    try:
-                        d = datetime.strptime(raw, fmt).date()
-                        if d <= today:
-                            return d
-                    except ValueError:
-                        continue
-            except Exception:
-                pass
+                d = datetime.strptime(f"{m.group(2)}-{m.group(3)}-{yr}", "%d-%b-%Y").date()
+            except ValueError:
+                continue
+            if d <= today and (wd is None or d.weekday() == wd):
+                return d
         return None
 
     @staticmethod
