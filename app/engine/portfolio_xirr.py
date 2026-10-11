@@ -230,8 +230,17 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             continue
         out = _manual_asset_cashflows(db, asset, today)
         if out is None:
-            skipped.append({"kind": "manual_asset", "name": asset.name or asset.asset_type,
-                            "reason": "no start_date or contributions"})
+            if asset.asset_type in ("ppf", "nps", "gold", "silver", "sgb"):
+                # Held and valued, but no dated contributions: it stays in the class value instead of
+                # vanishing from the page. PPF pays an administered rate, so like a deposit it is a balance;
+                # the market-linked ones count as "no purchase history" in the coverage.
+                positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
+                                          cls=asset.asset_type, current=float(asset.current_value or 0),
+                                          covered=False, goal_tag=asset.goal_tag,
+                                          deposit=asset.asset_type == "ppf"))
+            else:
+                skipped.append({"kind": "manual_asset", "name": asset.name or asset.asset_type,
+                                "reason": "no start_date or contributions"})
             continue
         cfs, _inv, current = out
         if current > 0 and cfs:
@@ -275,6 +284,8 @@ _MIN_ANNUALISE_DAYS = 365
 
 def summarise(positions: list[Position], today: date) -> dict:
     """Money-weighted return of the covered positions, and how much of the value that covers."""
+    balances = sum(p.current for p in positions if p.deposit)          # deposits / PPF: valued, no return
+    positions = [p for p in positions if not p.deposit]
     cov = [p for p in positions if p.covered]
     all_current = sum(p.current for p in positions)
     cov_current = sum(p.current for p in cov)
@@ -295,17 +306,19 @@ def summarise(positions: list[Position], today: date) -> dict:
     if churn:
         r = None
     parts = []
-    if all_current > 0 and cov_current < all_current:
+    if all_current > 0 and cov_current < all_current and (all_current - cov_current) > all_current * 0.005:
         gap = all_current - cov_current
-        parts.append(f"on {coverage * 100:.0f}% of the value — ₹{gap:,.0f} has no purchase history yet"
-                     if cov else "no purchase history for these holdings yet")
+        parts.append(f"return covers {coverage * 100:.0f}% of ₹{all_current:,.0f} — ₹{gap:,.0f} has no purchase history yet"
+                     if cov else f"₹{all_current:,.0f} held, no purchase history yet")
+    if balances > 0 and positions:
+        parts.append(f"plus ₹{balances:,.0f} held as a balance with no return derived (total ₹{all_current + balances:,.0f})")
     if churn:
         parts.append("money was held under a year on average — shown as plain gain, not annualised")
     elif r is None and invested > 0:
         parts.append("no annual rate fits these flows; see gain")
     note = "; ".join(parts) or None
     return {
-        "invested": round(invested, 2), "current": round(cov_current, 2), "current_all": round(all_current, 2),
+        "invested": round(invested, 2), "current": round(cov_current, 2), "current_all": round(all_current + balances, 2),
         "proceeds": round(proceeds, 2),
         "gain": round(profit, 2) if invested > 0 else None,
         "gain_pct": round(profit / invested * 100, 2) if invested > 0 else None,

@@ -91,9 +91,10 @@ def returns_match_holdings(db: Session) -> dict:
                 bad.setdefault(o, {})[cls] = {"returns": ret.get(cls, 0.0), "holdings": held.get(cls, 0.0)}
     nw = _latest_nw(db)
     for o in _owners(db):                                   # deposits: returns page value == net-worth value
-        fd = next((float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"] if c["class"] == "fd"), 0.0)
-        if o in nw and abs(fd - float(nw[o].fd_value or 0)) > TOL:
-            bad.setdefault(o, {})["fd"] = {"returns": fd, "net_worth": float(nw[o].fd_value or 0)}
+        by = {c["class"]: float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"]}
+        for cls, field in (("fd", "fd_value"), ("ppf", "ppf_value")):
+            if o in nw and abs(by.get(cls, 0.0) - float(getattr(nw[o], field) or 0)) > TOL:
+                bad.setdefault(o, {})[cls] = {"returns": by.get(cls, 0.0), "net_worth": float(getattr(nw[o], field) or 0)}
     return _check("returns_match_holdings", not bad,
                   "Returns page values equal the Investments table" if not bad else
                   "Returns page values differ from the Investments table", differences=bad)
