@@ -163,11 +163,15 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
             fetch_thread.join()
 
         # Maintenance and snapshot run once over the full dataset.
+        # Ledger first: it rebuilds today's holdings, which the snapshot reads.
+        from app.ledger import refresh as _ledger_refresh
+        ledger      = _ledger_refresh(db)
         snapshots   = snapshot_all(db)
         maintenance = _run_maintenance(db)
 
         result = {
             **totals,
+            "ledger":            ledger,
             "snapshots_updated": len(snapshots),
             "since_days":        since_days,
             "until_days":        until_days,
@@ -266,8 +270,10 @@ def _detect_institution(path: Path, pdf_password: str = "") -> str | None:
         "email_otp", "_otp_",
         # Quarterly/annual reports — not bank/MF statements
         "_q1_", "_q2_", "_q3_", "_q4_",
-        # Zerodha operational PDFs — not demat/trading statements
-        "margin-statement", "contract-note", "ledger",
+        # Zerodha operational PDFs — not demat/trading statements.
+        # (contract notes are NOT here: they are the source of trade date/price
+        # for the instrument ledger — see docs/adr/0023-instrument-ledger.md)
+        "margin-statement", "ledger",
     }
     if any(kw in name for kw in NON_STATEMENT_KEYWORDS):
         logger.info("Skipping non-statement file: %s", path.name)
@@ -290,7 +296,17 @@ def _detect_institution(path: Path, pdf_password: str = "") -> str | None:
     if "sbi" in name:    return "SBI"
     if "axis" in name:   return "Axis"
     if "union" in name:  return "Union Bank"
+    # Coin allotment/redemption e-mails are HTML bodies named "<date>_coin_<id>.html";
+    # they need ZerodhaCoinParser, not the Kite CSV/PDF parser.
+    if "_coin_" in name and path.suffix.lower() in (".html", ".htm"): return "Zerodha Coin"
+    if "_cdslalert_" in name and path.suffix.lower() in (".html", ".htm"): return "CDSL Alert"
     if "zerodha" in name or "kite" in name or "coin" in name: return "Zerodha"
+    if "contract-note" in name: return "Zerodha"
+    # Console tradebook exports (equity or MF). The ledger de-duplicates them against
+    # contract notes / Coin mails, so importing them only ever fills gaps.
+    if "tradebook" in name and path.suffix.lower() == ".csv": return "Zerodha"
+    # Zerodha "statement of transactions" PDFs (2025+ naming): <date>_<client>-<dp+boid>-sot.pdf
+    if name.endswith("-sot.pdf"): return "Zerodha"
     if "transaction-with-holding" in name or "holding-statement" in name: return "Zerodha"
     if "cams" in name or "kfintech" in name or "cas" in name: return "CAMS"
     # CDSL monthly CAS: MONYYYY_CASID_TXN.pdf  e.g. MAY2023_AA20662210_TXN.pdf
@@ -433,8 +449,8 @@ def _run_reprocess_bg() -> None:
                     logger.info("Reprocess: could not identify institution for %s — skipping", fpath.name)
                     continue
 
-                acct_type = ("mutual_fund" if institution in ("CAMS", "KFintech")
-                             else "demat"   if institution == "CDSL"
+                acct_type = ("mutual_fund" if institution in ("CAMS", "KFintech", "Zerodha Coin")
+                             else "demat"   if institution in ("CDSL", "CDSL Alert")
                              else "stocks"  if institution == "Zerodha"
                              else "bank")
 
@@ -453,6 +469,8 @@ def _run_reprocess_bg() -> None:
 
         logger.info("Reprocess: found %d local files to process", len(attachments))
         summary   = process_attachments(attachments, db)
+        from app.ledger import refresh as _ledger_refresh
+        ledger    = _ledger_refresh(db)
         snapshots = snapshot_all(db)
 
         # Post-reprocess maintenance — same pipeline as full sync.
@@ -466,6 +484,7 @@ def _run_reprocess_bg() -> None:
             "parse_errors":          summary.get("failed", 0),
             "snapshots_updated":     len(snapshots),
             "since_days":            0,
+            "ledger":                ledger,
             "maintenance":           maintenance,
         }
         logger.info("Reprocess done: %s", result)

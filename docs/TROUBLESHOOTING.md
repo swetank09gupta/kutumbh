@@ -75,6 +75,20 @@ Fix: open the raw email, save the attachment, and run the parser directly (see [
 
 ---
 
+## Holdings / reconciliation
+
+### Holdings differ from Zerodha Console
+`POST /api/ledger/verify` with the quantities you see; then `GET /api/ledger/issues?severity=error`. Usual causes, in order: a Coin/contract-note e-mail never reached the mailbox (`missing_trade`; check `WIFE_GMAIL*`-style credentials), a statement month is missing (`missing_statement`), or a trade settled after the last statement (`pending_trade`, resolves by itself).
+
+### A mailbox gets no Coin mails
+Not every account receives Coin allotment mails (the wife's Yahoo does not). The CDSL "Transactions In Your Demat Account" alerts still arrive and the ledger uses them for quantity (`alert_without_trade`); cost stays partial until a tradebook CSV (Console → Reports → Tradebook, Mutual funds) fills the trades — the ledger de-duplicates it against any Coin mails.
+
+### Cost shows "partial"
+Some units have no traced purchase (bought before the earliest contract note/Coin e-mail, SGB allotments, transfers). Invested/P&L are left empty rather than guessed. Supplying a tradebook CSV for that period or the Console holdings export fixes it.
+
+### "ledger_exceeds_statement" / "trades_exceed_statement"
+Trades add up to more than the statement balance moved: a duplicate, a wrong date, or a trade filed under a different ISIN. `POST /api/ledger/dedupe` lists cross-source duplicates (dry run).
+
 ## PDF parsing
 
 ### HDFC PDF — wrong password / decryption error

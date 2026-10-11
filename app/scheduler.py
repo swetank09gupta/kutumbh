@@ -29,6 +29,8 @@ def _sync_job():
     try:
         attachments = fetch_all_accounts(since_days=7)  # incremental — last 7 days
         summary     = process_attachments(attachments, db)
+        from app.ledger import refresh as ledger_refresh
+        ledger_refresh(db)
         snapshot_all(db)
         logger.info("Scheduled sync done: %s", summary)
     except Exception as exc:
@@ -44,6 +46,8 @@ def _networth_snapshot_job():
 
     db = SessionLocal()
     try:
+        from app.ledger import refresh as ledger_refresh
+        ledger_refresh(db)          # re-price today's positions before snapshotting
         snapshot_all(db)
     except Exception as exc:
         logger.error("Net-worth snapshot failed: %s", exc, exc_info=True)

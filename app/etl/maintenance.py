@@ -238,6 +238,17 @@ def _synth_ghost_redemptions(db: Session) -> dict[str, int]:
             Transaction.transaction_type == "debit",
             Transaction.isin.isnot(None),
         ).group_by(Transaction.isin).all()
+        # Real redemptions already on file for each ISIN. The synthetic credit only
+        # covers what is still unaccounted for — otherwise a fund with a genuine
+        # redemption e-mail would be credited twice and its XIRR inflated.
+        credited = {
+            isin: Decimal(str(total or 0))
+            for isin, total in db.query(Transaction.isin, func.sum(Transaction.amount)).filter(
+                Transaction.account_id == coin.id,
+                Transaction.transaction_type == "credit",
+                Transaction.isin.isnot(None),
+            ).group_by(Transaction.isin).all()
+        }
         # Holdings currently held under same owner.
         from app.engine.holdings_view import latest_holdings
         held = latest_holdings(db, owner_ids=[coin.owner_id])
@@ -245,7 +256,7 @@ def _synth_ghost_redemptions(db: Session) -> dict[str, int]:
         for isin, total, last_buy in rows:
             if isin in held_isins:
                 continue
-            amount = Decimal(str(total or 0))
+            amount = Decimal(str(total or 0)) - credited.get(isin, Decimal(0))
             if amount <= 0:
                 continue
             synth_date = min(last_buy + timedelta(days=90), today)

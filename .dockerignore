@@ -1,0 +1,9 @@
+# Never bake personal data or secrets into the image — compose bind-mounts ./data and ./config at runtime
+.git
+.env
+data/
+config/accounts.yml
+grafana/
+docs/media/
+**/__pycache__/
+*.pyc

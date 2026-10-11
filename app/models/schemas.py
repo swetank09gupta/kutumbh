@@ -111,7 +111,9 @@ class Holding(Base):
     holding_type    = Column(String(20))  # equity | mutual_fund
     goal_tag        = Column(String(30))  # retirement | child_education | child_marriage | etc.
     first_buy_date  = Column(Date)        # earliest known purchase date for this position (CAGR denominator)
-    source_file     = Column(String(300))
+    source_file     = Column(String(300))   # 'ledger:rollforward' for rows derived by app.ledger
+    cost_basis_quality = Column(String(10))  # exact | partial | None (statement rows carry no cost)
+    price_source    = Column(String(20))     # amfi | yahoo | last_trade | statement (ledger rows only)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
     account = relationship("Account", back_populates="holdings")
@@ -303,3 +305,121 @@ class Goal(Base):
                                   onupdate=func.now())
 
     owner = relationship("Owner", back_populates="goals")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instrument ledger — see docs/adr/0023-instrument-ledger.md
+#
+# InstrumentTrade   one row per executed trade (exact date, qty, price). Written
+#                   by contract-note, Coin and tradebook parsers. Idempotent via
+#                   natural_key. Cross-source overlap is resolved by source rank
+#                   at read time (app.ledger.rules.effective_trades), never by
+#                   deleting rows.
+# DematMovement     one row per line of the monthly demat statement's transaction
+#                   section (quantity truth, settlement date, running balance).
+#                   Evidence only: it is matched to trades, never added to them.
+# ReconIssue        everything the reconciliation could not prove. Re-derived on
+#                   every run; rows that stop being detected are marked resolved.
+# ─────────────────────────────────────────────────────────────────────────────
+class InstrumentTrade(Base):
+    __tablename__ = "instrument_trades"
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id         = Column(String(20), nullable=False)
+    account_id       = Column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False)
+    isin             = Column(String(12))              # NULL = unresolved (reported, not counted)
+    symbol           = Column(String(200))
+    instrument_name  = Column(String(200))
+    holding_type     = Column(String(20))              # equity | mutual_fund | bonds
+    trade_date       = Column(Date, nullable=False)
+    settle_date      = Column(Date)                    # exact when the contract note prints it
+    side             = Column(String(1), nullable=False)   # B | S
+    quantity         = Column(Numeric(18, 6), nullable=False)
+    price            = Column(Numeric(18, 6))          # gross per unit
+    amount           = Column(Numeric(15, 2))          # cash incl. charges where the source has them
+    source           = Column(String(20), nullable=False)  # contract_note | coin | tradebook | opening
+    source_ref       = Column(String(120))             # trade no / folio / trade id
+    source_file      = Column(String(300))
+    natural_key      = Column(String(300), nullable=False, unique=True)
+    txn_fingerprint  = Column(String(64))              # link to the cashflow row in transactions
+    settled_movement_id = Column(UUID(as_uuid=True))   # DematMovement that settled it (set by reconcile)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DematMovement(Base):
+    __tablename__ = "demat_movements"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id    = Column(String(20), nullable=False)
+    account_id  = Column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=False)
+    isin        = Column(String(12), nullable=False)
+    symbol      = Column(String(200))
+    move_date   = Column(Date, nullable=False)
+    qty_in      = Column(Numeric(18, 6), nullable=False, default=0)
+    qty_out     = Column(Numeric(18, 6), nullable=False, default=0)
+    running_qty = Column(Numeric(18, 6))
+    seq         = Column(Integer)                      # line order within the ISIN block of its statement
+    statement_date = Column(Date)                      # the statement's "Holdings as on" date
+    description = Column(String(300))                  # e.g. "NSE Payout …", "Inter Depository Transfer …"
+    source_file = Column(String(300))
+    natural_key = Column(String(300), nullable=False, unique=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReconIssue(Base):
+    __tablename__ = "recon_issues"
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    issue_key     = Column(String(300), nullable=False, unique=True)
+    owner_id      = Column(String(20))
+    isin          = Column(String(12))
+    instrument_name = Column(String(200))
+    kind          = Column(String(40), nullable=False)
+    severity      = Column(String(10), nullable=False)   # error | warn | info
+    as_of_date    = Column(Date)
+    ledger_qty    = Column(Numeric(18, 6))
+    statement_qty = Column(Numeric(18, 6))
+    detail        = Column(Text)
+    status        = Column(String(10), nullable=False, default="open")   # open | resolved
+    first_seen    = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen     = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at   = Column(DateTime(timezone=True))
+
+
+class IsinAlias(Base):
+    """
+    AMFI lists two ISINs per fund scheme and its name lookup can pick the wrong one, so a
+    Coin e-mail's ISIN may differ from the demat's. Learned per owner from exact unit matches
+    between trades and demat lines (app.ledger.engine.canonicalize_isins) and applied to
+    TRADE rows only at ingest — statement and demat ISINs are the depository's and are never
+    rewritten.
+    """
+    __tablename__ = "isin_aliases"
+
+    owner_id   = Column(String(20), primary_key=True)   # per owner: an ISIN can be real for one owner
+    alias_isin = Column(String(12), primary_key=True)   # and an AMFI-lookup mistake for another
+    isin       = Column(String(12), nullable=False)     # the ISIN the depository uses
+    votes      = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class StatementBalance(Base):
+    """
+    Closing balance per ISIN from one monthly demat statement, kept per statement family
+    ('zerodha' | 'cdsl') and never de-duplicated across families: CDSL's CAS also lists
+    holdings outside the Zerodha demat, so the two have different scope. The ledger
+    reconciles within one family. isin='' registers a statement date that held nothing.
+    """
+    __tablename__ = "statement_balances"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id    = Column(String(20), nullable=False)
+    family      = Column(String(10), nullable=False)
+    as_on       = Column(Date, nullable=False)
+    isin        = Column(String(12), nullable=False, default="")
+    qty         = Column(Numeric(18, 6), nullable=False, default=0)
+    name        = Column(String(200))
+    rate        = Column(Numeric(15, 4))
+    source_file = Column(String(300))
+
+    __table_args__ = (UniqueConstraint("owner_id", "family", "as_on", "isin", name="uq_statement_balance"),)

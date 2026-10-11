@@ -37,6 +37,9 @@ def _make_parser(inst: str, pwd: str, fpath: Path | None = None):
     if "union" in inst:
         from app.ingestion.parsers.union_bank import UnionBankParser
         return UnionBankParser(pdf_password=pwd)
+    if "cdsl alert" in inst:
+        from app.ingestion.parsers.cdsl_alert import CdslAlertParser
+        return CdslAlertParser()
     if "zerodha coin" in inst:
         from app.ingestion.parsers.zerodha_coin import ZerodhaCoinParser
         return ZerodhaCoinParser()
@@ -76,7 +79,7 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
     fpath = attachment.file_path
 
     # Quick check: is the institution supported at all?
-    _SUPPORTED = {"hdfc", "sbi", "axis", "union", "zerodha coin", "zerodha", "cdsl", "cams", "kfintech"}
+    _SUPPORTED = {"hdfc", "sbi", "axis", "union", "zerodha coin", "zerodha", "cdsl", "cams", "kfintech"}   # "cdsl alert" ⊂ "cdsl"
     if not any(s in inst for s in _SUPPORTED):
         logger.warning("Unknown institution '%s', no parser available", inst)
         return None

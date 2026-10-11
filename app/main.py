@@ -41,6 +41,12 @@ def _migrate_db() -> None:
         # XIRR / returns tracking additions
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS isin VARCHAR(12)",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS first_buy_date DATE",
+        # Instrument ledger roll-forward provenance (docs/adr/0023-instrument-ledger.md)
+        "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS cost_basis_quality VARCHAR(10)",
+        "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS price_source VARCHAR(20)",
+        "ALTER TABLE instrument_trades ADD COLUMN IF NOT EXISTS settle_date DATE",
+        "CREATE INDEX IF NOT EXISTS ix_itrades_owner_isin_date ON instrument_trades(owner_id, isin, trade_date)",
+        "CREATE INDEX IF NOT EXISTS ix_dmove_owner_isin_date ON demat_movements(owner_id, isin, move_date)",
         # Per-goal projection knobs (blended return, SIP step-up, glide path)
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS use_manual_return BOOLEAN DEFAULT FALSE",
         "ALTER TABLE goals ADD COLUMN IF NOT EXISTS sip_stepup_pct NUMERIC(5,2)",
@@ -250,6 +256,7 @@ from app.api.routes.goals        import router as goals_router
 from app.api.routes.manual       import router as manual_router
 from app.api.routes.profile      import router as profile_router
 from app.api.routes.portfolio    import router as portfolio_router
+from app.api.routes.ledger       import router as ledger_router
 
 app.include_router(sync_router)
 app.include_router(accounts_router)
@@ -258,6 +265,7 @@ app.include_router(goals_router)
 app.include_router(manual_router)
 app.include_router(profile_router)
 app.include_router(portfolio_router)
+app.include_router(ledger_router)
 
 # ── SPA static files (must be mounted AFTER API routes) ──────────────────────
 _static_dir = Path(__file__).parent / "static"

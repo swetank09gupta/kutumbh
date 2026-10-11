@@ -194,8 +194,17 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     # For equity demat transactions (isin set), use an owner-scoped fingerprint so
     # that the same ISIN movement from CDSL and Zerodha doesn't create two rows.
     txn_rows: list[dict] = []
+    txn_fps:  list[str]  = []      # aligned with result.transactions, for ledger linkage
     import uuid
+    from app.ledger.aliases import canonical, load_aliases
+    from app.ledger.store import TRADE_KINDS
+    _aliases = load_aliases(db)
     for pt in result.transactions:
+        if pt.kind in TRADE_KINDS:                  # learned ISIN aliases fix trade rows only
+            pt.isin = canonical(owner_id, pt.isin, _aliases)
+        if pt.kind == "cdsl_alert":                 # quantity-only evidence: ledger movement, never a cashflow
+            txn_fps.append(None)
+            continue
         # Use the owner-scoped equity_demat_fingerprint for any ISIN-tagged
         # row whose description starts with "DEMAT". This covers both CDSL CAS
         # statements (is_demat=True) AND Zerodha monthly holding statements
@@ -233,6 +242,7 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
             )
 
         cat = categorise(desc)
+        txn_fps.append(fp)
         txn_rows.append({
             "id":               uuid.uuid4(),
             "account_id":       account.id,
@@ -257,6 +267,13 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
         stmt = stmt.on_conflict_do_nothing(index_elements=["fingerprint"])
         result_proxy = db.execute(stmt)
         txn_count = result_proxy.rowcount  # rows actually inserted (not skipped)
+
+    # ── Instrument ledger (trades + demat movements) ──────────────────────────
+    # Idempotent via natural keys; see docs/adr/0023-instrument-ledger.md.
+    from app.ledger.store import record_parse_result
+    ledger_counts = record_parse_result(db, result, owner_id, account, txn_fps)
+    from app.ledger.store import record_statement_balances
+    record_statement_balances(db, result, owner_id)
 
     # ── Holdings ──────────────────────────────────────────────────────────────
     if result.holdings:
@@ -437,7 +454,8 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
         logging.getLogger(__name__).warning("Goal corpus refresh failed: %s", exc)
 
     db.commit()
-    return {"transactions": txn_count, "holdings": holding_count, "manual_assets": manual_count}
+    return {"transactions": txn_count, "holdings": holding_count, "manual_assets": manual_count,
+            "ledger_trades": ledger_counts["trades"], "ledger_movements": ledger_counts["movements"]}
 
 
 def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> int:

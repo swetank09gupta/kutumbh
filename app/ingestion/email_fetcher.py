@@ -106,6 +106,9 @@ KNOWN_SENDERS: dict[str, dict] = {
     # ── CDSL (demat / CAS statement) ──────────────────────────────────────────
     "eCAS@cdslstatement.com":           {"institution": "CDSL", "account_type": "demat"},
     "cdslstatement.com":                {"institution": "CDSL", "account_type": "demat"},
+    # "Transactions In Your Demat Account": per-ISIN credits/debits within a day of settlement.
+    # Body-only mails; used by the instrument ledger to see units that arrived after the last statement.
+    "services@cdslindia.co.in":         {"institution": "CDSL Alert", "account_type": "demat"},
 }
 
 ATTACHMENT_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls"}
@@ -937,6 +940,30 @@ def _fetch_account(acc: dict, since_days: int, until_days: int = 0) -> list[Fetc
                             email_date=date_str,
                             file_path=dest,
                             filename=dest.name,
+                        ))
+                        attachment_found = True
+
+                # ── CDSL demat transaction alert (HTML body only) ─────────────
+                if (not attachment_found and meta["institution"] == "CDSL Alert"
+                        and "transactions in your demat" in subject.lower()):
+                    html_body = ""
+                    for part in msg.walk():
+                        if part.get_content_type() in ("text/html", "text/plain"):
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                html_body = payload.decode("utf-8", "replace")
+                                break
+                    if html_body:
+                        msg_id = (msg.get("Message-ID", "") or str(num)).strip("<>")
+                        safe_id = "".join(c if c.isalnum() else "_" for c in msg_id)[:40]
+                        date_prefix = date_str[:11].replace(" ", "_") if date_str else "cdsl"
+                        dest = save_dir / f"{date_prefix}_cdslalert_{safe_id}.html"
+                        if not dest.exists():
+                            dest.write_text(html_body, encoding="utf-8")
+                        results.append(FetchedAttachment(
+                            owner_id=owner_id, institution="CDSL Alert", account_type="demat",
+                            sender=from_addr, subject=subject, email_date=date_str,
+                            file_path=dest, filename=dest.name,
                         ))
                         attachment_found = True
 
