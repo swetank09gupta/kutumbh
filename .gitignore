@@ -27,7 +27,6 @@ dist/
 build/
 
 # Docker volumes (if mapped locally)
-grafana/
 postgres_data/
 
 # macOS

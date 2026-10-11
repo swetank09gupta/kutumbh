@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.engine.goals import project_all_goals, project_goal, update_goal_sip, refresh_corpus_from_networth
+from app.engine.goals import project_all_goals, project_goal, refresh_goals, update_goal_sip, refresh_corpus_from_networth
 from app.engine.recommendations import generate as gen_recs
 from app.models.schemas import Goal
 
@@ -63,7 +63,25 @@ def list_goals(
     if owner_id:
         q = q.filter(Goal.owner_id.in_([owner_id, "family"]))
     goals = q.order_by(Goal.target_date).all()
-    return [_goal_dict(g) for g in goals]
+    # Cards and the projections table must tell one story: overlay the single projection.
+    proj = {p.goal_id: p for p in project_all_goals(db, owner_id)}
+    out = []
+    for g in goals:
+        d = _goal_dict(g)
+        p = proj.get(str(g.id))
+        if p is not None:
+            d.update({
+                "monthly_sip_needed":   p.monthly_sip_needed,
+                "target_date":          str(p.target_date) if p.target_date else None,
+                "inflation_adj_target": p.inflation_adj_target,
+                "projected_corpus":     p.projected_corpus,
+                "gap":                  p.gap,
+                "on_track":             p.on_track,
+                "current_monthly_sip":  p.current_monthly_sip,
+                "effective_return_pct": p.effective_return_pct,
+            })
+        out.append(d)
+    return out
 
 
 @router.post("/")
@@ -140,7 +158,7 @@ def goal_projections(
             "goal_id":              p.goal_id,
             "name":                 p.name,
             "goal_type":            p.goal_type,
-            "target_date":          str(p.target_date),
+            "target_date":          str(p.target_date) if p.target_date else None,
             "inflation_adj_target": p.inflation_adj_target,
             "current_corpus":       p.current_corpus,
             "monthly_sip_needed":   p.monthly_sip_needed,
@@ -210,21 +228,18 @@ def goal_scenarios(
       flat        — both off (textbook flat-SIP, flat-return projection)
     """
     from copy import copy
-    from app.engine.goals import project_goal
-    from app.engine.goal_returns import detect_sip_stepup
-    from app.models.schemas import Owner
+    from app.engine.goals import _scope, project_goal
+    from app.engine.networth import real_owners
+    from app.engine.sip import sip_stepup_pct
 
     goal = db.query(Goal).filter_by(id=goal_id).first()
     if not goal:
         raise HTTPException(404, "Goal not found")
 
-    # Resolve owner_ids (same scope expansion as project_all_goals).
-    if goal.owner_id == "family":
-        owner_ids = [r[0] for r in db.query(Owner.id).filter(Owner.id != "family").all()]
-    else:
-        owner_ids = [goal.owner_id]
-
-    detected = detect_sip_stepup(db, owner_ids)
+    owner_ids = _scope(goal, [o.id for o in real_owners(db)])
+    detected = sip_stepup_pct(db, owner_ids)
+    # the scenarios vary step-up and glide path for the SIP the household really makes today
+    current_sip = next((p.current_monthly_sip for p in project_all_goals(db) if p.goal_id == str(goal.id)), 0.0)
 
     def _variant(disable_stepup: bool, disable_glide: bool):
         g = copy(goal)
@@ -232,7 +247,7 @@ def goal_scenarios(
             g.sip_stepup_pct = 0
         if disable_glide:
             g.glide_enabled = False
-        p = project_goal(g, 0, db, owner_ids=owner_ids,
+        p = project_goal(g, current_sip, db, owner_ids=owner_ids,
                          detected_stepup_pct=None if disable_stepup else detected)
         return {
             "monthly_sip_needed":   p.monthly_sip_needed,
@@ -262,7 +277,8 @@ def refresh_corpus(
 ):
     """Auto-set goal current_corpus from the owner's latest net worth snapshot."""
     updated = refresh_corpus_from_networth(db, owner_id)
-    return {"updated": updated, "owner_id": owner_id}
+    refreshed = refresh_goals(db)
+    return {"updated": updated, "owner_id": owner_id, **refreshed}
 
 
 @router.get("/ai-insights")

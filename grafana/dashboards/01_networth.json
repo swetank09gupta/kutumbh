@@ -1,0 +1,375 @@
+{
+  "title": "\ud83d\udcb0 Net Worth",
+  "uid": "networth",
+  "schemaVersion": 38,
+  "version": 16,
+  "refresh": "1h",
+  "time": {
+    "from": "now-20y",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Net Worth",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 1000000,
+                "color": "yellow"
+              },
+              {
+                "value": 5000000,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, net_worth AS value FROM net_worth_snapshots WHERE owner_id = '${owner}' ORDER BY snapshot_date DESC LIMIT 1",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Your Net Worth",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, net_worth AS value FROM net_worth_snapshots WHERE owner_id = 'user' ORDER BY snapshot_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Wife's Net Worth",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, net_worth AS value FROM net_worth_snapshots WHERE owner_id = 'wife' ORDER BY snapshot_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "YoY Growth",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT ROUND((latest.net_worth - prev.net_worth) * 100.0 / NULLIF(prev.net_worth,0), 1) AS value FROM (SELECT net_worth FROM net_worth_snapshots WHERE owner_id='${owner}' ORDER BY snapshot_date DESC LIMIT 1) latest, (SELECT net_worth FROM net_worth_snapshots WHERE owner_id='${owner}'  AND snapshot_date <= NOW() - INTERVAL '1 year' ORDER BY snapshot_date DESC LIMIT 1) prev",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Net Worth Over Time",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, net_worth AS \"Net Worth\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Asset Allocation",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 10,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "options": {
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT NOW() AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"MF\", ppf_value AS \"PPF\", fd_value AS \"FD/RD\", real_estate_value AS \"Real Estate\", other_assets AS \"Other\" FROM net_worth_snapshots WHERE owner_id='${owner}' ORDER BY snapshot_date DESC LIMIT 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Asset Class Trend",
+      "gridPos": {
+        "x": 10,
+        "y": 14,
+        "w": 14,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"Mutual Funds\", ppf_value AS \"PPF\", fd_value AS \"FDs\", real_estate_value AS \"Real Estate\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "family",
+          "value": "family"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "financedb"
+        },
+        "definition": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Owner",
+        "multi": false,
+        "name": "owner",
+        "options": [],
+        "query": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "name": "timeRange",
+        "type": "custom",
+        "label": "Time Range",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "query": "1 month,3 months,6 months,1 year,2 years,5 years,20 years",
+        "current": {
+          "selected": true,
+          "text": "Last 2 years",
+          "value": "2 years"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "Last 1 month",
+            "value": "1 month"
+          },
+          {
+            "selected": false,
+            "text": "Last 3 months",
+            "value": "3 months"
+          },
+          {
+            "selected": false,
+            "text": "Last 6 months",
+            "value": "6 months"
+          },
+          {
+            "selected": false,
+            "text": "Last 1 year",
+            "value": "1 year"
+          },
+          {
+            "selected": true,
+            "text": "Last 2 years",
+            "value": "2 years"
+          },
+          {
+            "selected": false,
+            "text": "Last 5 years",
+            "value": "5 years"
+          },
+          {
+            "selected": false,
+            "text": "All time",
+            "value": "20 years"
+          }
+        ],
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "timepicker": {
+    "hidden": true
+  }
+}

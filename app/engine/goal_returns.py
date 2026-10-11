@@ -41,6 +41,21 @@ CATEGORY_CAPS_PCT: dict[str, float] = {
 DEFAULT_RETURN_PCT = 12.0
 
 
+def goal_tags(goal) -> list[str]:
+    """
+    The holding goal_tag(s) that fund a goal. "Your Retirement" (tag retirement) and "Wife's
+    Retirement" (tag wife_retirement) draw on different holdings; every other goal uses its type.
+    One definition for corpus, blended return and current SIP, so they cannot drift apart.
+    """
+    gt = (goal.goal_type or "").strip()
+    owner = (goal.owner_id or "").lower()
+    if gt == "retirement":
+        if owner in ("wife", "spouse", "partner") or "wife" in (goal.name or "").lower():
+            return ["wife_retirement"]
+        return ["retirement"]
+    return [gt] if gt else []
+
+
 def _cap_for(htype: Optional[str]) -> float:
     return CATEGORY_CAPS_PCT.get((htype or "other").lower(), CATEGORY_CAPS_PCT["other"])
 
@@ -66,16 +81,17 @@ def compute_blended_return(
 
     today = today or date.today()
     goal_type = (goal.goal_type or "").strip()
+    tags = goal_tags(goal)
 
     components: list[dict] = []
     total_value = 0.0
     cap_applied = False
 
     # ── Holdings tagged to this goal ────────────────────────────────────────
-    if goal_type:
+    if tags:
         instruments = _per_instrument_returns(db, owner_ids, today)
         for inst in instruments:
-            if (inst.get("goal_tag") or "") != goal_type:
+            if (inst.get("goal_tag") or "") not in tags:
                 continue
             value = float(inst.get("current") or 0)
             if value <= 0:
@@ -99,11 +115,11 @@ def compute_blended_return(
             total_value += value
 
     # ── Manual assets tagged to this goal ────────────────────────────────────
-    if goal_type:
+    if tags:
         manual_assets = (
             db.query(ManualAsset)
             .filter(ManualAsset.owner_id.in_(owner_ids))
-            .filter(ManualAsset.goal_tag == goal_type)
+            .filter(ManualAsset.goal_tag.in_(tags))
             .all()
         )
         for a in manual_assets:
@@ -158,134 +174,3 @@ def compute_blended_return(
         "cap_applied": cap_applied,
         "total_value": round(total_value, 2),
     }
-
-
-def detect_sip_stepup(
-    db: Session, owner_ids: list[str], today: Optional[date] = None,
-) -> Optional[float]:
-    """
-    Compare monthly investing rate in months [-23..-12] vs [-11..0].
-    Return annualized growth % between the two windows, or None if insufficient
-    data (e.g. <12 months of history, or either window is zero).
-    """
-    today = today or date.today()
-    end_recent = today
-    start_recent = today - timedelta(days=int(30.44 * 12))
-    start_prior  = today - timedelta(days=int(30.44 * 24))
-
-    def _window_sum(d_from: date, d_to: date) -> float:
-        inv = (
-            db.query(_f.coalesce(_f.sum(Transaction.amount), 0))
-            .join(Account, Transaction.account_id == Account.id)
-            .filter(
-                Account.owner_id.in_(owner_ids),
-                Account.account_type.in_(("stocks", "mutual_fund", "demat")),
-                Transaction.transaction_type == "debit",
-                Transaction.date >= d_from,
-                Transaction.date <  d_to,
-                ~Transaction.description.ilike("DEMAT %"),
-            )
-            .scalar()
-        ) or 0
-        # Bank-account ACH debits to broker mandates (SIPs visible on bank stmt
-        # only, e.g. when Coin emails aren't ingested for that owner).
-        broker_ach = (
-            db.query(_f.coalesce(_f.sum(Transaction.amount), 0))
-            .join(Account, Transaction.account_id == Account.id)
-            .filter(
-                Account.owner_id.in_(owner_ids),
-                Account.account_type == "bank",
-                Transaction.transaction_type == "debit",
-                Transaction.date >= d_from,
-                Transaction.date <  d_to,
-                (
-                    Transaction.description.ilike("%YESB00709000028661%")
-                    | Transaction.description.ilike("%ZERODHA BROKIN%")
-                    | Transaction.description.ilike("%INDIAN CLEARIN%")
-                ),
-            )
-            .scalar()
-        ) or 0
-        inv = float(inv) + float(broker_ach)
-        contribs = (
-            db.query(_f.coalesce(_f.sum(ManualAssetContribution.amount), 0))
-            .join(ManualAsset, ManualAsset.id == ManualAssetContribution.asset_id)
-            .filter(
-                ManualAsset.owner_id.in_(owner_ids),
-                ManualAssetContribution.date >= d_from,
-                ManualAssetContribution.date <  d_to,
-            )
-            .scalar()
-        ) or 0
-        return float(inv) + float(contribs)
-
-    recent_total = _window_sum(start_recent, end_recent)
-    prior_total  = _window_sum(start_prior, start_recent)
-
-    if prior_total <= 0 or recent_total <= 0:
-        return None
-    # Both windows are 12 months wide, so the ratio is already annual.
-    growth = (recent_total / prior_total) - 1.0
-    # Clamp to a sane long-run salary-growth range. A one-off 60% jump
-    # (e.g. recently started a new SIP) shouldn't extrapolate forever.
-    growth_pct = max(0.0, min(12.0, growth * 100.0))
-    return round(growth_pct, 1)
-
-
-def actual_monthly_sip_for_goal(
-    db: Session, goal, owner_ids: list[str],
-    lookback_months: int = 6, today: Optional[date] = None,
-) -> float:
-    """
-    Real monthly contribution flowing into this goal, computed from:
-      - Transactions whose ISIN maps to a holding tagged with this goal_type,
-      - Plus contributions to ManualAssets tagged with this goal_type.
-
-    Falls back to 0 for goals without tagged holdings/assets.
-    """
-    today = today or date.today()
-    goal_type = (goal.goal_type or "").strip()
-    if not goal_type:
-        return 0.0
-    cutoff = today - timedelta(days=int(30.44 * lookback_months))
-
-    # ISINs of holdings tagged to this goal for these owners (Holding → Account.owner_id)
-    tagged_isins = {
-        row[0] for row in
-        db.query(Holding.isin)
-          .join(Account, Account.id == Holding.account_id)
-          .filter(Account.owner_id.in_(owner_ids))
-          .filter(Holding.goal_tag == goal_type)
-          .filter(Holding.isin.isnot(None))
-          .all()
-    }
-
-    inv_sum = 0.0
-    if tagged_isins:
-        inv_sum = float(
-            db.query(_f.coalesce(_f.sum(Transaction.amount), 0))
-            .join(Account, Transaction.account_id == Account.id)
-            .filter(
-                Account.owner_id.in_(owner_ids),
-                Transaction.transaction_type == "debit",
-                Transaction.date >= cutoff,
-                Transaction.isin.in_(tagged_isins),
-                ~Transaction.description.ilike("DEMAT %"),
-            )
-            .scalar() or 0
-        )
-
-    # Manual asset contributions for assets tagged to this goal
-    contribs = float(
-        db.query(_f.coalesce(_f.sum(ManualAssetContribution.amount), 0))
-        .join(ManualAsset, ManualAsset.id == ManualAssetContribution.asset_id)
-        .filter(
-            ManualAsset.owner_id.in_(owner_ids),
-            ManualAsset.goal_tag == goal_type,
-            ManualAssetContribution.date >= cutoff,
-        )
-        .scalar() or 0
-    )
-
-    months = max(1, lookback_months)
-    return (inv_sum + contribs) / months

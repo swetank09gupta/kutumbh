@@ -55,26 +55,25 @@ def generate(db: Session, owner_id: str = "family") -> list[Recommendation]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _owner_clause(owner_id: str) -> tuple[str, dict]:
+    if owner_id and owner_id != "family":
+        return " AND owner_id = :owner", {"owner": owner_id}
+    return "", {}
+
+
 def _monthly_expenses(db: Session, owner_id: str, months: int = 3) -> Decimal:
-    """Average monthly household expenses over last `months` months."""
+    """Average monthly spending over the last `months` full months — the shared `expense` definition."""
     from datetime import timedelta, date as dt
-    cutoff = dt.today().replace(day=1)
-    # Go back `months` months
+    from sqlalchemy import text
+    start = dt.today().replace(day=1)
     for _ in range(months):
-        cutoff = (cutoff - timedelta(days=1)).replace(day=1)
-
-    result = (
-        db.query(func.sum(Transaction.amount))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Account.owner_id == owner_id if owner_id != "family"
-                else True)
-        .filter(Transaction.transaction_type == "debit")
-        .filter(Transaction.category.notin_(["transfer", "investment"]))
-        .filter(Transaction.date >= cutoff)
-        .scalar()
-    ) or ZERO
-
-    return result / months
+        start = (start - timedelta(days=1)).replace(day=1)
+    clause, params = _owner_clause(owner_id)
+    total = db.execute(text(
+        "SELECT COALESCE(SUM(amount), 0) FROM v_cashflow WHERE flow = 'expense' "
+        f"AND date >= :start AND date < date_trunc('month', CURRENT_DATE){clause}"),
+        {"start": start, **params}).scalar() or 0
+    return Decimal(str(total)) / months
 
 
 def _latest_networth(db: Session, owner_id: str) -> NetWorthSnapshot | None:
@@ -88,25 +87,30 @@ def _latest_networth(db: Session, owner_id: str) -> NetWorthSnapshot | None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _emergency_fund_check(db: Session, owner_id: str) -> list[Recommendation]:
-    monthly_exp = _monthly_expenses(db, owner_id)
-    if monthly_exp == 0:
+    """Uses the Emergency Fund goal itself (corpus and target), so this card and the Goals page agree."""
+    monthly_exp = _monthly_expenses(db, "family")
+    goal = (db.query(Goal).filter(Goal.goal_type.in_(["emergency", "emergency_fund"])).first())
+    if goal is not None:
+        liquid, target = float(goal.current_corpus or 0), float(goal.target_amount or 0)
+    else:
+        nw = _latest_networth(db, "family")
+        liquid = float((nw.bank_balance if nw else ZERO) or ZERO)
+        target = float(monthly_exp) * 6
+    if monthly_exp == 0 or target <= 0:
         return []
-
-    target_6m = monthly_exp * 6
-    nw = _latest_networth(db, "family")
-    liquid = (nw.bank_balance if nw else ZERO) or ZERO
-
-    if liquid < target_6m:
-        gap = target_6m - liquid
-        return [Recommendation(
-            priority="high",
-            category="emergency_fund",
-            title="Emergency Fund Below 6 Months",
-            detail=(f"Current liquid savings ₹{liquid:,.0f} covers "
-                    f"{int(liquid/monthly_exp)} months. Target: 6 months (₹{target_6m:,.0f})."),
-            action=f"Build emergency fund by ₹{gap:,.0f}. Park in liquid MF or high-yield savings.",
-        )]
-    return []
+    months_cover = liquid / float(monthly_exp)
+    if liquid >= target and months_cover >= 6:
+        return []
+    gap = max(0.0, target - liquid)
+    return [Recommendation(
+        priority="high" if liquid < target else "medium",
+        category="emergency_fund",
+        title="Emergency Fund Below Target" if liquid < target else "Emergency Fund Under 6 Months of Spending",
+        detail=(f"Liquid savings ₹{liquid:,.0f} cover {months_cover:.1f} months of spending "
+                f"(₹{float(monthly_exp):,.0f}/month). Goal target: ₹{target:,.0f}."),
+        action=(f"Build it up by ₹{gap:,.0f}. Park in liquid MF or high-yield savings." if gap
+                else "Target met, but it covers under 6 months of spending: consider raising the target."),
+    )]
 
 
 def _goal_shortfall_check(db: Session, owner_id: str) -> list[Recommendation]:
@@ -129,48 +133,46 @@ def _goal_shortfall_check(db: Session, owner_id: str) -> list[Recommendation]:
 
 
 def _high_expense_check(db: Session, owner_id: str) -> list[Recommendation]:
-    """Flag categories that are unusually high vs last 3-month average."""
-    from datetime import date as dt, timedelta
-    recs = []
-    cutoff = dt.today() - timedelta(days=90)
-
-    rows = (
-        db.query(Transaction.category, func.sum(Transaction.amount).label("total"))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.transaction_type == "debit")
-        .filter(Transaction.category.notin_(["transfer", "investment", "emi"]))
-        .filter(Transaction.date >= cutoff)
-        .group_by(Transaction.category)
-        .order_by(func.sum(Transaction.amount).desc())
-        .limit(5)
-        .all()
-    )
-
+    """Flag spending categories that are a large share of the last 3 full months' spending."""
+    from sqlalchemy import text
+    from datetime import timedelta, date as dt
+    start = dt.today().replace(day=1)
+    for _ in range(3):
+        start = (start - timedelta(days=1)).replace(day=1)
+    clause, params = _owner_clause(owner_id)
+    rows = db.execute(text(
+        "SELECT category, SUM(amount) AS total FROM v_cashflow WHERE flow = 'expense' AND category <> 'emi' "
+        f"AND date >= :start AND date < date_trunc('month', CURRENT_DATE){clause} "
+        "GROUP BY category ORDER BY 2 DESC LIMIT 5"), {"start": start, **params}).all()
     monthly_exp = _monthly_expenses(db, owner_id)
     if monthly_exp == 0:
         return []
-
+    recs = []
     for cat, total in rows:
-        monthly_avg = total / 3
-        share = float(monthly_avg / monthly_exp * 100) if monthly_exp else 0
-        if share > 30:
+        monthly_avg = Decimal(str(total)) / 3
+        share = float(monthly_avg / monthly_exp * 100)
+        if share > 30 and cat != "other":
             recs.append(Recommendation(
-                priority="medium",
-                category="expense",
+                priority="medium", category="expense",
                 title=f"High Spend: {cat.replace('_', ' ').title()}",
-                detail=f"{cat.title()} is ₹{monthly_avg:,.0f}/month ({share:.0f}% of expenses).",
+                detail=f"{cat.title()} is ₹{monthly_avg:,.0f}/month ({share:.0f}% of spending).",
                 action=f"Review {cat} spend; aim to reduce by 10–15%.",
             ))
     return recs
 
 
 def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
+    """Equity share of *financial* assets: real estate is not something SIPs can rebalance."""
     nw = _latest_networth(db, "family")
-    if not nw or not nw.total_assets or nw.total_assets == 0:
+    if not nw:
+        return []
+    financial = (nw.bank_balance + nw.equity_value + nw.mf_value + nw.ppf_value + nw.fd_value
+                 + nw.other_assets)
+    if not financial or financial == 0:
         return []
 
-    equity_pct = float((nw.equity_value + nw.mf_value) / nw.total_assets * 100)
-    debt_pct   = float((nw.ppf_value + nw.fd_value) / nw.total_assets * 100)
+    equity_pct = float((nw.equity_value + nw.mf_value) / financial * 100)
+    debt_pct   = float((nw.ppf_value + nw.fd_value) / financial * 100)
 
     recs = []
     if equity_pct < 40:
@@ -178,7 +180,8 @@ def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
             priority="medium",
             category="investment",
             title="Low Equity Allocation",
-            detail=f"Equity (stocks+MF) is {equity_pct:.0f}% of portfolio. Ideal: 50–70% for long-term goals.",
+            detail=(f"Equity and funds are {equity_pct:.0f}% of financial assets "
+                    f"(bank, equity, MF, PPF, FD; real estate excluded). Ideal: 50–70% for long-term goals."),
             action="Increase equity SIPs gradually. Consider index funds for low-cost exposure.",
         ))
     if debt_pct > 60:
@@ -186,83 +189,35 @@ def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
             priority="low",
             category="investment",
             title="Heavy Debt Allocation",
-            detail=f"Debt instruments (PPF+FD) are {debt_pct:.0f}% of portfolio.",
+            detail=f"Debt instruments (PPF+FD) are {debt_pct:.0f}% of financial assets.",
             action="Rebalance: shift some FD maturity proceeds to equity mutual funds.",
         ))
     return recs
 
 
 def _emi_burden_check(db: Session, owner_id: str) -> list[Recommendation]:
-    """
-    EMI burden = recurring monthly EMI / monthly income.
-
-    The 'emi' category in the DB is noisy:
-      - Regular monthly EMI debits (₹X every month via ACH)
-      - One-off lump-sum prepayments (variable amounts)
-      - Statement duplicates (`ACH D-` vs `ACHD-` for the same debit)
-      - Mis-tagged internal transfers (e.g. SBI→HDFC pre-funding)
-
-    We isolate the *regular* EMI by amount-grouping over the last 6 months and
-    picking groups with ≥3 hits (recurring cadence) and low coefficient of
-    variation (fixed amount). Sum-of-avgs = current monthly EMI rate, ignoring
-    one-off prepayments that should not drive a 'burden' alarm.
-    """
-    from datetime import date as dt, timedelta
-    window_days = 180
-    cutoff = dt.today() - timedelta(days=window_days)
-    min_recurrence = 3
-
-    amount_rows = (
-        db.query(
-            Transaction.amount,
-            func.count(Transaction.id).label("n"),
-            func.avg(Transaction.amount).label("avg"),
-            func.stddev_samp(Transaction.amount).label("sd"),
-        )
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.category == "emi")
-        .filter(Transaction.date >= cutoff)
-        .group_by(Transaction.amount)
-        .all()
-    )
-
-    monthly_emi = Decimal(0)
-    for r in amount_rows:
-        n = int(r.n or 0)
-        if n < min_recurrence:
-            continue
-        avg = float(r.avg or 0)
-        sd = float(r.sd or 0)
-        if avg <= 0 or (sd / avg) > 0.10:
-            continue
-        # n recurring debits over `window_days` → assume monthly cadence
-        # and take avg as the per-month EMI contribution. Dedupes silently
-        # because duplicate-format ACH rows on the same date inflate `n`
-        # but not the per-event amount.
-        # Cap n contribution at window_months so duplicates don't double-count.
-        window_months = max(1, window_days // 30)
-        per_month = Decimal(str(avg)) * Decimal(min(n, window_months)) / Decimal(window_months)
-        monthly_emi += per_month
-
-    monthly_income = (
-        db.query(func.sum(Transaction.amount))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.category == "income")
-        .filter(Transaction.transaction_type == "credit")
-        .filter(Transaction.date >= cutoff)
-        .scalar()
-    ) or ZERO
-    monthly_income_avg = monthly_income / 3
-
-    if monthly_income_avg > 0:
-        emi_ratio = float(monthly_emi / monthly_income_avg * 100)
+    """Regular EMI / income over the last 6 full months, from the shared definitions (prepayments excluded)."""
+    from sqlalchemy import text
+    from datetime import timedelta, date as dt
+    start = dt.today().replace(day=1)
+    for _ in range(6):
+        start = (start - timedelta(days=1)).replace(day=1)
+    clause, params = _owner_clause(owner_id)
+    row = db.execute(text(
+        "SELECT COALESCE(SUM(amount) FILTER (WHERE flow = 'expense' AND category = 'emi'), 0) AS emi, "
+        "COALESCE(SUM(amount) FILTER (WHERE flow = 'income'), 0) AS income FROM v_cashflow "
+        f"WHERE date >= :start AND date < date_trunc('month', CURRENT_DATE){clause}"),
+        {"start": start, **params}).one()
+    monthly_emi, monthly_income = Decimal(str(row.emi)) / 6, Decimal(str(row.income)) / 6
+    if monthly_income > 0:
+        emi_ratio = float(monthly_emi / monthly_income * 100)
         if emi_ratio > 40:
             return [Recommendation(
                 priority="high",
                 category="expense",
                 title="High EMI Burden",
                 detail=(f"EMIs consume {emi_ratio:.0f}% of income "
-                        f"(₹{monthly_emi:,.0f}/month vs income ₹{monthly_income_avg:,.0f}). "
+                        f"(₹{monthly_emi:,.0f}/month vs income ₹{monthly_income:,.0f}). "
                         "Safe limit: <40%."),
                 action="Consider prepaying highest-interest loan first. Avoid new loans.",
             )]

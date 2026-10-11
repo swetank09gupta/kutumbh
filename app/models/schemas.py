@@ -84,6 +84,11 @@ class Transaction(Base):
     isin             = Column(String(12))   # populated for equity/MF trades; enables per-instrument XIRR
     source_file      = Column(String(300))
     fingerprint      = Column(String(64), unique=True)  # SHA-256 dedup key
+    # How `category` was decided (app.txn.pipeline): trade | rule | paired | memory | llm | user.
+    # 'user' and 'paired' are never overwritten by automatic re-tagging.
+    category_source  = Column(String(10))
+    category_conf    = Column(Numeric(4, 2))            # 0-1; only meaningful for llm/memory
+    needs_review     = Column(Boolean, default=False)   # low-confidence guess, waiting in the Review list
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
 
     account = relationship("Account", back_populates="transactions")
@@ -423,3 +428,20 @@ class StatementBalance(Base):
     source_file = Column(String(300))
 
     __table_args__ = (UniqueConstraint("owner_id", "family", "as_on", "isin", name="uq_statement_balance"),)
+
+
+class PayeeMemory(Base):
+    """
+    What a payee (UPI/IMPS counterparty) is, learned once and applied everywhere.
+    source 'user' = you labelled it (authoritative); 'llm' = Ollama's suggestion with a
+    confidence, applied automatically only above the threshold, otherwise reviewed.
+    """
+    __tablename__ = "payee_memory"
+
+    payee_key   = Column(String(120), primary_key=True)
+    category    = Column(String(50), nullable=False)
+    subcategory = Column(String(50))
+    source      = Column(String(10), nullable=False)      # user | llm
+    confidence  = Column(Numeric(4, 2), default=1)
+    sample      = Column(String(200))                      # one narration, for the Review list
+    updated_at  = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

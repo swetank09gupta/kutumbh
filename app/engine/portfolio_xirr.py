@@ -38,6 +38,19 @@ logger = logging.getLogger(__name__)
 
 ZERO = Decimal(0)
 
+# {(account_id, isin)} that WIN the owner's de-duplicated current-holdings view. Several accounts
+# can show the same ISIN (demat statement, CDSL CAS, a stale folio statement); only the winner
+# counts toward "current", otherwise the same fund is valued twice. Set by compute_owner_returns.
+from contextvars import ContextVar
+_WINNERS: ContextVar[Optional[set]] = ContextVar("xirr_winners", default=None)
+
+
+def _only_current(rows, account_id):
+    win = _WINNERS.get()
+    if win is None:
+        return list(rows)
+    return [h for h in rows if not h.isin or (str(account_id), h.isin) in win]
+
 # Account types whose transactions feed XIRR (everything else is excluded — bank
 # savings, current accounts, etc. — because cash flows there are not investments).
 #
@@ -79,13 +92,12 @@ def _account_cashflows(
     )
     current_value = ZERO
     if latest_date:
-        rows = (
-            db.query(func.sum(Holding.current_value))
-            .filter(Holding.account_id == account.id,
-                    Holding.snapshot_date == latest_date)
-            .scalar()
+        snap = (
+            db.query(Holding)
+            .filter(Holding.account_id == account.id, Holding.snapshot_date == latest_date)
+            .all()
         )
-        current_value = rows or ZERO
+        current_value = sum((h.current_value or ZERO for h in _only_current(snap, account.id)), ZERO)
 
     txns = (
         db.query(Transaction)
@@ -265,13 +277,12 @@ def _synthesize_bond_purchase_cfs(
     if not latest:
         return
 
-    bond_rows = (
+    bond_rows = _only_current(
         db.query(Holding)
         .filter(Holding.account_id == account.id,
                 Holding.snapshot_date == latest,
                 Holding.holding_type == "bonds")
-        .all()
-    )
+        .all(), account.id)
     if not bond_rows:
         return
 
@@ -362,11 +373,10 @@ def _account_cashflows_by_bucket(
     isin_to_type: dict[str, str] = {}
     type_value:   dict[str, Decimal] = {}
     if latest:
-        rows = (
+        rows = _only_current(
             db.query(Holding)
             .filter(Holding.account_id == account.id, Holding.snapshot_date == latest)
-            .all()
-        )
+            .all(), account.id)
         for h in rows:
             ht = (h.holding_type or "equity")
             type_value[ht] = type_value.get(ht, ZERO) + (h.current_value or ZERO)
@@ -455,13 +465,12 @@ def _holding_type_split(db: Session, account_id) -> dict[str, Decimal]:
     )
     if not latest:
         return {}
-    rows = (
-        db.query(Holding.holding_type, func.sum(Holding.current_value))
-        .filter(Holding.account_id == account_id, Holding.snapshot_date == latest)
-        .group_by(Holding.holding_type)
-        .all()
-    )
-    return {ht or "equity": (val or ZERO) for ht, val in rows}
+    out: dict[str, Decimal] = {}
+    for h in _only_current(
+            db.query(Holding).filter(Holding.account_id == account_id, Holding.snapshot_date == latest).all(),
+            account_id):
+        out[h.holding_type or "equity"] = out.get(h.holding_type or "equity", ZERO) + (h.current_value or ZERO)
+    return out
 
 
 def _years_from_first_cf(cashflows: list[tuple[date, float]], today: date) -> float:
@@ -490,11 +499,12 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
 
     # ── Family view: collect cashflows across every real owner ──────────────
     if owner_id == "family":
-        from app.models.schemas import Owner
-        real_owners = db.query(Owner).filter(Owner.id != "family").all()
-        owner_ids = [o.id for o in real_owners]
+        from app.engine.networth import real_owners
+        owner_ids = [o.id for o in real_owners(db)]
     else:
         owner_ids = [owner_id]
+
+    _WINNERS.set({(str(h.account_id), h.isin) for h in _latest_holdings(db, owner_ids=owner_ids) if h.isin})
 
     # Per-asset-class accumulator
     class_cfs:      dict[str, list[tuple[date, float]]] = defaultdict(list)
@@ -573,52 +583,80 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
         class_count[bucket]    += 1
 
     # ── Per-class metrics ────────────────────────────────────────────────────
+    # Cost coverage: a class whose holdings include units with no traced purchase (bought before
+    # our history, transfers) has terminal value without matching outflows, so XIRR/gain computed
+    # from the traced cashflows would be inflated (a wife's fund showed 486%). Such a class
+    # reports its value and says why returns are withheld, instead of a wrong number.
+    value_by_class: dict[str, float] = defaultdict(float)
+    partial_by_class: dict[str, float] = defaultdict(float)
+    for h in _latest_holdings(db, owner_ids=owner_ids):
+        c = h.holding_type or "equity"
+        v = float(h.current_value or 0)
+        value_by_class[c] += v
+        if getattr(h, "cost_basis_quality", None) == "partial":
+            partial_by_class[c] += v
+
     by_class: list[dict] = []
     total_cfs:      list[tuple[date, float]] = []
     total_invested = ZERO
     total_current  = ZERO
+    total_proceeds = 0.0
 
     for cls in sorted(class_cfs.keys()):
         cfs   = class_cfs[cls]
         inv   = class_invested[cls]
         cur   = class_current[cls]
         years = _years_from_first_cf(cfs, today)
-        # A class with no cost basis (e.g. Zerodha equity where buys live only in
-        # monthly-demat statements that carry share *counts*, not rupees) has just
-        # a terminal positive cashflow. Including it in the total stream creates a
-        # phantom inflow with no matching outflow, inflating overall XIRR.
-        # Show the class with null returns and EXCLUDE it from totals.
+        # Sale / redemption / dividend proceeds = every inflow except the terminal current value.
+        proceeds = max(0.0, sum(a for _, a in cfs if a > 0) - float(cur))
+        profit   = float(cur) + proceeds - float(inv)          # unrealised + realised
+        total_v  = value_by_class.get(cls, 0.0)
+        coverage = (1.0 - partial_by_class.get(cls, 0.0) / total_v) if (total_v > 0 and cls in ("equity", "mutual_fund")) else None
+        withheld = coverage is not None and coverage < 0.95
         no_cost_basis = (inv <= ZERO)
+        excluded = no_cost_basis or withheld
+        class_xirr = None if excluded else xirr(cfs)
         by_class.append({
             "class":     cls,
             "count":     class_count[cls],
             "invested":  float(inv),
             "current":   float(cur),
-            "gain":      float(cur - inv) if not no_cost_basis else None,
-            "gain_pct":  round(float((cur - inv) / inv * 100), 2) if inv > 0 else None,
+            "proceeds":  round(proceeds, 2),
+            # profit counts what was sold as well as what is still held
+            "gain":      round(profit, 2) if not excluded else None,
+            "gain_pct":  round(profit / float(inv) * 100, 2) if (inv > 0 and not excluded) else None,
             "years":     round(years, 2),
-            "xirr_pct":  None if no_cost_basis else xirr(cfs),
-            "cagr_pct":  cagr(float(inv), float(cur), years) if inv > 0 else None,
-            "excluded_from_total": no_cost_basis,
-            "exclusion_reason":    "no cost basis (missing purchase cashflows)" if no_cost_basis else None,
+            "xirr_pct":  class_xirr,
+            "cagr_pct":  cagr(float(inv), float(cur), years) if (inv > 0 and not excluded) else None,
+            "cost_coverage_pct": round(coverage * 100, 1) if coverage is not None else None,
+            "excluded_from_total": excluded,
+            "exclusion_reason": ("purchase history incomplete for "
+                                 f"{100 - coverage * 100:.0f}% of the value — returns withheld" if withheld
+                                 else "no cost basis (missing purchase cashflows)" if no_cost_basis
+                                 else "XIRR is not meaningful here (positions opened and closed within days); see gain" if class_xirr is None
+                                 else None),
         })
-        if no_cost_basis:
+        if excluded:
             skipped.append({
                 "kind": "class", "name": cls,
-                "reason": f"no cost basis — current ₹{float(cur):,.0f} excluded from total XIRR",
+                "reason": (f"purchase history incomplete for {100 - coverage * 100:.0f}% of value — "
+                           f"current ₹{float(cur):,.0f} excluded from total returns" if withheld
+                           else f"no cost basis — current ₹{float(cur):,.0f} excluded from total XIRR"),
             })
             continue
         total_cfs.extend(cfs)
         total_invested += inv
         total_current  += cur
+        total_proceeds += proceeds
 
     total_years = _years_from_first_cf(total_cfs, today)
+    total_profit = float(total_current) + total_proceeds - float(total_invested)
     total = {
         "invested":  float(total_invested),
         "current":   float(total_current),
-        "gain":      float(total_current - total_invested),
-        "gain_pct":  round(float((total_current - total_invested) / total_invested * 100), 2)
-                     if total_invested > 0 else None,
+        "proceeds":  round(total_proceeds, 2),
+        "gain":      round(total_profit, 2),
+        "gain_pct":  round(total_profit / float(total_invested) * 100, 2) if total_invested > 0 else None,
         "years":     round(total_years, 2),
         "xirr_pct":  xirr(total_cfs),
         "cagr_pct":  cagr(float(total_invested), float(total_current), total_years)
@@ -770,6 +808,8 @@ def _per_instrument_returns(
         if _h_inv <= 0 and _nav_cost > 0 and float(h.units or 0) > 0:
             _h_inv = _nav_cost * float(h.units)
         disp_invested = _h_inv if _h_inv > 0 else (invested if invested > 0 else 0)
+        # Some units have no traced purchase: any return would be computed on the traced part only.
+        partial = getattr(h, "cost_basis_quality", None) == "partial"
         out.append({
             "isin":       h.isin,
             "name":       h.instrument_name or h.symbol or h.isin,
@@ -777,12 +817,13 @@ def _per_instrument_returns(
             "owner":      h.owner_id,
             "units":      float(h.units or 0),
             "current":    cur,
-            "invested":   disp_invested,
-            "gain":       cur - disp_invested,
+            "invested":   None if partial else disp_invested,
+            "gain":       None if partial else cur - disp_invested,
             "years":      round(years, 2),
-            "xirr_pct":   xirr(cfs) if invested > 0 else None,
-            "cagr_pct":   h_cagr,
+            "xirr_pct":   None if partial else (xirr(cfs) if invested > 0 else None),
+            "cagr_pct":   None if partial else h_cagr,
             "goal_tag":   h.goal_tag,
+            "cost_quality": getattr(h, "cost_basis_quality", None),
         })
 
     out.sort(key=lambda x: x["current"], reverse=True)
@@ -920,16 +961,23 @@ def _per_goal_returns(
         else:
             years = 0.0
 
+        partial_v = sum(float(h.current_value or 0) for h in holdings_by_goal[tag]
+                        if getattr(h, "cost_basis_quality", None) == "partial")
+        withheld = cur_by_goal[tag] > 0 and partial_v / cur_by_goal[tag] > 0.05
+        proceeds = max(0.0, sum(a for _, a in cfs if a > 0) - cur)
+        profit   = cur + proceeds - invested
         out.append({
             "goal_tag":   tag,
             "count":      count_by_goal[tag],
             "invested":   invested,
             "current":    cur,
-            "gain":       cur - invested,
-            "gain_pct":   round((cur - invested) / invested * 100, 2) if invested > 0 else None,
+            "proceeds":   round(proceeds, 2),
+            "gain":       None if withheld else round(profit, 2),
+            "gain_pct":   round(profit / invested * 100, 2) if (invested > 0 and not withheld) else None,
             "years":      round(years, 2),
-            "xirr_pct":   xirr(cfs) if invested > 0 else None,
-            "cagr_pct":   cagr(invested, cur, years) if invested > 0 and years > 0.08 else None,
+            "xirr_pct":   xirr(cfs) if (invested > 0 and not withheld) else None,
+            "cagr_pct":   cagr(invested, cur, years) if (invested > 0 and years > 0.08 and not withheld) else None,
+            "returns_withheld": "purchase history incomplete" if withheld else None,
         })
 
     out.sort(key=lambda x: x["current"], reverse=True)

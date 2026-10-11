@@ -76,7 +76,8 @@ def build_context(db: Session) -> dict:
         db.query(NetWorthSnapshot).filter_by(owner_id="family")
         .order_by(NetWorthSnapshot.snapshot_date.desc()).first()
     )
-    total = float(nw.total_assets or 0) if nw else 0
+    # Allocation is judged on financial assets: real estate cannot be rebalanced with SIPs.
+    total = float((nw.total_assets or 0) - (nw.real_estate_value or 0)) if nw else 0
     networth = {
         "total":       total,
         "bank":        float(nw.bank_balance  or 0) if nw else 0,
@@ -100,35 +101,20 @@ def build_context(db: Session) -> dict:
         for m in db.query(ManualAsset).all()
     ]
 
-    # Cash flow — last 3 months
-    cutoff = date.today() - timedelta(days=90)
-    income = (
-        db.query(func.sum(Transaction.amount))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.category == "income",
-                Transaction.transaction_type == "credit",
-                Transaction.date >= cutoff)
-        .scalar()
-    ) or ZERO
-    expenses = (
-        db.query(func.sum(Transaction.amount))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.transaction_type == "debit",
-                Transaction.category.notin_(["transfer", "investment"]),
-                Transaction.date >= cutoff)
-        .scalar()
-    ) or ZERO
-
-    top_cats = (
-        db.query(Transaction.category, func.sum(Transaction.amount).label("t"))
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(Transaction.transaction_type == "debit",
-                Transaction.category.notin_(["transfer", "investment", None]),
-                Transaction.date >= cutoff)
-        .group_by(Transaction.category)
-        .order_by(func.sum(Transaction.amount).desc())
-        .limit(6).all()
-    )
+    # Cash flow — last 3 full months, from the shared definitions (app.semantic), so the advisor
+    # quotes the same income and spending as every page.
+    from sqlalchemy import text
+    start = date.today().replace(day=1)
+    for _ in range(3):
+        start = (start - timedelta(days=1)).replace(day=1)
+    window = "date >= :s AND date < date_trunc('month', CURRENT_DATE)"
+    income = db.execute(text(f"SELECT COALESCE(SUM(amount),0) FROM v_cashflow WHERE flow='income' AND {window}"),
+                        {"s": start}).scalar() or ZERO
+    expenses = db.execute(text(f"SELECT COALESCE(SUM(amount),0) FROM v_cashflow WHERE flow='expense' AND {window}"),
+                          {"s": start}).scalar() or ZERO
+    top_cats = db.execute(text(
+        f"SELECT category, SUM(amount) AS t FROM v_cashflow WHERE flow='expense' AND category IS NOT NULL AND {window} "
+        "GROUP BY category ORDER BY 2 DESC LIMIT 6"), {"s": start}).all()
 
     monthly_income   = round(float(income)   / 3, 0)
     monthly_expenses = round(float(expenses) / 3, 0)
@@ -250,8 +236,16 @@ def get_ai_insights(db: Session) -> dict:
         logger.error("Context build failed: %s", exc, exc_info=True)
         return {"status": "error", "error": f"Context build failed: {exc}"}
 
+    # Resolve against what is installed: asking for a model that is not pulled returns a 404,
+    # which the card used to report as "Ollama not reachable".
+    from app.llm import ollama as _ollama
+    model = _ollama.pick_model(OLLAMA_MODEL, "qwen2.5:7b", "llama3.2")
+    if model is None:
+        return {"status": "unavailable",
+                "message": f"No model installed at {OLLAMA_HOST}. Run: docker exec finance_ollama ollama pull {OLLAMA_MODEL}"}
+
     payload = json.dumps({
-        "model":   OLLAMA_MODEL,
+        "model":   model,
         "prompt":  prompt,
         "stream":  False,
         "options": {"temperature": 0.3, "num_predict": 1200},
@@ -269,7 +263,7 @@ def get_ai_insights(db: Session) -> dict:
 
         return {
             "status":   "ok",
-            "model":    OLLAMA_MODEL,
+            "model":    model,
             "response": result.get("response", "").strip(),
             "context":  {
                 "net_worth":      ctx["networth"]["total"],

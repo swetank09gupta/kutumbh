@@ -78,6 +78,11 @@ def networth_history(
     ]
 
 
+def _cost_known(h) -> bool:
+    return (getattr(h, "cost_basis_quality", None) != "partial"
+            and h.invested_value is not None and float(h.invested_value) > 0)
+
+
 @router.get("/holdings")
 def latest_holdings(
     db:       Annotated[Session, Depends(get_db)],
@@ -93,12 +98,16 @@ def latest_holdings(
             "symbol":          h.symbol,
             "isin":            h.isin,
             "units":           float(h.units or 0),
-            "avg_cost_nav":    float(h.avg_cost_nav or 0),
+            # Cost is only shown when every unit's purchase is traced. Anything else is "unknown",
+            # not 0: a 0 here used to render as "+0 / 0.0%" next to a real value.
+            "avg_cost_nav":    float(h.avg_cost_nav) if _cost_known(h) else None,
             "current_nav":     float(h.current_nav or 0),
             "current_value":   float(h.current_value or 0),
-            "invested_value":  float(h.invested_value or 0),
-            "gain_loss":       float(h.gain_loss or 0),
-            "gain_loss_pct":   float(h.gain_loss_pct or 0),
+            "invested_value":  float(h.invested_value) if _cost_known(h) else None,
+            "gain_loss":       float(h.gain_loss) if _cost_known(h) and h.gain_loss is not None else None,
+            "gain_loss_pct":   float(h.gain_loss_pct) if _cost_known(h) and h.gain_loss_pct is not None else None,
+            "cost_basis_quality": getattr(h, "cost_basis_quality", None),
+            "price_source":    getattr(h, "price_source", None),
             "holding_type":    h.holding_type,
             "goal_tag":        h.goal_tag,
             "id":              str(h.id),

@@ -301,6 +301,46 @@ def _recategorize(db: Session) -> dict[str, int]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 7. Archived placeholder owners
+# ─────────────────────────────────────────────────────────────────────────────
+def _cleanup_phantom_owners(db: Session) -> dict[str, int]:
+    """
+    Owners whose id starts with '.' are archived placeholders (merged accounts). They must not
+    carry assets: one leftover synthesised PPF made Family net worth exceed Self + Spouse by ₹5.3L.
+    """
+    from app.models.schemas import ManualAsset, NetWorthSnapshot, Owner
+    removed = {"manual_assets": 0, "snapshots": 0, "owners": 0}
+    for o in db.query(Owner).filter(Owner.id.like(".%")).all():
+        removed["manual_assets"] += db.query(ManualAsset).filter(ManualAsset.owner_id == o.id) \
+            .delete(synchronize_session=False)
+        removed["snapshots"] += db.query(NetWorthSnapshot).filter(NetWorthSnapshot.owner_id == o.id) \
+            .delete(synchronize_session=False)
+        if not db.query(Account).filter(Account.owner_id == o.id).count():
+            db.delete(o)
+            removed["owners"] += 1
+    db.commit()
+    return removed
+
+
+def _txn_dedupe(db: Session) -> dict:
+    from app.txn.dedupe import dedupe_bank_transactions
+    return dedupe_bank_transactions(db, apply=True)
+
+
+def _txn_pair_transfers(db: Session) -> dict:
+    from app.txn.transfers import pair_own_transfers
+    return pair_own_transfers(db, apply=True)
+
+
+def _txn_retag(db: Session) -> dict:
+    # LLM suggestions are opt-in: a local model proved overconfident on payee names, so they
+    # are only ever suggestions in the Review list (TXN_LLM=1 to generate them during sync).
+    import os
+    from app.txn.pipeline import retag
+    return retag(db, use_llm=os.getenv("TXN_LLM", "0") == "1")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
 def run_all(db: Session) -> dict[str, Any]:
@@ -312,9 +352,13 @@ def run_all(db: Session) -> dict[str, Any]:
         ("dedup_transactions",      _dedup_transactions),
         ("dedup_unknown_accounts",  _dedup_unknown_accounts),
         ("backfill_coin_isins",     _backfill_coin_isins),
+        ("cleanup_phantom_owners",  _cleanup_phantom_owners),
+        ("txn_dedupe",              _txn_dedupe),
+        ("txn_pair_transfers",      _txn_pair_transfers),
         ("refresh_mf_navs",         _refresh_mf_navs),
         ("synth_ghost_redemptions", _synth_ghost_redemptions),
         ("recategorize",            _recategorize),
+        ("txn_retag",               _txn_retag),   # last: one authority decides every category
     ]
     for name, fn in steps:
         try:

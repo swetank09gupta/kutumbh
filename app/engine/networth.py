@@ -23,13 +23,11 @@ logger = logging.getLogger(__name__)
 ZERO = Decimal(0)
 
 
-def _latest_balance(db: Session, account_id) -> Decimal:
-    row = (
-        db.query(Balance.balance)
-        .filter_by(account_id=account_id)
-        .order_by(Balance.snapshot_date.desc())
-        .first()
-    )
+def _latest_balance(db: Session, account_id, as_of: date | None = None) -> Decimal:
+    q = db.query(Balance.balance).filter_by(account_id=account_id)
+    if as_of:
+        q = q.filter(Balance.snapshot_date <= as_of)       # history: what the statement said back then
+    row = q.order_by(Balance.snapshot_date.desc()).first()
     return row[0] if row else ZERO
 
 
@@ -144,6 +142,24 @@ def _deduped_investment_values(
     return equity, mf
 
 
+def _current_investment_values(db: Session, owner_id: str) -> tuple[Decimal, Decimal]:
+    """(equity incl. bonds, mutual funds) from the shared current-holdings view."""
+    from app.engine.holdings_view import latest_holdings
+    equity = mf = ZERO
+    for h in latest_holdings(db, owner_ids=[owner_id]):
+        v = h.current_value or ZERO
+        if h.holding_type == "mutual_fund":
+            mf += v
+        else:
+            equity += v
+    return equity, mf
+
+
+def real_owners(db: Session):
+    """Household members only: not the 'family' roll-up and not archived placeholders ('.…')."""
+    return db.query(Owner).filter(Owner.id != "family", ~Owner.id.like(".%")).all()
+
+
 def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None) -> dict:
     snap_date = snap_date or date.today()
     accounts  = db.query(Account).filter_by(owner_id=owner_id, is_active=True).all()
@@ -158,20 +174,28 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
         "other_assets":    ZERO,
     }
 
-    # Investment holdings — ISIN-deduped across stocks/demat/mutual_fund accounts
-    eq, mf = _deduped_investment_values(db, owner_id, as_of=snap_date)
+    # Investment holdings. Today: the same de-duplicated view every other page reads, so the
+    # net-worth card can never disagree with the Investments table. A past date (history
+    # backfill) has no view row, so it falls back to the per-account as-of reconstruction.
+    if snap_date >= date.today():
+        eq, mf = _current_investment_values(db, owner_id)
+    else:
+        eq, mf = _deduped_investment_values(db, owner_id, as_of=snap_date)
     totals["equity_value"] += eq
     totals["mf_value"]     += mf
 
     for acc in accounts:
         atype = acc.account_type
         if atype == "bank":
-            totals["bank_balance"] += _latest_balance(db, acc.id)
+            totals["bank_balance"] += _latest_balance(db, acc.id, snap_date)
 
     # Manual assets (PPF, FD, NPS, …) and liabilities (home loan, etc.)
     total_liabilities = ZERO
     manual = db.query(ManualAsset).filter_by(owner_id=owner_id).all()
     for asset in manual:
+        # History has no dated values for manual assets; at least do not show one before it existed.
+        if snap_date < date.today() and asset.start_date and asset.start_date > snap_date:
+            continue
         val = asset.current_value or ZERO
         if asset.asset_type == "liability" or val < ZERO:
             total_liabilities += abs(val)
@@ -197,7 +221,7 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
 def snapshot_all(db: Session) -> list[dict]:
     """Compute and persist net-worth snapshots for all real owners + family aggregate."""
     # Exclude the "family" pseudo-owner — it's computed as the sum below, not individually
-    real_owners = db.query(Owner).filter(Owner.id != "family").all()
+    owners = real_owners(db)
     results = []
     family = {
         "bank_balance": ZERO, "equity_value": ZERO, "mf_value": ZERO,
@@ -206,7 +230,7 @@ def snapshot_all(db: Session) -> list[dict]:
         "snapshot_date": date.today(), "owner_id": "family",
     }
 
-    for owner in real_owners:
+    for owner in owners:
         data = compute_for_owner(db, owner.id)
         _upsert_snapshot(db, data)
         results.append(data)
@@ -240,7 +264,7 @@ def backfill_snapshots(db: Session) -> int:
         db.execute(text("SELECT DISTINCT snapshot_date FROM net_worth_snapshots")).fetchall()
     }
 
-    real_owners = db.query(Owner).filter(Owner.id != "family").all()
+    owners = real_owners(db)
     created = 0
 
     for snap_date in all_dates:
@@ -253,7 +277,7 @@ def backfill_snapshots(db: Session) -> int:
             "total_assets": ZERO, "total_liabilities": ZERO, "net_worth": ZERO,
             "snapshot_date": snap_date, "owner_id": "family",
         }
-        for owner in real_owners:
+        for owner in owners:
             data = compute_for_owner(db, owner.id, snap_date=snap_date)
             _upsert_snapshot(db, data)
             for k in ("bank_balance", "equity_value", "mf_value",

@@ -1,0 +1,386 @@
+{
+  "title": "💸 Cash Flow",
+  "uid": "cashflow",
+  "schemaVersion": 38,
+  "version": 2,
+  "refresh": "1h",
+  "time": {
+    "from": "now-20y",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Monthly Income",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT t.month AS time, SUM(t.amount) AS value FROM v_cashflow t WHERE t.flow='income' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '12 months' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Monthly Expenses",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT t.month AS time, SUM(t.amount) AS value FROM v_cashflow t WHERE t.flow='expense' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '12 months' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Monthly EMI (regular)",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "fixedColor": "orange",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT t.month AS time, SUM(t.amount) AS value FROM v_cashflow t WHERE t.category='emi' AND t.flow='expense' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '12 months' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Monthly Invested",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT t.month AS time, SUM(t.amount) AS value FROM v_cashflow t WHERE t.flow='investment' AND t.transaction_type='debit' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '12 months' GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Monthly Income vs Expenses",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 16,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        }
+      },
+      "options": {
+        "barWidth": 0.6,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT t.month AS time, SUM(CASE WHEN t.flow='income' THEN t.amount ELSE 0 END) AS \"Income\", SUM(CASE WHEN t.flow='expense' THEN t.amount ELSE 0 END) AS \"Expenses\", SUM(CASE WHEN t.flow='investment' AND t.transaction_type='debit' THEN t.amount ELSE 0 END) AS \"Invested\", SUM(CASE WHEN t.flow='prepayment' THEN t.amount ELSE 0 END) AS \"Loan prepayment\" FROM v_cashflow t WHERE t.date >= NOW() - INTERVAL '${timeRange}' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Expense Breakdown (Last 3 Months)",
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "options": {
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "percent"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT COALESCE(t.category,'other') AS metric, SUM(t.amount) AS value FROM v_cashflow t WHERE t.flow='expense' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '3 months' GROUP BY t.category ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "EMI Tracker",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Monthly EMI",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT SUBSTRING(t.description, 1, 40) AS \"Description\", ROUND(SUM(t.amount) / NULLIF(COUNT(DISTINCT t.month), 0), 0) AS \"Monthly EMI\", COUNT(DISTINCT t.month) AS \"Months\", MIN(t.date) AS \"First Payment\" FROM v_cashflow t WHERE t.category = 'emi' AND t.flow = 'expense' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= NOW() - INTERVAL '12 months' GROUP BY SUBSTRING(t.description, 1, 40) ORDER BY \"Monthly EMI\" DESC",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top Spending (Last Month)",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT SUBSTRING(t.description, 1, 40) AS \"Description\", t.category AS \"Category\", t.amount AS \"Amount\", t.date AS \"Date\" FROM v_cashflow t WHERE t.flow='expense' AND ('${owner}' = 'family' OR t.owner_id = '${owner}') AND t.date >= date_trunc('month', NOW()) ORDER BY t.amount DESC LIMIT 20",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "family",
+          "value": "family"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "financedb"
+        },
+        "definition": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Owner",
+        "multi": false,
+        "name": "owner",
+        "options": [],
+        "query": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "name": "timeRange",
+        "type": "custom",
+        "label": "Time Range",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "query": "1 month,3 months,6 months,1 year,2 years,5 years,20 years",
+        "current": {
+          "selected": true,
+          "text": "Last 1 year",
+          "value": "1 year"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "Last 1 month",
+            "value": "1 month"
+          },
+          {
+            "selected": false,
+            "text": "Last 3 months",
+            "value": "3 months"
+          },
+          {
+            "selected": false,
+            "text": "Last 6 months",
+            "value": "6 months"
+          },
+          {
+            "selected": true,
+            "text": "Last 1 year",
+            "value": "1 year"
+          },
+          {
+            "selected": false,
+            "text": "Last 2 years",
+            "value": "2 years"
+          },
+          {
+            "selected": false,
+            "text": "Last 5 years",
+            "value": "5 years"
+          },
+          {
+            "selected": false,
+            "text": "All time",
+            "value": "20 years"
+          }
+        ],
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "timepicker": {
+    "hidden": true
+  }
+}

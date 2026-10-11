@@ -165,13 +165,19 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
         # Maintenance and snapshot run once over the full dataset.
         # Ledger first: it rebuilds today's holdings, which the snapshot reads.
         from app.ledger import refresh as _ledger_refresh
-        ledger      = _ledger_refresh(db)
-        snapshots   = snapshot_all(db)
-        maintenance = _run_maintenance(db)
+        maintenance = _run_maintenance(db)       # clean/de-dupe/tag first…
+        ledger      = _ledger_refresh(db)        # …then rebuild holdings…
+        snapshots   = snapshot_all(db)           # …then snapshot net worth from them
+        from app.engine.goals import refresh_goals
+        goals_refreshed = refresh_goals(db)      # …then goals from the same holdings
+        from app import consistency
+        health = consistency.run(db)             # …and verify every page will agree
 
         result = {
             **totals,
             "ledger":            ledger,
+            "goals":             goals_refreshed,
+            "consistency":       {k: health[k] for k in ("ok", "failing", "warnings")},
             "snapshots_updated": len(snapshots),
             "since_days":        since_days,
             "until_days":        until_days,
@@ -470,12 +476,14 @@ def _run_reprocess_bg() -> None:
         logger.info("Reprocess: found %d local files to process", len(attachments))
         summary   = process_attachments(attachments, db)
         from app.ledger import refresh as _ledger_refresh
+        from app.etl.maintenance import run_all as _run_maintenance
+        maintenance = _run_maintenance(db)       # same order as a full sync
         ledger    = _ledger_refresh(db)
         snapshots = snapshot_all(db)
-
-        # Post-reprocess maintenance — same pipeline as full sync.
-        from app.etl.maintenance import run_all as _run_maintenance
-        maintenance = _run_maintenance(db)
+        from app.engine.goals import refresh_goals
+        goals_refreshed = refresh_goals(db)
+        from app import consistency
+        health = consistency.run(db)
 
         result = {
             "attachments_fetched":   len(attachments),
@@ -485,6 +493,8 @@ def _run_reprocess_bg() -> None:
             "snapshots_updated":     len(snapshots),
             "since_days":            0,
             "ledger":                ledger,
+            "goals":                 goals_refreshed,
+            "consistency":           {k: health[k] for k in ("ok", "failing", "warnings")},
             "maintenance":           maintenance,
         }
         logger.info("Reprocess done: %s", result)

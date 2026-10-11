@@ -1,0 +1,120 @@
+{
+  "title": "🎯 Goals & Planning",
+  "uid": "goals",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1d",
+  "time": { "from": "now-1y", "to": "now+10y" },
+  "panels": [
+    {
+      "id": 1, "type": "table", "title": "Goal Projections",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyINR" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "On Track?" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "true": { "text": "✅ Yes", "color": "green" }, "false": { "text": "⚠️ No", "color": "red" } } }] }] },
+          { "matcher": { "id": "byName", "options": "Progress %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "custom.displayMode", "value": "gradient-gauge" }, { "id": "min", "value": 0 }, { "id": "max", "value": 100 }] },
+          { "matcher": { "id": "byName", "options": "Months Left" }, "properties": [{ "id": "unit", "value": "none" }] }
+        ]
+      },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT name AS \"Goal\", goal_type AS \"Type\", TO_CHAR(target_date, 'Mon YYYY') AS \"Target Date\", ROUND(target_amount, 0) AS \"Target (₹)\", ROUND(current_corpus, 0) AS \"Current Corpus\", ROUND(monthly_sip_needed, 0) AS \"SIP Needed/mo\", ROUND(current_corpus * 100.0 / NULLIF(target_amount, 0), 1) AS \"Progress %\", ROUND((DATE_PART('year', target_date) - DATE_PART('year', NOW())) * 12 + DATE_PART('month', target_date) - DATE_PART('month', NOW())) AS \"Months Left\", CASE WHEN current_corpus >= target_amount THEN 'true' ELSE 'false' END AS \"On Track?\" FROM goals ORDER BY target_date",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 2, "type": "bargauge", "title": "Goal Progress",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 10 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "min": 0,
+          "color": { "mode": "continuous-GrYlRd" },
+          "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0.5, "color": "yellow" }, { "value": 0.8, "color": "green" }] }
+        }
+      },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT name AS metric, current_corpus AS value, target_amount AS max FROM goals ORDER BY target_date",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 3, "type": "table", "title": "Monthly SIP Plan",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 10 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyINR" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "SIP/Month" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "steps": [{ "value": null, "color": "green" }, { "value": 10000, "color": "yellow" }, { "value": 50000, "color": "red" }] } }] }
+        ]
+      },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT name AS \"Goal\", goal_type AS \"Type\", ROUND(monthly_sip_needed, 0) AS \"SIP/Month\", ROUND(expected_return_rate, 1) AS \"Expected Return%\", ROUND(inflation_rate, 1) AS \"Inflation%\" FROM goals ORDER BY monthly_sip_needed DESC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Total Monthly SIP Required",
+      "gridPos": { "x": 0, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": { "defaults": { "unit": "currencyINR", "color": { "fixedColor": "blue", "mode": "fixed" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT NOW() AS time, SUM(monthly_sip_needed) AS value FROM goals",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Child Education — Corpus Gap",
+      "gridPos": { "x": 6, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyINR", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0, "color": "green" }] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT NOW() AS time, (current_corpus - target_amount) AS value FROM goals WHERE goal_type = 'child_education' LIMIT 1",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Retirement — Corpus Gap",
+      "gridPos": { "x": 12, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyINR", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0, "color": "green" }] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT NOW() AS time, SUM(current_corpus - target_amount) AS value FROM goals WHERE goal_type = 'retirement'",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 7, "type": "stat", "title": "Emergency Fund — Status",
+      "gridPos": { "x": 18, "y": 20, "w": 6, "h": 4 },
+      "datasource": { "uid": "financedb" },
+      "fieldConfig": {
+        "defaults": { "unit": "currencyINR", "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0, "color": "green" }] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{
+        "datasource": { "uid": "financedb" },
+        "rawSql": "SELECT NOW() AS time, (current_corpus - target_amount) AS value FROM goals WHERE goal_type = 'emergency' LIMIT 1",
+        "format": "time_series"
+      }]
+    }
+  ]
+}

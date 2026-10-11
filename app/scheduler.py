@@ -30,8 +30,12 @@ def _sync_job():
         attachments = fetch_all_accounts(since_days=7)  # incremental — last 7 days
         summary     = process_attachments(attachments, db)
         from app.ledger import refresh as ledger_refresh
+        from app.etl.maintenance import run_all as run_maintenance
+        run_maintenance(db)              # de-dupe, own-transfer pairing, tagging — same as a manual sync
         ledger_refresh(db)
         snapshot_all(db)
+        from app.engine.goals import refresh_goals
+        refresh_goals(db)
         logger.info("Scheduled sync done: %s", summary)
     except Exception as exc:
         logger.error("Scheduled sync failed: %s", exc, exc_info=True)
@@ -49,6 +53,8 @@ def _networth_snapshot_job():
         from app.ledger import refresh as ledger_refresh
         ledger_refresh(db)          # re-price today's positions before snapshotting
         snapshot_all(db)
+        from app.engine.goals import refresh_goals
+        refresh_goals(db)
     except Exception as exc:
         logger.error("Net-worth snapshot failed: %s", exc, exc_info=True)
     finally:
@@ -69,8 +75,8 @@ def _holdings_autotag_job():
         logger.info("Holdings auto-tag sweep: tagged %d", n)
         # Always refresh corpus, even if no new tags — net worth / holdings
         # values change daily and the goal page should reflect that.
-        m = refresh_corpus_from_networth(db, "family")
-        logger.info("Goal corpus refresh: updated %d goals", m)
+        from app.engine.goals import refresh_goals
+        logger.info("Goal refresh: %s", refresh_goals(db))
     except Exception as exc:
         logger.error("Holdings auto-tag/corpus refresh failed: %s", exc, exc_info=True)
     finally:
@@ -80,15 +86,11 @@ def _holdings_autotag_job():
 def _goal_update_job():
     logger.info("Weekly goal SIP recalculation: starting")
     from app.models.database import SessionLocal
-    from app.models.schemas import Goal
-    from app.engine.goals import update_goal_sip
+    from app.engine.goals import refresh_goals
 
     db = SessionLocal()
     try:
-        goals = db.query(Goal).all()
-        for g in goals:
-            update_goal_sip(db, str(g.id))
-        logger.info("Updated SIP for %d goals", len(goals))
+        logger.info("Goal refresh: %s", refresh_goals(db))
     except Exception as exc:
         logger.error("Goal update failed: %s", exc, exc_info=True)
     finally:

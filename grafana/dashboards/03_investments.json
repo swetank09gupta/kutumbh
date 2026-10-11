@@ -1,0 +1,433 @@
+{
+  "title": "📈 Investments",
+  "uid": "investments",
+  "schemaVersion": 38,
+  "version": 15,
+  "refresh": "1h",
+  "time": {
+    "from": "now-20y",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Portfolio Value",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT NOW() AS time, SUM(current_value) AS value FROM latest_holdings_deduped WHERE ('${owner}' = 'family' OR owner_id = '${owner}')",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Invested (cost known)",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT NOW() AS time, SUM(invested_value) AS value FROM latest_holdings_deduped WHERE ('${owner}' = 'family' OR owner_id = '${owner}') AND invested_value > 0",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Gain / Loss (cost known)",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 0,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT NOW() AS time, SUM(gain_loss) AS value FROM latest_holdings_deduped WHERE ('${owner}' = 'family' OR owner_id = '${owner}') AND invested_value > 0",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Unrealised return % (cost known)",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT NOW() AS time, ROUND(SUM(gain_loss) * 100.0 / NULLIF(SUM(invested_value), 0), 2) AS value FROM latest_holdings_deduped WHERE ('${owner}' = 'family' OR owner_id = '${owner}') AND invested_value > 0",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Holdings — All Positions",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "G/L %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "value": null,
+                      "color": "red"
+                    },
+                    {
+                      "value": 0,
+                      "color": "green"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Value",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT o.name AS \"Owner\", institution AS \"Platform\", holding_type AS \"Type\", instrument_name AS \"Instrument\", ROUND(units, 2) AS \"Units\", ROUND(avg_cost_nav, 2) AS \"Avg Cost\", ROUND(current_nav, 2) AS \"NAV/LTP\", ROUND(invested_value, 0) AS \"Invested\", ROUND(current_value, 0) AS \"Value\", ROUND(gain_loss, 0) AS \"G/L ₹\", ROUND(gain_loss_pct, 2) AS \"G/L %\" FROM latest_holdings_deduped h JOIN owners o ON h.owner_id = o.id WHERE ('${owner}' = 'family' OR h.owner_id = '${owner}') ORDER BY current_value DESC",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Portfolio Allocation by Type",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "options": {
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT holding_type AS metric, SUM(current_value) AS value FROM latest_holdings_deduped WHERE ('${owner}' = 'family' OR owner_id = '${owner}') GROUP BY holding_type",
+          "format": "table",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Allocation by Owner",
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "options": {
+        "pieType": "donut",
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT o.name AS metric, SUM(current_value) AS value FROM latest_holdings_deduped h JOIN owners o ON h.owner_id = o.id GROUP BY o.name",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Portfolio Value Over Time",
+      "gridPos": {
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "financedb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyINR",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "financedb"
+          },
+          "rawSql": "SELECT snapshot_date AS time, equity_value + mf_value AS \"Portfolio Value\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "format": "time_series",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "family",
+          "value": "family"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "financedb"
+        },
+        "definition": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Owner",
+        "multi": false,
+        "name": "owner",
+        "options": [],
+        "query": "SELECT name AS __text, id AS __value FROM owners ORDER BY name DESC",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "name": "timeRange",
+        "type": "custom",
+        "label": "Time Range",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "query": "1 month,3 months,6 months,1 year,2 years,5 years,20 years",
+        "current": {
+          "selected": true,
+          "text": "Last 2 years",
+          "value": "2 years"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "Last 1 month",
+            "value": "1 month"
+          },
+          {
+            "selected": false,
+            "text": "Last 3 months",
+            "value": "3 months"
+          },
+          {
+            "selected": false,
+            "text": "Last 6 months",
+            "value": "6 months"
+          },
+          {
+            "selected": false,
+            "text": "Last 1 year",
+            "value": "1 year"
+          },
+          {
+            "selected": true,
+            "text": "Last 2 years",
+            "value": "2 years"
+          },
+          {
+            "selected": false,
+            "text": "Last 5 years",
+            "value": "5 years"
+          },
+          {
+            "selected": false,
+            "text": "All time",
+            "value": "20 years"
+          }
+        ],
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "timepicker": {
+    "hidden": true
+  }
+}

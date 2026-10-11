@@ -24,7 +24,7 @@ class GoalProjection:
     goal_id:            str
     name:               str
     goal_type:          str
-    target_date:        date
+    target_date:        Optional[date]
     inflation_adj_target: float   # target in today's ₹ terms
     current_corpus:     float
     monthly_sip_needed: float     # to reach target from today
@@ -273,6 +273,21 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
     target_nom = float(goal.target_amount or 0)
     manual_ret = float(goal.expected_return_rate or 12)
 
+    # ── Emergency fund: a floor to maintain, not a dated target ──────────────
+    # No target date, no inflation compounding, no market return assumed. The question is only
+    # "is the liquid corpus at least the target, and if not, what monthly amount closes the gap
+    # within a year".
+    if (goal.goal_type or "").lower() in ("emergency", "emergency_fund"):
+        shortfall = max(0.0, target_nom - pv)
+        return GoalProjection(
+            goal_id=str(goal.id), name=goal.name, goal_type=goal.goal_type or "emergency",
+            target_date=None, inflation_adj_target=round(target_nom, 2), current_corpus=pv,
+            monthly_sip_needed=round(shortfall / 12, 2), projected_corpus=round(pv, 2),
+            gap=round(pv - target_nom, 2), months_to_goal=0, on_track=shortfall <= 0,
+            current_monthly_sip=current_monthly_sip, effective_return_pct=round(manual_ret, 2),
+            return_source="manual", sip_stepup_pct=0.0, sip_stepup_source="none", glide_active=False,
+        )
+
     # ── Pick effective return (manual override vs blended from tagged holdings) ─
     use_manual = bool(getattr(goal, "use_manual_return", False))
     blended_info = None
@@ -289,8 +304,11 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
                 effective_return = blended_info["blended_pct"]
                 return_source = "blended"
             else:
-                effective_return = DEFAULT_RETURN_PCT
-                return_source = "default"
+                # No reliable return history for the tagged holdings: use the return the goal
+                # itself is configured with (12% for equity goals, 8% health, 6.5% emergency…),
+                # not one global default.
+                effective_return = manual_ret
+                return_source = "manual"
         except Exception:
             effective_return = manual_ret
             return_source = "manual"
@@ -470,23 +488,7 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
             share = 1.0 / len(invest_goals)
         return round(untagged_pool * share, 2)
 
-    def _candidate_tags(goal: Goal) -> list[str]:
-        """
-        Map a goal to the goal_tag(s) that should contribute to its corpus.
-        Distinguishes Your Retirement (owner=user → tag "retirement") from
-        Wife's Retirement (owner=wife → tag "wife_retirement"); without this
-        both retirement goals previously pulled the same tagged_corpus key
-        and the dedicated wife_retirement tag was orphaned.
-        """
-        gt = goal.goal_type
-        owner = (goal.owner_id or "").lower()
-        if gt == "retirement":
-            # Heuristic: any non-primary-user owner with a retirement goal
-            # gets the wife_retirement tag pool.
-            if owner in ("wife", "spouse", "partner") or "wife" in (goal.name or "").lower():
-                return ["wife_retirement"]
-            return ["retirement"]
-        return [gt]
+    from app.engine.goal_returns import goal_tags as _candidate_tags
 
     updated = 0
     for g in goals:
@@ -525,199 +527,106 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
     return updated
 
 
-def _recent_investing_rate(
-    db: Session, owner_ids: list[str], lookback_months: int = 6,
-    today: date | None = None,
-) -> float:
-    """
-    Actual investing rate (₹/month) over the last `lookback_months`.
-
-    Sums:
-      - Debit transactions on investment accounts (stocks / mutual_fund / demat),
-        skipping the Zerodha monthly-demat unit-count rows (description begins
-        with "DEMAT ").
-      - ManualAssetContribution rows (PPF / NPS / RD installments) in the
-        same window.
-
-    Used as the *real* current_monthly_sip in goal projections so on_track and
-    gap reflect what the user is actually doing, not the SIP that would make
-    every goal on-track by construction.
-    """
-    from datetime import timedelta
-    from sqlalchemy import func as _f
-    from app.models.schemas import (
-        Account, Transaction, ManualAsset, ManualAssetContribution,
-    )
-
-    today  = today or date.today()
-    cutoff = today - timedelta(days=int(30.44 * lookback_months))
-
-    # Sum broker-account debits, counting only groups that look like real SIPs:
-    #   1. At least `min_recurrence` hits in the window (regular cadence), AND
-    #   2. Amounts are tight — coefficient of variation < 15% (fixed SIP amount,
-    #      not discretionary buys of varying size like equity / ETF purchases).
-    rows = (
-        db.query(
-            Transaction.account_id,
-            _f.coalesce(Transaction.counterparty, Transaction.description).label("flow_key"),
-            _f.count(Transaction.id).label("n"),
-            _f.sum(Transaction.amount).label("total"),
-            _f.avg(Transaction.amount).label("avg_amt"),
-            _f.stddev_samp(Transaction.amount).label("sd_amt"),
-        )
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(
-            Account.owner_id.in_(owner_ids),
-            Account.account_type.in_(("stocks", "mutual_fund", "demat")),
-            Transaction.transaction_type == "debit",
-            Transaction.date >= cutoff,
-            ~Transaction.description.ilike("DEMAT %"),
-        )
-        .group_by(Transaction.account_id,
-                  _f.coalesce(Transaction.counterparty, Transaction.description))
-        .all()
-    )
-    # For each qualifying SIP flow, the monthly rate is the per-txn average
-    # (one fixed-amount SIP per month). Summing avg_amt across flows gives the
-    # *current* monthly SIP rate — not the trailing 6-month average, which
-    # under-reports SIPs that started recently.
-    min_recurrence = max(3, lookback_months // 2)
-    sip_monthly = 0.0
-    for r in rows:
-        if (r.n or 0) < min_recurrence:
-            continue
-        avg = float(r.avg_amt or 0)
-        sd  = float(r.sd_amt or 0)
-        if avg <= 0:
-            continue
-        cv = sd / avg
-        if cv > 0.15:           # amounts vary too much → discretionary, not SIP
-            continue
-        # SIPs are set in round-rupee amounts; Coin/AMC debit a paisa or two
-        # less due to NAV rounding (e.g. ₹19,999 instead of ₹20,000). Snap to
-        # the nearest ₹100 so the reported total matches the configured SIP.
-        sip_monthly += round(avg / 100.0) * 100
-
-    # Bank-account ACH outflows to broker mandates (Zerodha/Coin SIPs that
-    # ride on the bank statement, not the broker statement). Group by mandate
-    # amount and require the same SIP-cadence + tight-amount rules so we get
-    # the current monthly rate, not a windowed average.
-    ach_rows = (
-        db.query(
-            Transaction.amount,
-            _f.count(Transaction.id).label("n"),
-            _f.avg(Transaction.amount).label("avg_amt"),
-            _f.stddev_samp(Transaction.amount).label("sd_amt"),
-        )
-        .join(Account, Transaction.account_id == Account.id)
-        .filter(
-            Account.owner_id.in_(owner_ids),
-            Account.account_type == "bank",
-            Transaction.transaction_type == "debit",
-            Transaction.date >= cutoff,
-            (
-                Transaction.description.ilike("%YESB00709000028661%")
-                | Transaction.description.ilike("%ZERODHA BROKIN%")
-                | Transaction.description.ilike("%INDIAN CLEARIN%")
-            ),
-        )
-        .group_by(Transaction.amount)
-        .all()
-    )
-    broker_ach_monthly = 0.0
-    for r in ach_rows:
-        if (r.n or 0) < min_recurrence:
-            continue
-        avg = float(r.avg_amt or 0)
-        sd  = float(r.sd_amt or 0)
-        if avg <= 0:
-            continue
-        if (sd / avg) > 0.15:
-            continue
-        broker_ach_monthly += avg
-
-    contribs = (
-        db.query(_f.coalesce(_f.sum(ManualAssetContribution.amount), 0))
-        .join(ManualAsset, ManualAsset.id == ManualAssetContribution.asset_id)
-        .filter(
-            ManualAsset.owner_id.in_(owner_ids),
-            ManualAssetContribution.date >= cutoff,
-        )
-        .scalar()
-    ) or 0
-
-    months = max(1, lookback_months)
-    # sip_monthly + broker_ach_monthly are already monthly rates (per-txn avg
-    # of the detected recurring flow). Only manual contributions still need
-    # to be divided over the lookback window.
-    return sip_monthly + broker_ach_monthly + (float(contribs) / months)
+def _scope(goal: Goal, all_owner_ids: list[str]) -> list[str]:
+    """Whose money can fund a goal: the owner's own for a personal goal, everyone's for a family goal."""
+    return list(all_owner_ids) if (goal.owner_id in (None, "", "family")) else [goal.owner_id]
 
 
 def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProjection]:
-    from app.models.schemas import Owner
+    """
+    One projection per goal — the only calculator (the goal cards, the projections table, the
+    stored SIP column and Grafana all read it).
 
+    Current monthly SIP comes from the exact trade ledger (app.engine.sip): funds bought on a
+    regular cadence. A SIP tagged to a goal counts toward that goal only (and only the owner's
+    own SIPs for a personal goal). SIPs with no goal tag are split across the goals that owner can
+    fund, weighted by target amount. Nobody's SIP is counted twice or credited to someone else.
+    """
+    from collections import defaultdict
+    from app.engine import sip as sipmod
+    from app.engine.goal_returns import goal_tags
+    from app.engine.holdings_view import latest_holdings
+    from app.engine.networth import real_owners
+    from app.models.schemas import ManualAsset, ManualAssetContribution
+    from sqlalchemy import func as _f
+    from datetime import timedelta
+
+    all_owner_ids = [o.id for o in real_owners(db)]
     q = db.query(Goal)
-    # "family" should show every household member's goals (Your + Wife's
-    # Retirement are owned by user/wife, not literal "family"), so we expand
-    # rather than filter on the literal owner_id.
     if owner_id and owner_id != "family":
         q = q.filter(Goal.owner_id.in_([owner_id, "family"]))
     goals = q.all()
+    investing = [g for g in goals if (g.goal_type or "").lower() not in ("emergency", "emergency_fund", "custom")]
 
-    # Resolve owner_ids for the actual-investing calculation. "family" expands
-    # to every real owner so the family's combined SIPs feed every goal.
-    if owner_id == "family" or owner_id is None:
-        owner_ids = [r[0] for r in db.query(Owner.id).filter(Owner.id != "family").all()]
-    else:
-        owner_ids = [owner_id]
+    sips = sipmod.monthly_sip_by_fund(db, all_owner_ids, 6)
+    tag_of = {(h.owner_id, h.isin): h.goal_tag
+              for h in latest_holdings(db, owner_ids=all_owner_ids) if h.isin}
+    actual: dict[str, float] = defaultdict(float)
+    untagged: dict[str, float] = defaultdict(float)
 
-    from app.engine.goal_returns import (
-        actual_monthly_sip_for_goal, detect_sip_stepup,
-    )
+    def place(owner: str, tag: Optional[str], amount: float) -> None:
+        if tag:
+            for g in investing:
+                if tag in goal_tags(g) and owner in _scope(g, all_owner_ids):
+                    actual[str(g.id)] += amount
+                    return
+        untagged[owner] += amount
 
-    detected_stepup = detect_sip_stepup(db, owner_ids)
-    actual_family_total = _recent_investing_rate(db, owner_ids, lookback_months=6)
+    for (o, isin), amt in sips.items():
+        place(o, tag_of.get((o, isin)), amt)
 
-    investment_goals = [g for g in goals if (g.goal_type or "") not in ("emergency", "custom")]
+    # PPF / NPS / RD instalments recorded against manual assets (monthly average of the last 6 months)
+    cutoff = date.today() - timedelta(days=int(30.44 * 6))
+    for owner, tag, total in (
+        db.query(ManualAsset.owner_id, ManualAsset.goal_tag, _f.sum(ManualAssetContribution.amount))
+        .join(ManualAsset, ManualAsset.id == ManualAssetContribution.asset_id)
+        .filter(ManualAsset.owner_id.in_(all_owner_ids), ManualAssetContribution.date >= cutoff)
+        .group_by(ManualAsset.owner_id, ManualAsset.goal_tag).all()
+    ):
+        place(owner, tag, float(total or 0) / 6)
 
-    # ── Per-goal actual SIP from tagged holdings (preferred) ────────────────
-    per_goal_actual: dict[str, float] = {}
-    sum_tagged_actual = 0.0
-    for g in investment_goals:
-        v = actual_monthly_sip_for_goal(db, g, owner_ids, lookback_months=6)
-        per_goal_actual[str(g.id)] = v
-        sum_tagged_actual += v
+    for owner, amount in untagged.items():
+        eligible = [g for g in investing if owner in _scope(g, all_owner_ids)]
+        if not eligible:
+            continue
+        total_t = sum(float(g.target_amount or 0) for g in eligible)
+        for g in eligible:
+            share = (float(g.target_amount or 0) / total_t) if total_t else 1 / len(eligible)
+            actual[str(g.id)] += amount * share
 
-    # ── Fallback: if tagging is sparse, spread the *un-attributed* family SIP
-    # in proportion to monthly_sip_needed so no contribution is silently lost.
-    untagged_family = max(0.0, actual_family_total - sum_tagged_actual)
-    total_needed = sum(float(g.monthly_sip_needed or 0) for g in investment_goals)
+    out = []
+    for g in goals:
+        scope = _scope(g, all_owner_ids)
+        out.append(project_goal(
+            g, round(actual.get(str(g.id), 0.0), 2), db, owner_ids=scope,
+            detected_stepup_pct=sipmod.sip_stepup_pct(db, scope)))
+    return out
 
-    def _actual_for(goal: Goal) -> float:
-        if (goal.goal_type or "") in ("emergency", "custom"):
-            return 0.0
-        base = per_goal_actual.get(str(goal.id), 0.0)
-        if untagged_family > 0 and total_needed > 0:
-            share = float(goal.monthly_sip_needed or 0) / total_needed
-            base += untagged_family * share
-        return base
 
-    projections = []
-    for goal in goals:
-        projections.append(project_goal(
-            goal, _actual_for(goal), db,
-            owner_ids=owner_ids,
-            detected_stepup_pct=detected_stepup,
-        ))
-
-    return projections
+def refresh_goals(db: Session) -> dict:
+    """
+    Bring every goal in line with today's holdings: corpus from the tagged holdings, then the
+    stored monthly_sip_needed from the single projection. Run after the ledger refresh and the
+    net-worth snapshot so corpus, SIP and the cards always describe the same portfolio.
+    """
+    corpus = refresh_corpus_from_networth(db, "family")
+    stored = 0
+    for p in project_all_goals(db):
+        g = db.get(Goal, p.goal_id)
+        new = Decimal(str(p.monthly_sip_needed))
+        if g is not None and g.monthly_sip_needed != new:
+            g.monthly_sip_needed = new
+            stored += 1
+    db.commit()
+    return {"corpus_updated": corpus, "sip_updated": stored}
 
 
 def update_goal_sip(db: Session, goal_id: str) -> None:
-    """Recalculate and persist monthly_sip_needed for a goal."""
-    goal = db.query(Goal).filter_by(id=goal_id).first()
-    if not goal:
-        return
-    proj = project_goal(goal, 0, db)
-    goal.monthly_sip_needed = Decimal(str(proj.monthly_sip_needed))
-    db.commit()
+    """Recalculate and persist monthly_sip_needed (from the single projection, not a private formula)."""
+    for p in project_all_goals(db):
+        if p.goal_id == str(goal_id):
+            goal = db.query(Goal).filter_by(id=goal_id).first()
+            if goal:
+                goal.monthly_sip_needed = Decimal(str(p.monthly_sip_needed))
+                db.commit()
+            return

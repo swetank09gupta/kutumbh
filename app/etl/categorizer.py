@@ -89,6 +89,11 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     (re.compile(r"\bbrn-si\b|standing\s+instruction|closing\s+balance\s+summary", re.I),
      Category("transfer", None)),
 
+    # ── Regular EMI: the monthly ACH mandate. Everything else that pays a loan is a prepayment. ──
+    # (the mandate amount changes when the rate does, so the narration — not a fixed amount — is the signal)
+    (re.compile(r"\bach\s*d[-\s](?!.*\bupi\b).*hdfc\s*bank|\bachd.*hdfcbankltd(?!.*upi)", re.I),
+     Category("emi", "emi_regular")),
+
     # ── EMI / Loan repayment ──────────────────────────────────────────────────
     (re.compile(r"\bemi\b|equated\s+monthly|loan\s+repayment|\bhl\s+emi\b|car\s*loan|personal\s*loan"
                 r"|home\s*loan|housing\s*loan|mortgage"
@@ -226,6 +231,16 @@ _RULES: list[tuple[re.Pattern, Category]] = [
                 r"|royaloak|royal\s*oak|pepperfry|urban\s*ladder|home\s*centre"
                 r"|lenskart", re.I),
      Category("shopping", "online")),
+
+    # ── Merchants seen in the unlabelled-payee list (UPI handles are what identify them) ──
+    (re.compile(r"firstcry|brainbees|hopscotch", re.I), Category("child_expenses", "kids_shopping")),
+    (re.compile(r"grofers|blinkit|\bbbnow\b|bigbasket|jiomart|zepto", re.I), Category("food", "groceries")),
+    (re.compile(r"\bekart\b|amzn\d|amazon\s*pay|flipkart", re.I), Category("shopping", "online")),
+    (re.compile(r"urban\s*co(?:mpany)?\b|urbancom|yesmadam|housejoy", re.I), Category("housing", "home_services")),
+    (re.compile(r"income\s*tax|incometax|\bcbdt\b|tin-nsdl|nsdl\s*tax", re.I), Category("taxes", None)),
+    (re.compile(r"paytm-?irct|irctc|redrail|ixigo|abhibus", re.I), Category("transport", "travel_commute")),
+    (re.compile(r"add\s*mone|add-money|wallet\s*(?:top|load)|mobikwik\s*wallet", re.I), Category("transfer", "wallet_topup")),
+    (re.compile(r"sbiepay|bbps|billdesk", re.I), Category("utilities", "bills")),
 
     # ── Entertainment / Subscriptions ────────────────────────────────────────
     (re.compile(r"netflix|amazon\s*prime|hotstar|disney|sony\s*liv|zee5|voot"

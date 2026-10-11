@@ -75,6 +75,12 @@ Fix: open the raw email, save the attachment, and run the parser directly (see [
 
 ---
 
+## Numbers disagree between pages
+Open `/api/health/consistency` (or the banner at the top of the app). Every check that fails names the two figures that differ. The usual fixes: run a sync (it re-runs cleanup, the ledger, snapshots and goals in that order), or label the payees in the Transactions → "Label payees" card. See ADR-0024 for what each number means.
+
+## An expense or income looks wrong
+Expense excludes transfers, investments and loan prepayments; income is salary, interest/dividends and refunds; other credits (deposits, gifts) are not income until tagged. A payment to a person shows as "other" until you label that payee once — it is then applied to every past and future payment. Own-account transfers are found by matching amount and date across accounts, or by your name in the narration.
+
 ## Holdings / reconciliation
 
 ### Holdings differ from Zerodha Console

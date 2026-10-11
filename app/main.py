@@ -45,6 +45,11 @@ def _migrate_db() -> None:
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS cost_basis_quality VARCHAR(10)",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS price_source VARCHAR(20)",
         "ALTER TABLE instrument_trades ADD COLUMN IF NOT EXISTS settle_date DATE",
+        # Transaction tagging provenance + review queue (app.txn)
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_source VARCHAR(10)",
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_conf NUMERIC(4,2)",
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT FALSE",
+        "CREATE INDEX IF NOT EXISTS ix_txn_needs_review ON transactions(needs_review) WHERE needs_review",
         "CREATE INDEX IF NOT EXISTS ix_itrades_owner_isin_date ON instrument_trades(owner_id, isin, trade_date)",
         "CREATE INDEX IF NOT EXISTS ix_dmove_owner_isin_date ON demat_movements(owner_id, isin, move_date)",
         # Per-goal projection knobs (blended return, SIP step-up, glide path)
@@ -89,6 +94,7 @@ WITH latest_per_account AS (
            h.instrument_name, h.units, h.avg_cost_nav, h.current_nav,
            h.current_value, h.invested_value, h.gain_loss, h.gain_loss_pct,
            h.holding_type, h.goal_tag, h.first_buy_date, h.source_file,
+           h.cost_basis_quality, h.price_source,
            a.owner_id, a.account_type, a.institution
     FROM holdings h
     JOIN accounts a ON h.account_id = a.id
@@ -117,18 +123,19 @@ isin_deduped AS (
 SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
        units, avg_cost_nav, current_nav, current_value, invested_value,
        gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
-       source_file, owner_id, account_type, institution
+       source_file, cost_basis_quality, price_source, owner_id, account_type, institution
 FROM isin_deduped WHERE rn = 1
 UNION ALL
 SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
        units, avg_cost_nav, current_nav, current_value, invested_value,
        gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
-       source_file, owner_id, account_type, institution
+       source_file, cost_basis_quality, price_source, owner_id, account_type, institution
 FROM latest_per_account
 WHERE isin IS NULL""",
     ]
+    from app.semantic.definitions import VIEW_SQL
     with engine.connect() as conn:
-        for stmt in migrations:
+        for stmt in migrations + VIEW_SQL:
             conn.execute(text(stmt))
         conn.commit()
 
@@ -257,6 +264,7 @@ from app.api.routes.manual       import router as manual_router
 from app.api.routes.profile      import router as profile_router
 from app.api.routes.portfolio    import router as portfolio_router
 from app.api.routes.ledger       import router as ledger_router
+from app.api.routes.health       import router as health_router
 
 app.include_router(sync_router)
 app.include_router(accounts_router)
@@ -266,6 +274,7 @@ app.include_router(manual_router)
 app.include_router(profile_router)
 app.include_router(portfolio_router)
 app.include_router(ledger_router)
+app.include_router(health_router)
 
 # ── SPA static files (must be mounted AFTER API routes) ──────────────────────
 _static_dir = Path(__file__).parent / "static"
