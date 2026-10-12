@@ -282,6 +282,30 @@ def rules_are_current(db: Session) -> dict:
                   f"{'…' if len(old) > 4 else ''}) — see docs/INSTRUMENTS.md", "warn", stale=old)
 
 
+def loan_reconciles(db: Session) -> dict:
+    """The loan follows the lender: the newest letter is reproduced by rolling the one before it forward, the payoff
+    month agrees with the letter's EMIs left, and this month's EMI debit has been seen. Older intervals that cannot be
+    reproduced stay visible in /api/loan; they do not keep warning forever."""
+    from datetime import date, timedelta
+    from app.engine import loan_report
+    from app.models.schemas import LoanAnchor
+    problems = []
+    for (owner_id,) in db.query(LoanAnchor.owner_id).distinct().all():
+        rep = loan_report.report(db, owner_id)
+        if not rep:
+            continue
+        if rep["reconciliation"] and rep["reconciliation"][-1]["status"] == "differs":
+            r = rep["reconciliation"][-1]
+            problems.append(f"{owner_id}: the {r['to']} HDFC letter differs from the roll-forward by ₹{r['difference']:,.0f}")
+        if rep["payoff"] and not rep["payoff"]["matches_letter"]:
+            problems.append(f"{owner_id}: EMIs left by the schedule ({rep['payoff']['instalments']}) differ from the letter's ({rep['emis_left_now']})")
+        if date.fromisoformat(rep["next_emi"]) + timedelta(days=4) < date.today():
+            problems.append(f"{owner_id}: no EMI debit seen for the instalment due {rep['next_emi']}")
+    return _check("loan_reconciles_with_lender", not problems,
+                  "The loan schedule reproduces HDFC's latest letter and every due EMI is seen" if not problems
+                  else "; ".join(problems) + " — see /api/loan", "warn", problems=problems)
+
+
 def automation_is_running(db: Session) -> dict:
     """The update is meant to run by itself every few hours. If it has stopped, or its last run failed, say so
     instead of letting every card quietly go stale."""
@@ -317,7 +341,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, automation_is_running, deadlines_have_a_basis, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 
 

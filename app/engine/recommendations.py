@@ -379,29 +379,19 @@ def _80c_dead_weight_check(db: Session, owner_id: str) -> list[Recommendation]:
         .scalar()
     ) or ZERO
 
-    # ── Accurate principal calc, when loan params are known on the liability row ─
-    # principal_annual = (emi − outstanding × rate / 12) × 12  (regular-EMI principal)
-    #                  + (household_emi_12mo − emi × 12)        (lump-sum prepayments, 100% principal)
-    # Falls back to the 30% rule when loan params are missing.
-    from app.models.schemas import ManualAsset as _ManualAsset
-    loan = (
-        db.query(_ManualAsset)
-        .filter(_ManualAsset.asset_type == "liability")
-        .filter(_ManualAsset.monthly_payment.isnot(None))
-        .filter(_ManualAsset.interest_rate.isnot(None))
-        .order_by(_ManualAsset.last_updated.desc())
-        .first()
-    )
-    if loan is not None:
-        outstanding = abs(Decimal(str(loan.current_value or 0)))
-        rate_pct = Decimal(str(loan.interest_rate or 0))
-        emi = Decimal(str(loan.monthly_payment or 0))
-        monthly_interest = outstanding * rate_pct / Decimal(1200)  # /100 /12
-        monthly_principal_emi = max(Decimal(0), emi - monthly_interest)
-        regular_principal_annual = monthly_principal_emi * Decimal(12)
-        lumpsum_prepayments = max(Decimal(0), household_emi_12mo - emi * Decimal(12))
-        household_principal_annual = regular_principal_annual + lumpsum_prepayments
-        _principal_source = "amortized"
+    # ── Principal repaid this financial year: the loan schedule (app.engine.loan_report), one definition ─
+    # EMI principal from the lender's letters and the debits, plus the part-prepayments of the year (the letters state them).
+    # Falls back to the 30% rule only when there is no lender letter at all.
+    from app.engine import loan_report
+    from app.models.schemas import LoanAnchor as _LoanAnchor
+    fy_loan = None
+    for (loan_owner,) in db.query(_LoanAnchor.owner_id).distinct().all():
+        fy_loan = loan_report.fy_split(db, loan_owner, dt.today())
+        if fy_loan:
+            break
+    if fy_loan is not None:
+        household_principal_annual = Decimal(str(fy_loan["principal_year"])) + Decimal(str(fy_loan["prepaid"]))
+        _principal_source = "schedule"
     else:
         household_principal_annual = household_emi_12mo * Decimal("0.30")
         _principal_source = "rule_of_thumb_30pct"

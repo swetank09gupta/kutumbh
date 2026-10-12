@@ -17,9 +17,9 @@ Live feeds stay where one exists (NSI PPF table, AMFI/mfapi, World Bank); the re
 ## Automation (done 12 Oct 2026, between Phases 1 and 2)
 Alerts, loan letters and the RBI repo rate now update by themselves through one pipeline (ADR-0029); a warning shows if it stops. Still hand-verified, with the quarterly warning: tax thresholds, PPF limit, EPF rate (no official machine-readable page). Still no source: EPF balance, the flat's value, the wife's unrecorded PPF deposit.
 
-## Phase 2 — home loan, fully reconciled
+## Phase 2 — home loan, fully reconciled — DONE 12 Oct 2026
 Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · every EMI debit checked against the schedule (principal/interest split, EMIs-left count) · payoff date and **interest saved by each prepayment** · **rate forecast**: the loan has passed the repo through 1:1, so after the 7 Oct 2026 hike expect ≈ 7.35% at the next reset (shown as a forecast, replaced by the next letter) · old-regime 24(b)/80C use per co-borrower share.
-*Acceptance:* the schedule reproduces every letter's figures (already true to the rupee for the principal); a mismatch is a consistency warning; forecast labelled and tested against the 2024-26 history.
+*Built* (`/api/loan`, Home loan card, ADR-0030): reconciliation of every letter interval (10 of 12 reproduce to the rupee; two older ones are shown with their size), payoff month, interest saved per prepayment, forecast 7.10% → 7.35% (repo + 1.85%, labelled), 24(b)/80C per share and regime (you old, wife new), check `loan_reconciles_with_lender`. Found: the lender applies its letter EMI, the debit can lag one instalment.
 
 ## Phase 3 — SGB completeness
 Coupons (the wife's ₹1,590.94 half-yearly NEFT credits from RBI; none found for your two tranches) enter the return; **reconcile each coupon to units × issue price × 1.25%** (the wife's is ₹244 lower than a 25 g holding implies: either the holding or the tranche price is off, to be found); redemption value from the IBJA price (at maturity only).

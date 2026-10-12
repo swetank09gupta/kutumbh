@@ -286,6 +286,9 @@ docker-compose up -d            # start the rest
 ### "automatic update is running" warning
 The last scheduled update is older than 3 intervals, or failed (the warning says which). `docker logs finance_app | grep -i "scheduled sync"` shows why (mailbox login, IMAP timeout). One failing source (alerts, loan letters, the RBI page) is logged and skipped; the others still run. Pressing Sync runs the same pipeline.
 
+### "loan reconciles with lender" warning
+`/api/loan` shows which: the newest HDFC letter differs from the roll-forward (a letter arrived that the EMIs since the last one do not explain, or an EMI month is missing from the data), the EMIs left disagree with the schedule, or an EMI debit due more than 4 days ago was not seen (check the HDFC alert / statement). Older intervals that cannot be reproduced stay listed there and do not warn.
+
 ### A trade or holding appears twice after a rescan
 The scheduler re-reads the last 7 days every run, so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
 

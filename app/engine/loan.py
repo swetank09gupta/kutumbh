@@ -3,9 +3,11 @@ Home-loan outstanding principal, from the lender's own figure.
 
 Anchor  : the newest part-prepayment confirmation ("principal outstanding after this
           prepayment will be Rs. N as on <date>", loan_anchors).
-Roll    : every EMI debited after the anchor reduces principal by EMI - principal x rate / 12
-          (monthly-rest loan; the Sep-2026 EMI reproduced the lender's 1-Oct figure to the rupee).
-          EMIs are read from the bank statement rows and the HDFC ACH alerts, one per month.
+Roll    : every month an EMI was debited after the anchor reduces principal by EMI - principal x rate / 12
+          (monthly-rest loan). The EMI applied is the lender's own, as printed in the anchor letter: the amount
+          debited can lag a revised EMI by one instalment (Jul and Sep 2026), and HDFC's next letters matched the
+          letter EMI to the rupee both times, the debited amount not. The debit proves the month was paid.
+          Debits are read from the bank statement rows and the HDFC ACH alerts, one per month.
 
 The result is written to the loan's liability row in Manual Assets, but only when it is newer than
 what that row already says — so a figure you type later is never overwritten by an older letter.
@@ -19,6 +21,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.engine.loan_schedule import step
 from app.models.schemas import Account, BankAlertRow, LoanAnchor, ManualAsset, Transaction
 
 logger = logging.getLogger(__name__)
@@ -43,17 +46,25 @@ def _emi_debits(db: Session, owner_id: str, after: date, emi: Decimal,
     return sorted(v for v in found.values() if upto is None or v[0] <= upto)
 
 
+def roll(db: Session, owner_id: str, a: LoanAnchor, upto: date | None = None) -> tuple[Decimal, date, list[dict]]:
+    """Walk one anchor forward over the months an EMI was debited: (principal, date of the last one, instalments)."""
+    principal, rate, emi = Decimal(a.principal_after), Decimal(a.rate), Decimal(a.emi)
+    last, rows = a.as_on, []
+    for d, debited in _emi_debits(db, owner_id, a.as_on, emi, upto):
+        interest, repaid, after = step(principal, rate, emi)
+        rows.append({"date": d, "emi": emi, "debited": debited, "interest": interest, "principal": repaid,
+                     "balance": after, "rate": rate})
+        principal, last = after, d
+    return principal, last, rows
+
+
 def outstanding(db: Session, owner_id: str) -> dict | None:
     a = (db.query(LoanAnchor).filter(LoanAnchor.owner_id == owner_id)
          .order_by(LoanAnchor.as_on.desc(), LoanAnchor.principal_after.asc()).first())
     if a is None or not a.emi or not a.rate:
         return None
-    principal, rate, emis = Decimal(a.principal_after), Decimal(a.rate), _emi_debits(db, owner_id, a.as_on, Decimal(a.emi))
-    last = a.as_on
-    for d, amt in emis:
-        principal -= amt - principal * rate / Decimal(1200)
-        last = d
-    return {"principal": principal.quantize(Decimal("0.01")), "as_of": last, "anchor": a, "emis_applied": len(emis)}
+    principal, last, rows = roll(db, owner_id, a)
+    return {"principal": principal.quantize(Decimal("0.01")), "as_of": last, "anchor": a, "emis_applied": len(rows)}
 
 
 def principal_on(db: Session, owner_id: str, day: date, sanctioned: Decimal | None = None) -> Decimal | None:
@@ -65,10 +76,7 @@ def principal_on(db: Session, owner_id: str, day: date, sanctioned: Decimal | No
         return sanctioned
     if not a.emi or not a.rate:
         return Decimal(a.principal_after)
-    principal, rate = Decimal(a.principal_after), Decimal(a.rate)
-    for _d, amt in _emi_debits(db, owner_id, a.as_on, Decimal(a.emi), upto=day):
-        principal -= amt - principal * rate / Decimal(1200)
-    return principal
+    return roll(db, owner_id, a, upto=day)[0]
 
 
 def apply_loan_anchors(db: Session) -> dict:

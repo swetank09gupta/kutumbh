@@ -15,6 +15,7 @@ from app.knowledge import live, rules
 URL = os.getenv("TEST_DATABASE_URL")
 APP = Path(__file__).resolve().parents[1] / "app"
 YAML_REPO = rules.rule("rbi.repo_rate")          # 5.50 from 2026-10-07, verified 2026-10-12
+N_FILE = len(rules.load()["rbi.repo_rate"])
 
 
 def _reset():
@@ -43,9 +44,9 @@ class Overlay(unittest.TestCase):
     def test_an_observation_that_agrees_only_refreshes_verified_on(self):
         rules.set_observations([("rbi.repo_rate", "5.50", date(2026, 12, 1), date(2027, 1, 5), live.RBI_HOME)])
         entries = rules.load()["rbi.repo_rate"]
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0].verified_on, date(2027, 1, 5))
-        self.assertEqual(entries[0].effective_from, YAML_REPO.effective_from)      # the file's date is kept
+        self.assertEqual(len(entries), N_FILE)                                      # nothing added
+        self.assertEqual(entries[-1].verified_on, date(2027, 1, 5))
+        self.assertEqual(entries[-1].effective_from, YAML_REPO.effective_from)     # the file's date is kept
 
     def test_a_changed_value_starts_a_new_entry_and_keeps_the_old_one(self):
         rules.set_observations([("rbi.repo_rate", "5.75", date(2026, 12, 5), date(2026, 12, 20), live.RBI_HOME)])
@@ -57,7 +58,7 @@ class Overlay(unittest.TestCase):
     def test_a_later_change_back_is_a_third_entry(self):
         rules.set_observations([("rbi.repo_rate", "5.75", date(2026, 12, 5), date(2027, 2, 1), live.RBI_HOME),
                                 ("rbi.repo_rate", "5.50", date(2027, 2, 5), date(2027, 2, 6), live.RBI_HOME)])
-        self.assertEqual([r.value for r in rules.load()["rbi.repo_rate"]], [D("5.50"), D("5.75"), D("5.50")])
+        self.assertEqual([r.value for r in rules.load()["rbi.repo_rate"]][-3:], [D("5.50"), D("5.75"), D("5.50")])
         self.assertEqual(rules.value("rbi.repo_rate", date(2027, 1, 1)), D("5.75"))
         self.assertEqual(rules.value("rbi.repo_rate", date(2027, 3, 1)), D("5.50"))
 

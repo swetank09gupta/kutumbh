@@ -101,11 +101,52 @@ rules:
     verified_on: 2026-10-12
 
   - id: rbi.repo_rate
+    value: 6.50
+    unit: percent
+    effective_from: 2023-02-08
+    note: in force since the Feb 2023 hike; kept unchanged for 11 meetings until Feb 2025
+    source: https://www.dmifinance.in/rbi-shifts-focus-to-growth-cuts-repo-rate-by-25-bps-for-the-first-time-in-nearly-five-years/
+    verified_on: 2026-10-12
+  - id: rbi.repo_rate
+    value: 6.25
+    unit: percent
+    effective_from: 2025-02-07
+    note: first cut in nearly five years
+    source: https://www.business-standard.com/amp/finance/news/rbi-rate-cut-february-2025-sanjay-malhotra-125020700479_1.html
+    verified_on: 2026-10-12
+  - id: rbi.repo_rate
+    value: 6.00
+    unit: percent
+    effective_from: 2025-04-09
+    source: https://www.business-standard.com/amp/finance/news/rbi-rate-cut-april-2025-governor-sanjay-malhotra-repo-rate-125040900306_1.html
+    verified_on: 2026-10-12
+  - id: rbi.repo_rate
+    value: 5.50
+    unit: percent
+    effective_from: 2025-06-06
+    note: 50 bp cut
+    source: https://www.business-standard.com/amp/markets/capital-market-news/rbi-cuts-repo-rate-by-50bps-to-5-50-crr-by-100-bps-125060600238_1.html
+    verified_on: 2026-10-12
+  - id: rbi.repo_rate
+    value: 5.25
+    unit: percent
+    effective_from: 2025-12-05
+    source: https://www.outlookmoney.com/amp/story/banking/rbi-monetary-policy-2025-rbi-cuts-repo-rate-to-5-point-25-per-cent-as-inflation-falls-to-record-lows
+    verified_on: 2026-10-12
+  - id: rbi.repo_rate
     value: 5.50
     unit: percent
     effective_from: 2026-10-07
-    note: first hike since Feb 2023; earlier values are not in the registry
+    note: first hike since Feb 2023
     source: https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/
+    verified_on: 2026-10-12
+
+  - id: income_tax.24b_cap
+    value: 200000
+    unit: INR interest per owner per financial year (self-occupied house, old regime only)
+    effective_from: 2014-04-01
+    note: each co-owner claims up to the cap on their own share of the interest
+    source: https://cleartax.in/s/case-study-section-24-self-occupied-house
     verified_on: 2026-10-12
 
   # Long-standing rules: no change date was verified, so each starts on the day it was read at its source.

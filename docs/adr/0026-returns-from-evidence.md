@@ -42,3 +42,7 @@ The Investments page showed "—" for equity ("opened and closed within days"), 
 - Family coverage went from 50% to 98%; the remaining gap is a few units of one fund bought before any evidence we hold. A Console MF tradebook CSV would close it and replaces derived trades automatically.
 - Derived trades depend on mfapi.in being reachable; without NAV a unit credit simply stays "unknown cost".
 - FD and PPF rates are accrued at their stated rate, so their "XIRR" restates that rate.
+
+
+## Revisited (ADR-0030)
+The loan roll-forward applies the lender's letter EMI in each month a debit was seen, not the debited amount: HDFC's own next letters matched the letter EMI to the rupee in both cases where the two differed.

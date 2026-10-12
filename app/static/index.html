@@ -373,6 +373,12 @@
         <div id="deadlines-body"></div>
       </div>
 
+      <div class="card" id="loan-card" style="margin-bottom:16px;display:none">
+        <div class="card-title" style="margin:0 0 2px">Home loan <span id="loan-sub" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From HDFC's prepayment letters, rolled forward by the EMIs debited since. The forecast is labelled and is replaced by the next letter.</div>
+        <div id="loan-body"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card">
           <div class="card-title">Asset Allocation</div>
@@ -1289,7 +1295,7 @@ function nav(id, opts = {}) {
     if (location.hash !== target) history.pushState({ navId: id }, '', target);
   }
 
-  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); refreshGrafana('overview'); }
+  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); loadLoan(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
@@ -1331,6 +1337,7 @@ function switchOwner(o) {
   loadNetworth();
   loadCashflow();
   loadDeadlines();
+  loadLoan();
   ['overview', 'transactions', 'investments'].forEach(refreshGrafana);
   if (active === 'transactions') { _applyTxPageFilter(); loadAlerts(); }
   if (active === 'investments')  { loadHoldings(); loadPortfolioReturns(); }
@@ -3009,6 +3016,40 @@ async function loadDeadlines() {
   } catch (e) { card.style.display = 'none'; }
 }
 
+/* ── home loan: lender's letters, payoff, repo-linked forecast, reconciliation, tax use ── */
+async function loadLoan() {
+  const card = $('loan-card');
+  if (!card) return;
+  try {
+    const d = await apiFetch('/api/loan/');
+    const L = d.loans[0];
+    const owner = _currentOwner;
+    const tax = L && L.tax ? L.tax.owners.filter(o => owner === 'family' || o.owner === owner) : [];
+    const showLoan = L && (owner === 'family' || owner === L.owner);
+    if (!L || (!showLoan && !tax.length)) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const mon = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    const lakh = v => '₹' + (v / 100000).toFixed(2) + ' L';
+    const who = o => o === 'user' ? 'Self' : o === 'wife' ? 'Spouse' : _esc(o);
+    const rec = L.reconciliation, exact = rec.filter(r => r.status !== 'differs').length, off = rec.filter(r => r.status === 'differs');
+    const f = L.forecast, s = L.since_first_letter, p = L.payoff;
+    $('loan-sub').textContent = showLoan ? `· ${_esc(L.lender)} ${_esc(L.loan_no)}` : '';
+    $('loan-body').innerHTML = (showLoan ? `
+      <div style="font-size:13px;margin-bottom:6px"><b>₹${fmt(L.principal)}</b> outstanding on ${fmtDate(L.as_of)} · ${L.rate}% · EMI ₹${fmt(L.emi)} · ${L.emis_left_now} EMIs left${p ? ` → ends ${mon(p.ends)}, ${lakh(p.interest_remaining)} interest still to pay` : ''}
+        <span style="color:#64748b"> (HDFC's letter says ${L.anchor.emis_left} left on ${fmtDate(L.anchor.as_on)}${p && p.matches_letter ? '; the schedule agrees' : '; the schedule DISAGREES'})</span></div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Since ${mon(s.first_letter)}: ${lakh(s.prepaid_total)} prepaid; the loan was due to end ${mon(s.ended_then)}, now ${mon(s.ends_now)}.</div>
+      ${f ? `<div style="font-size:12px;border:1px dashed #475569;border-radius:8px;padding:8px 10px;margin-bottom:8px"><b style="color:#fcd34d">Forecast</b> — RBI repo is ${f.repo_now}%; this loan has followed repo + ${f.spread}% in all ${L.repo.letters.length} letters, so expect <b>${f.rate_expected}%</b> (now ${f.rate_now}%) at the next reset${L.reset_lag_evidence.length ? `. Last time the rate changed with the instalment ${L.reset_lag_evidence[0].days} days after the repo move` : ''}.
+        ${f.if_emi_unchanged ? `EMI unchanged: end month ${f.if_emi_unchanged.extra_instalments ? `moves ${f.if_emi_unchanged.extra_instalments} EMIs later (${mon(f.if_emi_unchanged.ends)})` : 'stays'}, ₹${fmt(f.if_emi_unchanged.extra_interest)} more interest over the rest of the loan.` : ''}
+        ${f.if_end_date_unchanged ? `The EMI that keeps the end month: ₹${fmt(f.if_end_date_unchanged.emi)} (now ₹${fmt(f.if_end_date_unchanged.emi_now)}).` : ''}</div>` : ''}
+      <details style="font-size:12px;color:#94a3b8;margin-bottom:8px"><summary style="cursor:pointer">Reconciliation with the letters — ${exact} of ${rec.length} intervals reproduced to the rupee${off.length ? `, ${off.length} differ` : ''}</summary>
+        <div style="margin-top:6px">${rec.map(r => `<div>${mon(r.from)} → ${mon(r.to)}: ${r.status === 'differs' ? `<span style="color:#fca5a5">differs by ₹${fmt(Math.abs(r.difference))}</span> (${_esc((r.why || []).join('; '))})` : r.status === 'exact_if_unseen_paid' ? 'reproduced if the missing EMI was paid' : 'reproduced' + (r.rate_change_from_instalment ? `; rate ${r.rate_from}% → ${r.rate_to}% from the ${mon(r.rate_change_date)} instalment` : '')}</div>`).join('')}</div></details>` : '') +
+      (tax.length ? `<div style="font-size:12px;color:#94a3b8">${tax.map(o => o.regime === 'old'
+        ? `<div>${who(o.owner)} (${o.share_pct}% share, old regime): interest share ${lakh(o.interest_share)} → 24(b) claim ${lakh(o.claim_24b)}${o.interest_above_cap > 0 ? ` (${lakh(o.interest_above_cap)} above the ₹2 L cap)` : ''}; principal share ${lakh(o.principal_for_80c)} ${o.uses_whole_80c ? '— uses the whole 80C limit by itself' : 'of the 80C limit'}.</div>`
+        : `<div>${who(o.owner)} (${o.share_pct}% share, new regime): no deduction for a self-occupied home loan.</div>`).join('')}
+        <div style="font-size:11px;color:#64748b;margin-top:4px">${_esc(L.tax.note)}</div></div>` : '');
+  } catch (e) { card.style.display = 'none'; }
+}
+
 /* ── bank alerts: what happened since the last statement ────────── */
 async function loadAlerts() {
   const card = $('alerts-card');
@@ -3066,6 +3107,7 @@ if (location.hash && VALID_NAV_IDS.includes(location.hash.replace(/^#/, ''))) {
   loadNetworth();
   loadCashflow();
   loadDeadlines();
+  loadLoan();
   refreshGrafana('overview');
 }
 setInterval(loadSysStatus, 30000);

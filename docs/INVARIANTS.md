@@ -41,6 +41,10 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | A Coin order is stored once however often its mail is re-read and whichever ISIN it was filed under | `tests/test_coin_duplicates_db.py` (fails without the fix) |
 | The scheduler, the Sync button and reprocess run the same pipeline; one failing evidence source never stops the rest | `tests/test_automation.py` |
 | An observed public rate never rewrites history: a change is a new dated entry, an unreadable page changes nothing | `tests/test_automation.py` |
+| The loan roll applies the lender's letter EMI, not a lagging debit | `test_loan_report_db::test_the_roll_applies_the_letter_emi_not_a_lagging_debit` |
+| A letter the roll cannot reproduce is reported with its size; the reset month is inferred only when it fits to the rupee | `test_loan_report_db` (differs / reset-month / missing-EMI cases) |
+| The loan forecast needs every letter to fit repo + a constant spread, and is labelled | `test_loan_report_db::test_one_letter_off_the_pattern_switches_the_forecast_off` |
+| The 80C advice reads the loan schedule, not its own principal estimate | `test_loan_report_db::test_the_eighty_c_advice_reads_the_schedule…` |
 | Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |
 | Each purchase takes its own bank debit even when two debits have the same amount | `tests/test_derive_db.py` |
 | A PPF is worth its statement balance (interest is credited only on 31 March); its return is measured between 31-March balances and earns about the notified rate | `test_invariants_db::test_a_ppf_is_worth…`, `test_a_ppf_measured…`, `tests/test_deposit_flows.py`, `tests/test_deposits.py` |
