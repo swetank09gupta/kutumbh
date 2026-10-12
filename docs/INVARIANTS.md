@@ -50,6 +50,8 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | A Manual Asset SGB is identified by its name, valued once (idempotent note), and its coupons are return flows on both pages | `test_sgb_evidence_db` (hand-held cases) |
 | A dividend credit must equal shares held before the ex-date × the per-share amount (to the paisa, or ×0.9 after TDS); a purchase on the ex-date is not entitled; ambiguity is reported | `test_dividends_tax_db` |
 | A bank statement is stored only if its rows reconcile to the opening and closing balance it prints (Axis); an Axis deposit is judged against Axis statements, not SBI's | `tests/test_axis_layout.py` (mutation-checked) |
+| Two identical lines of one Coin mail are two orders; re-reading (also after an ISIN correction, also without a folio) never adds a copy | `tests/test_coin_duplicates_db.py` (mutation-checked) |
+| A contract note with no ISIN takes its ticker's ISIN only when that is unambiguous | `tests/test_contract_note_2018.py` |
 | Capital gains: FIFO, long-term after more than 12 months, rates and exemption by sale date, set-off rules, unknown cost never costed | `tests/test_tax_gains.py` (hand-calculated) |
 | A tax threshold or cap is looked up for the financial year in question; with no verified value for that year no check is made | `test_dividends_tax_db` |
 | Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |

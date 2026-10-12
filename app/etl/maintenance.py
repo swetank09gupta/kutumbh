@@ -318,13 +318,16 @@ def _loan_outstanding(db: Session) -> dict:
 
 
 def _dedupe_coin_trades(db: Session) -> dict:
-    """Remove a Coin order stored twice (same owner, folio, date, side, units, amount; filed under two ISINs), keeping the first."""
+    """Remove a Coin order stored twice (same owner, folio when printed, date, side, units, amount, and the same position among
+    identical lines of its mail; filed under two ISINs), keeping the first. Two identical lines of one mail are two orders and
+    are both kept."""
     from sqlalchemy import text
     n = db.execute(text("""
         DELETE FROM instrument_trades t USING instrument_trades u
-        WHERE t.source = 'coin' AND u.source = 'coin' AND t.source_ref IS NOT NULL
-          AND t.owner_id = u.owner_id AND t.source_ref = u.source_ref AND t.trade_date = u.trade_date
+        WHERE t.source = 'coin' AND u.source = 'coin'
+          AND t.owner_id = u.owner_id AND t.source_ref IS NOT DISTINCT FROM u.source_ref AND t.trade_date = u.trade_date
           AND t.side = u.side AND t.quantity = u.quantity AND coalesce(t.amount, -1) = coalesce(u.amount, -1)
+          AND coalesce(substring(t.natural_key from '[|]#([0-9]+)$'), '0') = coalesce(substring(u.natural_key from '[|]#([0-9]+)$'), '0')
           AND (t.created_at, t.id) > (u.created_at, u.id)""")).rowcount
     db.commit()
     return {"removed": n}

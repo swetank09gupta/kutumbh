@@ -37,3 +37,4 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0031](0031-sgb-evidence.md) | Gold bonds are proven from the bank statements: tranche facts, coupons, what was paid | Accepted |
 | [0032](0032-dividends-and-tax-lens.md) | Dividends are proven from the stocks held; the tax lens reads proven data and the verified rules | Accepted |
 | [0033](0033-axis-statements-by-column.md) | Axis statements are read by column and accepted only if they reconcile | Accepted |
+| [0034](0034-old-notes-and-same-day-orders.md) | Old contract notes are read, and two identical lines of one mail are two orders | Accepted |

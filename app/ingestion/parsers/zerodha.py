@@ -504,9 +504,11 @@ class ZerodhaParser(BaseParser):
     # One trade per line:
     #   2022: <order#> <time> <trade#> <time> LICI - EQ / B NSE 2 801.00 801.00 (1602.00)   + ISIN on next line
     #   2024: <order#> <time> <trade#> <time> EMUDHRA-EQ/INE01QM01018 B NSE 3 875.00 875 (2625.00)
+    #   2018: <order#> <time> <trade#> <time> BEL B 5 133.15 133.1500 (665.75)   (no exchange token, no ISIN: the section header
+    #         says NSE-EQ; the ledger resolves the ISIN from the same symbol elsewhere)
     _CN_LINE_RE = re.compile(
         r'^(\d{10,})\s+\d{2}:\d{2}:\d{2}\s+(\d+)\s+\d{2}:\d{2}:\d{2}\s+'
-        r'(?P<sec>.+?)\s+(?P<bs>[BS])\s+(?:NSE|BSE)\s+'
+        r'(?P<sec>.+?)\s+(?P<bs>[BS])\s+(?:(?:NSE|BSE)\s+)?'
         r'(?P<qty>[\d,]+(?:\.\d+)?)\s+(?P<gross>[\d,]+\.\d+)\s+(?P<net>[\d,]+(?:\.\d+)?)\s+'
         r'\(?(?P<total>[\d,]+\.\d+)\)?\s*$'
     )

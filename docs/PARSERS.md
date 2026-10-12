@@ -175,3 +175,7 @@ CDSL sends a consolidated demat statement PDF. Password: PAN uppercase. Covers e
 
 ## Axis (PDF)
 Read by column position (`axis_layout.py`); a statement is stored only if opening + deposits − withdrawals equals the closing balance it prints. Running term deposits come from "Summary of Deposits". To repair a month: delete that bank's rows, re-read the raw file (`process_attachments`), then run the pipeline rebuild.
+
+
+## Zerodha contract notes: layouts
+2018: `<order#> <time> <trade#> <time> BEL B 5 133.15 133.1500 (665.75)` (no exchange token, no ISIN: resolved from the ticker in the ledger). 2020-21: table layout with ISIN on the next line. 2022: `LICI - EQ / B NSE 2 801.00 …` + ISIN line. 2024: `EMUDHRA-EQ/INE01QM01018 B NSE 3 …`. A new layout shows up as a note that parses to no trades: add a test with the new row.

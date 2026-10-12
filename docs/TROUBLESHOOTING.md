@@ -298,6 +298,9 @@ The last scheduled update is older than 3 intervals, or failed (the warning says
 ### The tax figures look off
 Gains use gross trade prices (brokerage and stamp duty are not netted, STT is not included) and no corporate actions: a split or bonus makes FIFO lots wrong for that stock. Sales of units bought before the trade history are listed and left out. Deposit interest counts what was credited plus TDS notices; interest that accrues in a cumulative deposit without being credited is not seen (the card says so when the bank is already deducting TDS).
 
+### A sale shows "cost unknown" in the tax view
+First check the raw mail: a Coin mail that prints the same line twice is two orders (ADR-0034); a contract note that parses to no trades is a new layout (docs/PARSERS.md). Units from an IPO allotment, a bonus issue or a transfer-in have no contract note; they stay listed rather than costed.
+
 ### A trade or holding appears twice after a rescan
 The scheduler re-reads the last 7 days every run, so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
 

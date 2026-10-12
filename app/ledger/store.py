@@ -7,6 +7,7 @@ statement) hits ON CONFLICT DO NOTHING, so the ledger cannot grow duplicates.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from decimal import Decimal
 
@@ -31,14 +32,15 @@ def holding_type_for(isin: str | None) -> str | None:
     return "equity"
 
 
-def trade_key(owner_id: str, kind: str, *, isin, symbol, ref, trade_date, side, qty, price, amount) -> str:
-    """Deterministic identity of one trade within its source."""
+def trade_key(owner_id: str, kind: str, *, isin, symbol, ref, trade_date, side, qty, price, amount, ordinal: int = 0) -> str:
+    """Deterministic identity of one trade within its source. `ordinal` tells apart identical lines of one Coin mail (two SIP
+    orders for the same fund on the same day print the same line twice); the first keeps the original key."""
     who = isin or symbol or ref or "?"
     q = _normalize_amount(qty)
     if kind == "tradebook" and ref:
         return f"tb|{owner_id}|{ref}"
     if kind == "coin":
-        return f"coin|{owner_id}|{who}|{trade_date}|{side}|{q}|{_normalize_amount(amount)}|{ref or ''}"
+        return f"coin|{owner_id}|{who}|{trade_date}|{side}|{q}|{_normalize_amount(amount)}|{ref or ''}" + (f"|#{ordinal}" if ordinal else "")
     return f"cn|{owner_id}|{who}|{trade_date}|{side}|{q}|{_normalize_amount(price) if price is not None else ''}|{ref or ''}"
 
 
@@ -61,7 +63,11 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
     from app.ledger.aliases import canonical, load_aliases
     aliases = load_aliases(db)
 
+    symbol_isin = _symbol_isins(db)
+    coin_seen: dict[tuple, int] = {}
     for pt, fp in zip(result.transactions, txn_fingerprints):
+        if pt.kind in TRADE_KINDS and not pt.isin and pt.kind == "contract_note":
+            pt.isin = symbol_isin.get(_base(pt.counterparty))       # old notes print no ISIN: the same ticker elsewhere has one
         if pt.kind in TRADE_KINDS:
             pt.isin = canonical(owner_id, pt.isin, aliases)
         if pt.quantity is None or pt.quantity <= 0 or not pt.kind:
@@ -84,6 +90,11 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
             })
         elif pt.kind in TRADE_KINDS:
             side = "B" if pt.transaction_type == "debit" else "S"
+            ordinal = 0
+            if pt.kind == "coin":
+                ident = (pt.isin or pt.counterparty, pt.date, side, _normalize_amount(pt.quantity), _normalize_amount(pt.amount), pt.reference_number)
+                ordinal = coin_seen.get(ident, 0)
+                coin_seen[ident] = ordinal + 1
             name = pt.counterparty or pt.raw_description
             trade_rows.append({
                 "id": uuid.uuid4(), "owner_id": owner_id, "account_id": account.id,
@@ -96,7 +107,7 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
                 "source_file": result.source_file,
                 "natural_key": trade_key(owner_id, pt.kind, isin=pt.isin, symbol=pt.counterparty,
                                          ref=pt.reference_number, trade_date=pt.date, side=side,
-                                         qty=pt.quantity, price=pt.price, amount=pt.amount),
+                                         qty=pt.quantity, price=pt.price, amount=pt.amount, ordinal=ordinal),
                 "txn_fingerprint": fp,
             })
 
@@ -113,25 +124,42 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
     return inserted
 
 
-def _coin_identity(owner_id, ref, trade_date, side, qty, amount) -> tuple:
-    return (owner_id, ref, trade_date, side, _normalize_amount(qty), _normalize_amount(amount))
+def _base(symbol: str | None) -> str:
+    return (symbol or "").strip().upper().split("-")[0].split(" ")[0]
+
+
+def _symbol_isins(db: Session) -> dict[str, str]:
+    """{ticker: ISIN} where every trade of that ticker in the ledger carries one ISIN; an ambiguous ticker resolves to nothing."""
+    seen: dict[str, set[str]] = {}
+    for sym, isin in db.query(InstrumentTrade.symbol, InstrumentTrade.isin).filter(
+            InstrumentTrade.isin.isnot(None), InstrumentTrade.holding_type == "equity").distinct():
+        seen.setdefault(_base(sym), set()).add(isin)
+    return {s: next(iter(i)) for s, i in seen.items() if s and len(i) == 1}
+
+
+def _ordinal_of(natural_key: str) -> int:
+    m = re.search(r"\|#(\d+)$", natural_key or "")
+    return int(m.group(1)) if m else 0
+
+
+def _coin_identity(owner_id, ref, trade_date, side, qty, amount, ordinal=0) -> tuple:
+    return (owner_id, ref, trade_date, side, _normalize_amount(qty), _normalize_amount(amount), ordinal)
 
 
 def _drop_known_coin_trades(db: Session, rows: list[dict]) -> list[dict]:
     """A Coin order is the same order whatever ISIN it was filed under. A learned alias corrects a trade's ISIN in place
     but its natural_key keeps the old one, so re-reading the same mail (the scheduler rescans the last 7 days every run)
-    would otherwise store it a second time under the corrected key. Skip any Coin row already stored for the same
-    owner, folio/ref, date, side, units and amount."""
-    coin = [r for r in rows if r["source"] == "coin" and r.get("source_ref")]
+    would otherwise store it a second time under the corrected key. Skip any Coin row already stored for the same owner,
+    folio/ref (when the mail prints one), date, side, units and amount, at the same position among identical lines."""
+    coin = [r for r in rows if r["source"] == "coin"]
     if not coin:
         return rows
-    have = {_coin_identity(t.owner_id, t.source_ref, t.trade_date, t.side, t.quantity, t.amount)
-            for t in db.query(InstrumentTrade).filter(
-                InstrumentTrade.source == "coin",
-                InstrumentTrade.source_ref.in_({r["source_ref"] for r in coin}),
-                InstrumentTrade.trade_date.in_({r["trade_date"] for r in coin}))}
-    return [r for r in rows if not (r["source"] == "coin" and r.get("source_ref") and
-            _coin_identity(r["owner_id"], r["source_ref"], r["trade_date"], r["side"], r["quantity"], r["amount"]) in have)]
+    have = {_coin_identity(t.owner_id, t.source_ref, t.trade_date, t.side, t.quantity, t.amount, _ordinal_of(t.natural_key))
+            for t in db.query(InstrumentTrade).filter(InstrumentTrade.source == "coin",
+                                                      InstrumentTrade.trade_date.in_({r["trade_date"] for r in coin}))}
+    return [r for r in rows if not (r["source"] == "coin" and
+            _coin_identity(r["owner_id"], r.get("source_ref"), r["trade_date"], r["side"], r["quantity"], r["amount"],
+                           _ordinal_of(r["natural_key"])) in have)]
 
 
 def _dedupe_batch(rows: list[dict]) -> list[dict]:

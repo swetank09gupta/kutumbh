@@ -91,13 +91,68 @@ class CoinOrderIsStoredOnce(unittest.TestCase):
         t0 = datetime(2026, 10, 11, tzinfo=timezone.utc)
         self._add(RIGHT, "k1", t0)
         self._add(RIGHT, "k2", t0 + timedelta(days=1))
-        self._add(RIGHT, "k3", t0, ref=None)                                   # no folio: cannot be proven the same order
+        self._add(RIGHT, "k3", t0, ref=None)                                   # no folio: a copy is still a copy
         self._add(RIGHT, "k4", t0 + timedelta(days=1), ref=None)
         self._add(RIGHT, "k5", t0, ref="53252601", source="contract_note")     # other source: untouched
         self._add(RIGHT, "k6", t0 + timedelta(days=1), ref="53252601", source="contract_note")
         self.db.commit()
+        self.assertEqual(_dedupe_coin_trades(self.db), {"removed": 2})
+        self.assertEqual(sorted(t.natural_key for t in self.db.query(self.m.InstrumentTrade)), ["k1", "k3", "k5", "k6"])
+
+    # ── two identical lines in ONE mail are two orders (Axis Nifty 100, 7 Dec 2021: two SIPs, 99.938 units each) ──
+    def test_two_identical_lines_in_one_mail_are_two_orders(self):
+        self.assertEqual(self.record(parsed(RIGHT), parsed(RIGHT)), 2)
+        self.assertEqual(self.count(), 2)
+
+    def test_reading_that_mail_again_adds_nothing(self):
+        self.record(parsed(RIGHT), parsed(RIGHT))
+        self.assertEqual(self.record(parsed(RIGHT), parsed(RIGHT)), 0)
+        self.assertEqual(self.count(), 2)
+
+    def test_a_mail_first_read_as_one_line_gains_the_second_when_it_is_read_again_correctly(self):
+        self.record(parsed(RIGHT))                                              # how the pair used to be stored: collapsed
+        self.assertEqual(self.record(parsed(RIGHT), parsed(RIGHT)), 1)
+        self.assertEqual(self.count(), 2)
+
+    def test_the_isin_corrected_reread_of_a_pair_does_not_grow_it(self):
+        self.record(parsed(WRONG), parsed(WRONG))
+        self.db.query(self.m.InstrumentTrade).update({"isin": RIGHT}); self.db.commit()
+        self.assertEqual(self.record(parsed(RIGHT), parsed(RIGHT)), 0)
+        self.assertEqual(self.count(), 2)
+
+    def test_the_cleanup_keeps_both_orders_of_a_pair_but_removes_a_true_copy(self):
+        from app.etl.maintenance import _dedupe_coin_trades
+        t0 = datetime(2026, 10, 11, tzinfo=timezone.utc)
+        self._add(RIGHT, "k0", t0)
+        self._add(RIGHT, "k1|#1", t0)                                           # the second line of the same mail: a real order
+        self._add(RIGHT, "k2", t0 + timedelta(days=1))                          # a copy of the first order under another key
+        self.db.commit()
         self.assertEqual(_dedupe_coin_trades(self.db), {"removed": 1})
-        self.assertEqual(sorted(t.natural_key for t in self.db.query(self.m.InstrumentTrade)), ["k1", "k3", "k4", "k5", "k6"])
+        self.assertEqual(sorted(t.natural_key for t in self.db.query(self.m.InstrumentTrade)), ["k0", "k1|#1"])
+
+    def test_trade_key_gives_the_first_line_its_original_key(self):
+        from app.ledger.store import trade_key
+        kw = dict(isin=RIGHT, symbol=None, ref="r", trade_date=date(2026, 1, 1), side="B", qty=D(1), price=None, amount=D(2))
+        self.assertEqual(trade_key("u", "coin", **kw), trade_key("u", "coin", ordinal=0, **kw))
+        self.assertTrue(trade_key("u", "coin", ordinal=1, **kw).endswith("|#1"))
+        self.assertNotEqual(trade_key("u", "coin", ordinal=1, **kw), trade_key("u", "coin", **kw))
+
+    # ── redemptions print no folio: the same guard must hold without a reference ──
+    def test_an_isin_corrected_order_without_a_folio_is_not_stored_again(self):          # 4 sells came back on a full re-read
+        self.record(parsed(WRONG, ref=None))
+        self.db.query(self.m.InstrumentTrade).update({"isin": RIGHT}); self.db.commit()
+        self.assertEqual(self.record(parsed(RIGHT, ref=None)), 0)
+        self.assertEqual(self.count(), 1)
+
+    def test_the_cleanup_removes_a_copy_without_a_folio(self):
+        from app.etl.maintenance import _dedupe_coin_trades
+        t0 = datetime(2026, 10, 11, tzinfo=timezone.utc)
+        self._add(RIGHT, "k0", t0, ref=None)
+        self._add(RIGHT, "k1", t0 + timedelta(days=1), ref=None)
+        self._add(RIGHT, "k2", t0, ref="39235364/13")                                  # another folio: a different order
+        self.db.commit()
+        self.assertEqual(_dedupe_coin_trades(self.db), {"removed": 1})
+        self.assertEqual(sorted(t.natural_key for t in self.db.query(self.m.InstrumentTrade)), ["k0", "k2"])
 
     def test_the_cleanup_runs_with_every_update(self):
         from app.etl import maintenance
