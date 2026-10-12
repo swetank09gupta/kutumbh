@@ -964,10 +964,6 @@
         <label>Expected Return % <span style="font-size:10px;color:#64748b">(manual override)</span></label>
         <input type="number" id="goal-ret" value="12" step="0.5"/>
       </div>
-      <div class="field">
-        <label>Inflation %</label>
-        <input type="number" id="goal-inf" value="6" step="0.5"/>
-      </div>
       <div class="field full" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="goal-use-manual" style="width:auto;margin:0"/>
         <label for="goal-use-manual" style="margin:0;font-weight:500">Use manual return (else auto-blend XIRR of tagged holdings, capped at category benchmark)</label>
@@ -2203,7 +2199,6 @@ function openGoalModal(g = null) {
   $('goal-target').value= g ? g.target_amount : '';
   $('goal-date').value  = g ? fmtDate(g.target_date) : '';
   $('goal-ret').value   = g ? g.expected_return_rate : 12;
-  $('goal-inf').value   = g ? g.inflation_rate : 6;
   $('goal-use-manual').checked = g ? !!g.use_manual_return : false;
   $('goal-stepup').value = (g && g.sip_stepup_pct != null) ? g.sip_stepup_pct : '';
   $('goal-glide').checked = g ? (g.glide_enabled !== false) : true;
@@ -2228,7 +2223,6 @@ async function saveGoal() {
     name: $('goal-name').value.trim(), goal_type: $('goal-type').value,
     owner_id: $('goal-owner').value, target_amount: parseFloat($('goal-target').value),
     target_date: $('goal-date').value, expected_return_rate: parseFloat($('goal-ret').value),
-    inflation_rate: parseFloat($('goal-inf').value),
     use_manual_return: $('goal-use-manual').checked,
     sip_stepup_pct: stepupRaw === '' ? null : parseFloat(stepupRaw),
     glide_enabled: $('goal-glide').checked,
@@ -2671,8 +2665,23 @@ async function saveProfiles() {
 async function loadCpi() {
   try {
     const d = await apiFetch('/api/goals/inflation');
-    $('cpi-badge').textContent = `India CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}% · 10-yr average ${d.avg_10y.toFixed(1)}% · each goal uses its own rate`;
-  } catch { $('cpi-badge').textContent = 'India CPI: unavailable'; }
+    $('cpi-badge').innerHTML = `Inflation assumed <b>${d.assumption.toFixed(1)}%</b> a year for every goal `
+      + `<a href="#" onclick="changeInflation(${d.assumption});return false" style="color:#a5b4fc">change</a>`
+      + ` · <span style="color:#64748b">India CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}%, 10-yr average ${d.avg_10y.toFixed(1)}%</span>`;
+  } catch { $('cpi-badge').textContent = 'Inflation assumption unavailable'; }
+}
+
+async function changeInflation(cur) {
+  const v = prompt('Inflation % per year, used for every goal and projection:', cur);
+  if (v === null) return;
+  const rate = parseFloat(v);
+  if (!isFinite(rate)) { toast('Enter a number, e.g. 6', true); return; }
+  try {
+    await apiFetch('/api/goals/settings/inflation', { method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                             body: JSON.stringify({ rate }) });
+    toast(`Inflation set to ${rate}% — goals recomputed`);
+    loadCpi(); loadGoals(); loadProjections(); loadRecommendations(); loadHealth();
+  } catch (e) { toast(e.message, true); }
 }
 
 async function refreshCorpus() {

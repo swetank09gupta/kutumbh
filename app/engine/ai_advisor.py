@@ -149,6 +149,7 @@ def build_context(db: Session) -> dict:
         "goals":             goals_data,
         "india_cpi":         get_india_cpi_stats()["latest"],
         "india_cpi_10y":     get_india_cpi_stats()["avg_10y"],
+        "inflation_assumed": __import__("app.engine.settings_store", fromlist=["x"]).get_inflation(db),
     }
 
 
@@ -204,7 +205,7 @@ TOP EXPENSE CATEGORIES:
 FINANCIAL GOALS:
 {goals_txt}
 
-INDIA CPI INFLATION: {ctx['india_cpi']:.1f}% last year (unusually low), {ctx['india_cpi_10y']:.1f}% ten-year average
+INFLATION ASSUMED FOR ALL GOALS: {ctx['inflation_assumed']:.1f}% (India CPI {ctx['india_cpi']:.1f}% last year, {ctx['india_cpi_10y']:.1f}% ten-year average)
 
 ---
 Provide your analysis in exactly this format:

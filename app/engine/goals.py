@@ -334,9 +334,10 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
     glide_active = glide_enabled and months > glide_yrs * 12 and glide_yrs > 0
 
     # ── Inflation-adjusted target ───────────────────────────────────────────
-    # Each goal carries its own inflation assumption. (Never swap in the latest CPI print: 2025's 2.4%
-    # would shrink a 20-year target and the SIP needed for it.)
-    inf_rate   = float(goal.inflation_rate or 0)
+    # One inflation assumption for the whole app (app_settings), never a per-goal number and never
+    # the latest one-year CPI print (2025's 2.4% would shrink a 20-year target and the SIP for it).
+    from app.engine.settings_store import DEFAULT_INFLATION, get_inflation
+    inf_rate   = get_inflation(db) if db is not None else DEFAULT_INFLATION
     inf_adj_target = _inflation_adjusted_target(target_nom, inf_rate, years)
 
     # ── SIP needed (solves under step-up + schedule) ────────────────────────

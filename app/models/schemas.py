@@ -483,6 +483,15 @@ class LoanAnchor(Base):
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AppSetting(Base):
+    """App-wide assumptions that are not per-person or per-goal (e.g. the inflation rate)."""
+    __tablename__ = "app_settings"
+
+    key        = Column(String(50), primary_key=True)
+    value      = Column(String(200), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class PayeeMemory(Base):
     """
     What a payee (UPI/IMPS counterparty) is, learned once and applied everywhere.

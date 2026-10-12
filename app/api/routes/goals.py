@@ -291,13 +291,33 @@ def ai_insights(db: Annotated[Session, Depends(get_db)]):
     return get_ai_insights(db)
 
 
-@router.get("/inflation")
-def current_inflation():
-    """Return the latest cached India CPI inflation rate."""
+class InflationBody(BaseModel):
+    rate: float
+
+
+def _inflation_payload(db: Session) -> dict:
     from app.engine.inflation import get_india_cpi_stats
+    from app.engine.settings_store import get_inflation
     st = get_india_cpi_stats()
-    return {"india_cpi": st["latest"], "latest_year": st["latest_year"], "avg_10y": st["avg_10y"],
-            "source": "World Bank Open Data"}
+    return {"assumption": get_inflation(db), "india_cpi": st["latest"], "latest_year": st["latest_year"],
+            "avg_10y": st["avg_10y"], "source": "World Bank Open Data"}
+
+
+@router.get("/inflation", summary="The one inflation assumption used by every goal, with CPI for reference")
+def current_inflation(db: Annotated[Session, Depends(get_db)]):
+    return _inflation_payload(db)
+
+
+@router.put("/settings/inflation", summary="Change the inflation assumption for all goals and recompute them")
+def set_inflation_rate(body: InflationBody, db: Annotated[Session, Depends(get_db)]):
+    from app.engine.goals import refresh_goals
+    from app.engine.settings_store import set_inflation
+    try:
+        set_inflation(db, body.rate)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    refresh_goals(db)
+    return _inflation_payload(db)
 
 
 @router.get("/market-signals")
@@ -323,7 +343,7 @@ def _goal_dict(g: Goal) -> dict:
         "current_corpus":       float(g.current_corpus or 0),
         "monthly_sip_needed":   float(g.monthly_sip_needed or 0),
         "expected_return_rate": float(g.expected_return_rate or 12),
-        "inflation_rate":       float(g.inflation_rate or 6),
+        "inflation_rate":       None,      # one app-wide rate: GET /api/goals/inflation
         "use_manual_return":    bool(getattr(g, "use_manual_return", False)),
         "sip_stepup_pct":       float(g.sip_stepup_pct) if getattr(g, "sip_stepup_pct", None) is not None else None,
         "glide_enabled":        bool(getattr(g, "glide_enabled", True)),
