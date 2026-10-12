@@ -203,10 +203,10 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
     # Manual assets (PPF, FD, NPS, …) and liabilities (home loan, etc.)
     total_liabilities = ZERO
     manual = db.query(ManualAsset).filter_by(owner_id=owner_id).all()
-    from app.engine.deposits import deposit_history, is_live
+    from app.engine.deposits import deposit_history, is_live, table_date
     hist, newest = deposit_history(db)
     for asset in manual:
-        if not is_live(asset, hist, newest) and snap_date >= newest.get(asset.owner_id, snap_date):
+        if not is_live(asset, hist, newest) and snap_date >= (table_date(newest, asset) or snap_date):
             continue                                   # the newest statement no longer lists this deposit: it is closed
         # History has no dated values for manual assets; at least do not show one before it existed.
         if snap_date < date.today() and asset.start_date and asset.start_date > snap_date:

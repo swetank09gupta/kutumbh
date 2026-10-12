@@ -171,3 +171,7 @@ CDSL sends a consolidated demat statement PDF. Password: PAN uppercase. Covers e
    ```
 3. **Ollama fallback:** If the deterministic parser returns 0 transactions, the system automatically retries via Ollama (`llama3.2`). Check `docker logs finance_ollama` if the fallback also fails.
 4. **PDF password:** Open the PDF manually in a viewer to confirm the expected password is correct. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for institution-specific password formulas.
+
+
+## Axis (PDF)
+Read by column position (`axis_layout.py`); a statement is stored only if opening + deposits − withdrawals equals the closing balance it prints. Running term deposits come from "Summary of Deposits". To repair a month: delete that bank's rows, re-read the raw file (`process_attachments`), then run the pipeline rebuild.

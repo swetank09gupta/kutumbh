@@ -46,5 +46,5 @@ Skipped for now (12 Oct 2026): no automated source exists, and a manual entry is
 4. SGB early-exit comparison: not wanted.
 
 ## Inbox (requests waiting for triage)
-- Five ₹100,000 debits in the wife's Axis account (Jul 2020, Feb–Apr 2021, Oct 2025) are labelled interest income and counted as expenses in the cashflow; they look like transfers to her own deposits. Confirm, then label them as transfers.
+- (Done) The five ₹100,000 "debits" in the wife's Axis account never happened: they were summary text read as transactions. Axis statements are now read by column and reconciled (ADR-0033); a real Axis FD (₹100,000, Oct 2025) was found.
 - Six dividend-looking credits are unmatched (Vedanta 2020, SBI 2021, ONGC Dec 2022, a ₹700 final dividend, LIC, Power Grid): shares from before the trade history or no ex-date history.

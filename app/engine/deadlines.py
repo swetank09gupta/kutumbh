@@ -85,7 +85,7 @@ def _money(x) -> str:
 
 
 def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DAYS) -> dict:
-    from app.engine.deposits import deposit_history, is_live, maturity_value
+    from app.engine.deposits import deposit_history, is_live, maturity_value, table_date
     from app.engine.networth import real_owners
     from app.models.schemas import DepositSnapshot, InstrumentTrade, LoanAnchor, ManualAsset, ManualAssetContribution
 
@@ -143,7 +143,7 @@ def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DA
         items.append(_item(
             a.maturity_date, today, "fd_maturity", a.owner_id, f"{a.name} " + ("matured" if late else "matures"),
             (f"The newest statement still lists it: confirm whether it renewed or was paid out. " if late else "") +
-            f"It {pays}.", evidence=f"{a.institution or 'bank'} statement of {newest.get(a.owner_id) or 'unknown date'}",
+            f"It {pays}.", evidence=f"{a.institution or 'bank'} statement of {table_date(newest, a) or 'unknown date'}",
             status="past" if late else None))
 
     # ELSS instalments unlocking

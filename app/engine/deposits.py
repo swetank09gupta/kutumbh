@@ -74,8 +74,18 @@ def contract_rate_pct(asset) -> Optional[float]:
 
 
 # ── history from the monthly statements (models.DepositSnapshot) ─────────────
+def bank_of(name: str | None) -> str:
+    """"SBI FD ...6925" -> "SBI", "Axis FD ...5385" -> "Axis": each bank's statements are its own table."""
+    return (name or "").split(" ")[0]
+
+
+def table_date(newest: dict, asset):
+    """The date of the newest statement of the bank this deposit is with."""
+    return newest.get((asset.owner_id, bank_of(asset.name)))
+
+
 def deposit_history(db) -> tuple[dict, dict]:
-    """({(owner, name): [(as_on, principal, accrued)]}, {owner: date of the newest FD table seen})."""
+    """({(owner, name): [(as_on, principal, accrued)]}, {(owner, bank): date of that bank's newest FD table seen})."""
     from collections import defaultdict
     from app.models.schemas import DepositSnapshot
     series: dict = defaultdict(list)
@@ -83,7 +93,7 @@ def deposit_history(db) -> tuple[dict, dict]:
     for r in db.query(DepositSnapshot).order_by(DepositSnapshot.as_on).all():
         series[(r.owner_id, r.name)].append((r.as_on, r.principal, r.accrued))
         if r.asset_type == "fd":
-            newest[r.owner_id] = max(newest.get(r.owner_id, r.as_on), r.as_on)
+            newest[(r.owner_id, bank_of(r.name))] = max(newest.get((r.owner_id, bank_of(r.name)), r.as_on), r.as_on)
     return series, newest
 
 
@@ -93,7 +103,7 @@ def is_live(asset, series: dict, newest: dict) -> bool:
     if getattr(asset, "asset_type", None) != "fd":
         return True
     seen = series.get((asset.owner_id, asset.name))
-    table = newest.get(asset.owner_id)
+    table = table_date(newest, asset)
     if not seen or table is None:
         return True
     return max(d for d, _p, _a in seen) >= table
