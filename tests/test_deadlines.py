@@ -162,7 +162,7 @@ class Engine(unittest.TestCase):
     def test_repo_change_is_flagged_against_the_loan_letter(self):
         (i,) = self.items("loan_repo_change")
         self.assertEqual(i["date"], "2026-10-07")
-        self.assertIn("7.100%", i["detail"])
+        self.assertIn("(7.1% in the lender", i["detail"])
         self.assertEqual(i["rules"], ["rbi.repo_rate"])
 
     def test_every_item_cites_a_resolvable_rule_or_evidence(self):

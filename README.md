@@ -183,7 +183,7 @@ See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for detailed numbers.
 
 | Feature | Detail |
 |---|---|
-| **Email ingestion** | Connects to Gmail + Yahoo (IMAP) every 6h, downloads statement attachments |
+| **Email ingestion** | Connects to Gmail + Yahoo (IMAP) every 6h: statement attachments, bank alerts, loan letters; the RBI repo rate daily (one pipeline, same as the Sync button) |
 | **Bank parsers** | HDFC, SBI, Axis Bank, Union Bank of India — CSV & PDF |
 | **Investment parsers** | Zerodha Kite (holdings + tradebook + contract notes), Zerodha Coin (allotments/redemptions, old + new email format), CDSL CAS, CAMS/KFintech CAS MF PDFs |
 | **Portfolio XIRR / CAGR** | Money-weighted returns across every vehicle — family, per-class, per-owner, **per-instrument**, per-goal. Coin txns are joined to holdings via **AMFI ISIN lookup** (NAVAll.txt, 24h cached, scheme renames handled). SGB purchases synthesized at RBI tranche date; FD/RD principals compounded at stated rate. |

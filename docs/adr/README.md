@@ -32,3 +32,4 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0026](0026-returns-from-evidence.md) | Returns come from one position model, built from evidence — never from guesses | Accepted |
 | [0027](0027-public-rules-registry.md) | Public rules live in one effective-dated registry | Accepted |
 | [0028](0028-deadlines-calendar.md) | A deadlines calendar where every date cites a rule or its evidence | Accepted |
+| [0029](0029-automatic-updates.md) | Everything that can update by itself does, through one pipeline | Accepted |

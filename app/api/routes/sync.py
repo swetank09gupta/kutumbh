@@ -85,8 +85,13 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
     from app.models.database import SessionLocal
     from app.ingestion.email_fetcher import fetch_all_accounts
     from app.ingestion.attachment_router import process_attachments
-    from app.engine.networth import snapshot_all
-    from app.etl.maintenance import run_all as _run_maintenance
+    from app.etl import pipeline
+
+    if not pipeline.RUN_LOCK.acquire(blocking=False):      # the scheduled update is mid-run: do not overlap it
+        logger.warning("An update is already running — skipping this sync")
+        with _sync_lock:
+            _sync_state["running"] = False
+        return
 
     db = SessionLocal()
     try:
@@ -162,32 +167,11 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
 
             fetch_thread.join()
 
-        # Bank alert e-mails: evidence for what the statements have not delivered yet.
-        # A failure here must never block the statement pipeline.
-        try:
-            from app.ingestion.alert_fetcher import ingest_alerts
-            totals["alerts"] = ingest_alerts(db, since_days=max(since_days, 7))
-        except Exception as exc:
-            logger.error("Bank alert ingestion failed: %s", exc, exc_info=True)
-            db.rollback()
-
-        try:
-            from app.ingestion.loan_fetcher import ingest_loan_letters
-            totals["loan_letters"] = ingest_loan_letters(db, since_days=max(since_days, 7))
-        except Exception as exc:
-            logger.error("Loan letter ingestion failed: %s", exc, exc_info=True)
-            db.rollback()
-
-        # Maintenance and snapshot run once over the full dataset.
-        # Ledger first: it rebuilds today's holdings, which the snapshot reads.
-        from app.ledger import refresh as _ledger_refresh
-        maintenance = _run_maintenance(db)       # clean/de-dupe/tag first…
-        ledger      = _ledger_refresh(db)        # …then rebuild holdings…
-        snapshots   = snapshot_all(db)           # …then snapshot net worth from them
-        from app.engine.goals import refresh_goals
-        goals_refreshed = refresh_goals(db)      # …then goals from the same holdings
-        from app import consistency
-        health = consistency.run(db)             # …and verify every page will agree
+        # Evidence (alerts, loan letters, public rules), then the rebuild — the same code the scheduler runs.
+        totals.update(pipeline.ingest_evidence(db, since_days))
+        built = pipeline.rebuild(db)
+        ledger, goals_refreshed = built["ledger"], built["goals"]
+        maintenance, snapshots, health = built["maintenance"], built["snapshots"], built["health"]
 
         result = {
             **totals,
@@ -202,13 +186,17 @@ def _run_full_sync_bg(since_days: int, until_days: int = 0) -> None:
         }
         logger.info("Sync done: %s", result)
         _sync_state["last_result"] = result
+        pipeline.record_run(db, "manual", True)
 
     except Exception as exc:
         logger.error("Sync failed: %s", exc, exc_info=True)
         _sync_state["last_error"] = str(exc)
+        db.rollback()
+        pipeline.record_run(db, "manual", False, str(exc))
 
     finally:
         db.close()
+        pipeline.RUN_LOCK.release()
         _sync_state["running"]     = False
         _sync_state["finished_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -406,7 +394,7 @@ def _run_reprocess_bg() -> None:
     from app.models.database import SessionLocal
     from app.ingestion.email_fetcher import FetchedAttachment
     from app.ingestion.attachment_router import process_attachments
-    from app.engine.networth import snapshot_all
+    from app.etl import pipeline
     from app.config import settings
 
     SUPPORTED = {".pdf", ".csv", ".xlsx", ".xls", ".html", ".htm"}
@@ -491,15 +479,9 @@ def _run_reprocess_bg() -> None:
 
         logger.info("Reprocess: found %d local files to process", len(attachments))
         summary   = process_attachments(attachments, db)
-        from app.ledger import refresh as _ledger_refresh
-        from app.etl.maintenance import run_all as _run_maintenance
-        maintenance = _run_maintenance(db)       # same order as a full sync
-        ledger    = _ledger_refresh(db)
-        snapshots = snapshot_all(db)
-        from app.engine.goals import refresh_goals
-        goals_refreshed = refresh_goals(db)
-        from app import consistency
-        health = consistency.run(db)
+        built = pipeline.rebuild(db)             # same order as a full sync
+        ledger, goals_refreshed = built["ledger"], built["goals"]
+        maintenance, snapshots, health = built["maintenance"], built["snapshots"], built["health"]
 
         result = {
             "attachments_fetched":   len(attachments),

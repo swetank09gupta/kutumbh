@@ -317,6 +317,19 @@ def _loan_outstanding(db: Session) -> dict:
     return apply_loan_anchors(db)
 
 
+def _dedupe_coin_trades(db: Session) -> dict:
+    """Remove a Coin order stored twice (same owner, folio, date, side, units, amount; filed under two ISINs), keeping the first."""
+    from sqlalchemy import text
+    n = db.execute(text("""
+        DELETE FROM instrument_trades t USING instrument_trades u
+        WHERE t.source = 'coin' AND u.source = 'coin' AND t.source_ref IS NOT NULL
+          AND t.owner_id = u.owner_id AND t.source_ref = u.source_ref AND t.trade_date = u.trade_date
+          AND t.side = u.side AND t.quantity = u.quantity AND coalesce(t.amount, -1) = coalesce(u.amount, -1)
+          AND (t.created_at, t.id) > (u.created_at, u.id)""")).rowcount
+    db.commit()
+    return {"removed": n}
+
+
 def run_all(db: Session) -> dict[str, Any]:
     """Run every post-sync maintenance step. Each is wrapped in try/except so
     one failure doesn't sink the others. Returns counts for surfacing in the
@@ -330,6 +343,7 @@ def run_all(db: Session) -> dict[str, Any]:
         ("txn_dedupe",              _txn_dedupe),
         ("txn_pair_transfers",      _txn_pair_transfers),
         ("refresh_mf_navs",         _refresh_mf_navs),
+        ("dedupe_coin_trades",      _dedupe_coin_trades),
         ("purge_synthetic_redemptions", _purge_synthetic_redemptions),
         ("ppf_from_transfers",      _ppf_from_transfers),
         ("ppf_rates",               _ppf_rates),

@@ -1,6 +1,7 @@
 """
 APScheduler background jobs.
-  - Every N hours: fetch emails + ETL
+  - Every N hours: statements + bank alerts + loan letters + rebuild (app.etl.pipeline)
+  - Daily 07:10: public rules read from their official page (RBI repo rate)
   - Daily midnight: compute net-worth snapshot
   - Weekly Sunday 8am: recalculate goal projections
 """
@@ -21,24 +22,34 @@ _scheduler: BackgroundScheduler | None = None
 def _sync_job():
     logger.info("Scheduled sync: starting")
     from app.models.database import SessionLocal
-    from app.ingestion.email_fetcher import fetch_all_accounts
-    from app.ingestion.attachment_router import process_attachments
-    from app.engine.networth import snapshot_all
+    from app.etl import pipeline
 
     db = SessionLocal()
     try:
-        attachments = fetch_all_accounts(since_days=7)  # incremental — last 7 days
-        summary     = process_attachments(attachments, db)
-        from app.ledger import refresh as ledger_refresh
-        from app.etl.maintenance import run_all as run_maintenance
-        run_maintenance(db)              # de-dupe, own-transfer pairing, tagging — same as a manual sync
-        ledger_refresh(db)
-        snapshot_all(db)
-        from app.engine.goals import refresh_goals
-        refresh_goals(db)
-        logger.info("Scheduled sync done: %s", summary)
+        result = pipeline.scheduled_run(db, since_days=7)       # incremental — last 7 days
+        if result.get("skipped"):
+            return
+        pipeline.record_run(db, "scheduler", True)
+        logger.info("Scheduled sync done: %s", result["statements"])
     except Exception as exc:
         logger.error("Scheduled sync failed: %s", exc, exc_info=True)
+        db.rollback()
+        pipeline.record_run(db, "scheduler", False, str(exc))
+    finally:
+        db.close()
+
+
+def _live_rules_job():
+    """Public rules read from their official page, daily and independent of e-mail (a mailbox problem must not stale them)."""
+    from app.models.database import SessionLocal
+    from app.knowledge import live
+
+    db = SessionLocal()
+    try:
+        logger.info("Live rules: %s", live.refresh(db))
+    except Exception as exc:
+        logger.error("Live rules refresh failed: %s", exc, exc_info=True)
+        db.rollback()
     finally:
         db.close()
 
@@ -121,6 +132,13 @@ def start_scheduler():
         CronTrigger(hour=0, minute=15),
         id="holdings_autotag",
         name="Daily holdings auto-tag sweep",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _live_rules_job,
+        CronTrigger(hour=7, minute=10),
+        id="live_rules",
+        name="Daily public-rules refresh (RBI repo rate)",
         replace_existing=True,
     )
     _scheduler.add_job(

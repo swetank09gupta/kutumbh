@@ -101,6 +101,7 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
             })
 
     inserted = {"trades": 0, "movements": 0}
+    trade_rows = _drop_known_coin_trades(db, trade_rows)
     if trade_rows:
         stmt = pg_insert(InstrumentTrade.__table__).values(_dedupe_batch(trade_rows))
         stmt = stmt.on_conflict_do_nothing(index_elements=["natural_key"])
@@ -110,6 +111,27 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
         stmt = stmt.on_conflict_do_nothing(index_elements=["natural_key"])
         inserted["movements"] = db.execute(stmt).rowcount
     return inserted
+
+
+def _coin_identity(owner_id, ref, trade_date, side, qty, amount) -> tuple:
+    return (owner_id, ref, trade_date, side, _normalize_amount(qty), _normalize_amount(amount))
+
+
+def _drop_known_coin_trades(db: Session, rows: list[dict]) -> list[dict]:
+    """A Coin order is the same order whatever ISIN it was filed under. A learned alias corrects a trade's ISIN in place
+    but its natural_key keeps the old one, so re-reading the same mail (the scheduler rescans the last 7 days every run)
+    would otherwise store it a second time under the corrected key. Skip any Coin row already stored for the same
+    owner, folio/ref, date, side, units and amount."""
+    coin = [r for r in rows if r["source"] == "coin" and r.get("source_ref")]
+    if not coin:
+        return rows
+    have = {_coin_identity(t.owner_id, t.source_ref, t.trade_date, t.side, t.quantity, t.amount)
+            for t in db.query(InstrumentTrade).filter(
+                InstrumentTrade.source == "coin",
+                InstrumentTrade.source_ref.in_({r["source_ref"] for r in coin}),
+                InstrumentTrade.trade_date.in_({r["trade_date"] for r in coin}))}
+    return [r for r in rows if not (r["source"] == "coin" and r.get("source_ref") and
+            _coin_identity(r["owner_id"], r["source_ref"], r["trade_date"], r["side"], r["quantity"], r["amount"]) in have)]
 
 
 def _dedupe_batch(rows: list[dict]) -> list[dict]:

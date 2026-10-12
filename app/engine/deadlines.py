@@ -75,6 +75,10 @@ def _item(when: date, today: date, kind: str, owner: str, title: str, detail: st
             "status": status or ("today" if days == 0 else "past" if days < 0 else "soon" if days <= 30 else "later")}
 
 
+def _pct(x) -> str:
+    return format(Decimal(str(x)).normalize(), "f")
+
+
 def _money(x) -> str:
     return f"₹{float(x):,.0f}"
 
@@ -186,8 +190,8 @@ def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DA
     anchor = (db.query(LoanAnchor).order_by(LoanAnchor.as_on.desc()).first())
     if anchor and anchor.rate and 0 <= (today - repo.effective_from).days <= REPO_WATCH_DAYS:
         items.append(_item(
-            repo.effective_from, today, "loan_repo_change", anchor.owner_id, f"Repo rate now {repo.value:g}%",
-            f"The loan rate is linked to the repo ({anchor.rate:g}% in the lender's letter of {anchor.as_on.strftime('%d %b %Y')}) and moves at "
+            repo.effective_from, today, "loan_repo_change", anchor.owner_id, f"Repo rate now {_pct(repo.value)}%",
+            f"The loan rate is linked to the repo ({_pct(anchor.rate)}% in the lender's letter of {anchor.as_on.strftime('%d %b %Y')}) and moves at "
             "the lender's next reset, whose date is not in the letters. Check the next letter for the new rate and EMI.",
             rule_ids=("rbi.repo_rate",), evidence=f"HDFC letter of {anchor.as_on.isoformat()}", status="info"))
 

@@ -230,6 +230,8 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         _seed_from_config(db)
+        from app.knowledge import live
+        live.load_observations(db)              # public rules read earlier from their official pages
     finally:
         db.close()
 

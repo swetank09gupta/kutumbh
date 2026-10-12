@@ -38,6 +38,9 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | A deposit the newest statement no longer lists is closed: not in net worth, Manual Assets or Investments | `test_invariants_db::test_a_closed_deposit_is_worth_nothing_anywhere`, INV-01/09 |
 | PPF contributions are rebuilt from the statements' balance series; interest-credit steps are not contributions | `tests/test_deposit_flows.py`, `test_invariants_db::test_ppf_contributions_are_rebuilt…` |
 | Every deadline cites a registry rule that resolves, or the evidence it came from; unknown opening dates are listed as gaps | `tests/test_deadlines.py` (incl. mutation), consistency check `deadlines_cite_a_basis` |
+| A Coin order is stored once however often its mail is re-read and whichever ISIN it was filed under | `tests/test_coin_duplicates_db.py` (fails without the fix) |
+| The scheduler, the Sync button and reprocess run the same pipeline; one failing evidence source never stops the rest | `tests/test_automation.py` |
+| An observed public rate never rewrites history: a change is a new dated entry, an unreadable page changes nothing | `tests/test_automation.py` |
 | Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |
 | Each purchase takes its own bank debit even when two debits have the same amount | `tests/test_derive_db.py` |
 | A PPF is worth its statement balance (interest is credited only on 31 March); its return is measured between 31-March balances and earns about the notified rate | `test_invariants_db::test_a_ppf_is_worth…`, `test_a_ppf_measured…`, `tests/test_deposit_flows.py`, `tests/test_deposits.py` |

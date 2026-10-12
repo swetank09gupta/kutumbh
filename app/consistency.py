@@ -282,6 +282,26 @@ def rules_are_current(db: Session) -> dict:
                   f"{'…' if len(old) > 4 else ''}) — see docs/INSTRUMENTS.md", "warn", stale=old)
 
 
+def automation_is_running(db: Session) -> dict:
+    """The update is meant to run by itself every few hours. If it has stopped, or its last run failed, say so
+    instead of letting every card quietly go stale."""
+    from datetime import datetime, timezone
+    from app.config import settings
+    from app.etl.pipeline import last_run
+    r = last_run(db)
+    limit_h = max(3 * settings.email_check_interval_hours, 12)
+    if r is None:
+        return _check("automatic_update_is_running", False,
+                      "No automatic update has finished yet since this check was added (it runs every "
+                      f"{settings.email_check_interval_hours} h)", "warn")
+    age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(r["at"])).total_seconds() / 3600
+    ok = r["ok"] and age_h <= limit_h
+    why = (f"last update ({r['source']}) failed: {r.get('detail') or 'see the app log'}" if not r["ok"]
+           else f"last update was {age_h:.0f} h ago (expected every {settings.email_check_interval_hours} h)")
+    return _check("automatic_update_is_running", ok,
+                  f"Last update finished {age_h:.0f} h ago ({r['source']})" if ok else why, "warn", last=r, age_hours=round(age_h, 1))
+
+
 def deadlines_have_a_basis(db: Session) -> dict:
     """Every date on the deadlines card cites a registry rule that resolves, or the evidence it was read from."""
     from app.engine import deadlines
@@ -297,7 +317,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, deadlines_have_a_basis, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 
 

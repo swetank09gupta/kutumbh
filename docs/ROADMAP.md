@@ -14,6 +14,9 @@ Live feeds stay where one exists (NSI PPF table, AMFI/mfapi, World Bank); the re
 
 **SGB early exit: not wanted.** You will hold to maturity, so neither an early-exit comparison nor exit windows are built (decided 12 Oct 2026); only the maturity date is shown.
 
+## Automation (done 12 Oct 2026, between Phases 1 and 2)
+Alerts, loan letters and the RBI repo rate now update by themselves through one pipeline (ADR-0029); a warning shows if it stops. Still hand-verified, with the quarterly warning: tax thresholds, PPF limit, EPF rate (no official machine-readable page). Still no source: EPF balance, the flat's value, the wife's unrecorded PPF deposit.
+
 ## Phase 2 — home loan, fully reconciled
 Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · every EMI debit checked against the schedule (principal/interest split, EMIs-left count) · payoff date and **interest saved by each prepayment** · **rate forecast**: the loan has passed the repo through 1:1, so after the 7 Oct 2026 hike expect ≈ 7.35% at the next reset (shown as a forecast, replaced by the next letter) · old-regime 24(b)/80C use per co-borrower share.
 *Acceptance:* the schedule reproduces every letter's figures (already true to the rupee for the principal); a mismatch is a consistency warning; forecast labelled and tested against the 2024-26 history.

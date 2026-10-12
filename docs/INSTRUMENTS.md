@@ -44,7 +44,7 @@ Legend: ✅ the system already follows it · ◐ partly · ✗ not handled · �
 | Fund NAV, scheme codes | AMFI NAVAll + mfapi.in | valuation, derived trades | ✅ |
 | CPI | World Bank (10-yr average) | goal inflation | ✅ |
 | Equity prices | Yahoo Finance | valuation | ✅ |
-| Repo rate | RBI policy statements | home-loan reset forecast | ✗ |
+| Repo rate | rbi.org.in home page ("Repo Rate : x%") | home-loan reset forecast, loan watch | ✅ read daily and on every update; a change is picked up by itself |
 | EPF rate | EPFO / PIB | EPF projection | ✗ |
 | SGB exit calendar, gold price | RBI, IBJA | SGB deadlines, redemption value | ✗ |
 | Tax rates & thresholds, PPF limit, EPF rate, repo | Income-tax Act / Finance Acts / RBI | limits, tax lens, TDS forecast, loan forecast | ✅ `app/knowledge/rules.yml` (effective-dated; stale-rule warning) |
@@ -52,4 +52,4 @@ Legend: ✅ the system already follows it · ◐ partly · ✗ not handled · �
 ## What is *not* public
 Your balances, deposit dates, unlabelled transfers, property value (the flat is entered by hand), EPF passbook. The system never guesses these: it reads statements, alerts and lender letters, or says what is missing.
 
-Rates and thresholds change; each is effective-dated in `app/knowledge/rules.yml` (a rule is added there only after it is written up here, with its source). Re-verify this page at least quarterly (PPF/small savings on 1 Jan / 1 Apr / 1 Jul / 1 Oct, repo after each RBI MPC meeting, tax rates after each Budget).
+Rates and thresholds change; each is effective-dated in `app/knowledge/rules.yml` (a rule is added there only after it is written up here, with its source). The repo rate is the one entry that updates itself (daily, from rbi.org.in); the others have no official machine-readable page and are re-verified by hand. Re-verify this page at least quarterly (PPF/small savings on 1 Jan / 1 Apr / 1 Jul / 1 Oct, repo after each RBI MPC meeting, tax rates after each Budget).

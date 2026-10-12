@@ -493,6 +493,22 @@ class AppSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class RuleObservation(Base):
+    """
+    A public rule read automatically from its official page (e.g. the RBI repo rate). One row per value per run of days it
+    held: first_seen is when we first saw it, last_seen the latest day the page still said so. app.knowledge.rules lays
+    these over rules.yml, so a change in the world reaches the app without anyone editing a file.
+    """
+    __tablename__ = "rule_observations"
+
+    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rule_id    = Column(String(60), nullable=False)
+    value      = Column(Numeric(14, 4), nullable=False)
+    first_seen = Column(Date, nullable=False)
+    last_seen  = Column(Date, nullable=False)
+    source     = Column(String(300), nullable=False)
+
+
 class DepositSnapshot(Base):
     """
     What one monthly bank statement said about one deposit or PPF account: principal, interest accrued,

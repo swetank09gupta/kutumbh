@@ -61,7 +61,7 @@ Five containers, all on one Docker network:
 
 ## 3. Data Flow
 
-### 3.1 Ingestion (every 6h via APScheduler)
+### 3.1 Ingestion (every 6h via APScheduler; one pipeline, `app/etl/pipeline.py`: statements, bank alerts, loan letters, public rules, rebuild)
 
 1. `email_fetcher` connects to each configured mailbox over IMAPS using **app passwords** (never the real login).
 2. Each new message is checked against `email_seen(uid, mailbox)` — UIDs already processed are skipped.
