@@ -277,7 +277,7 @@ def _value_today(a: ManualAsset, hist=None) -> float:
     from app.engine.deposits import accrued_value, is_live
     if hist is not None and not is_live(a, *hist):
         return 0.0
-    return float(accrued_value(a, date.today(), hist[0] if hist else None))
+    return float(accrued_value(a, date.today()))
 
 
 def _contract_rate(a: ManualAsset):

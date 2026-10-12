@@ -161,6 +161,7 @@ Some document types that arrive as PDF email attachments are **not** transaction
 | A deposit shows as closed but is not | The newest SBI statement's FD table did not list it (parse failure?) | Check `deposit_snapshots` for that statement date; re-read it with `python -m scripts.backfill_deposit_history` |
 | Deposit value or accrued interest looks off after a parser change | Parse results are cached | Bump `_CACHE_SCHEMA` in `parsers/base.py`, then `python -m scripts.backfill_fd_accrued` (or reprocess) |
 | Deposit row shows "x% FD rate" instead of a measured XIRR | Fewer than ~80% of its monthly "INT TRF FRM" credits are in the bank statements, or the principal changed | Import the missing statements; the measured return appears on the next sync |
+| `ppf_years_reconcile` warns | A PPF year does not close: a deposit whose month cannot be pinned down, or a balance lower than deposits + interest explain | `/api/health/ppf` shows each year; add the missing statement or deposit |
 | PPF rate looks stale | The NSI page was unreachable; last known table is used | Check `data/cache/ppf_rates.json`; it refreshes weekly |
 | Return shows plain gain, not a rate | Money held under a year on average | Intended (SEBI/AMFI convention) |
 | `alerts_have_statement_rows` warns | A bank alert falls inside a statement's period but has no statement row | Open `/api/health/alerts` → `unmatched`; the statement parser dropped that line, or the statement page is missing |

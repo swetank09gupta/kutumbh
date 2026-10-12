@@ -133,6 +133,7 @@ class Position:
     maturity: Optional[date] = None
     contract: bool = False            # rate implied by the statement's maturity value (not typed, not printed)
     why: Optional[str] = None         # why no return could be measured
+    terminal: Optional[tuple] = None  # (date, value) the return is measured to, when that is not today (PPF: last 31 March)
 
 
 def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
@@ -312,16 +313,18 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                                           why=why))
             continue
         if asset.asset_type == "ppf" and not db.query(ManualAssetContribution).filter_by(asset_id=asset.id).first():
-            from app.engine.deposit_flows import ppf_flows
-            from app.engine.ppf_from_transfers import _ppf_contribution_txns_for
+            from app.engine.deposit_flows import ppf_measure
+            from app.engine.ppf_from_transfers import _ppf_contribution_txns_for, ppf_candidate_transfers
             snaps = [(d, p) for d, p, _a in hist.get((asset.owner_id, asset.name), [])]
             bank = [(d, a) for d, a, _desc, _inst in _ppf_contribution_txns_for(db, asset.owner_id)]
-            put_in, _notes = ppf_flows(snaps, bank)
-            if put_in:
-                from app.engine.deposits import accrued_value
+            m = ppf_measure(snaps, bank, maybe=ppf_candidate_transfers(db, asset.owner_id))
+            if m:
+                # Measured over whole financial years between 31-March balances (interest is credited only then);
+                # what it is worth today is the statement balance.
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
-                                          cls="ppf", current=float(accrued_value(asset, today, hist)),
-                                          cfs=[(d, -float(a)) for d, a in put_in], goal_tag=asset.goal_tag,
+                                          cls="ppf", current=float(asset.current_value or 0),
+                                          cfs=[(d, -float(a)) for d, a in m["flows"]], goal_tag=asset.goal_tag,
+                                          terminal=(m["terminal"][0], float(m["terminal"][1])),
                                           rate=float(asset.interest_rate) if asset.interest_rate else None,
                                           maturity=asset.maturity_date))
                 continue
@@ -344,11 +347,21 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
         cfs, _inv, current = out
         if current > 0 and cfs:
             cfs = cfs[:-1]                              # drop the terminal value; summarise() adds it
+        terminal = None
+        if asset.asset_type == "ppf" and cfs:
+            # PPF interest is credited on 31 March only: measure to the last 31 March (the credited balance then),
+            # with the deposits made up to it; later deposits are in today's value but not yet in a return.
+            from app.engine.small_savings import ppf_balance
+            last = date(today.year, 3, 31) if today >= date(today.year, 3, 31) else date(today.year - 1, 3, 31)
+            deposits = [(d, Decimal(str(-a))) for d, a in cfs if d <= last and a < 0]
+            if deposits:
+                bal, _ = ppf_balance(deposits, last + timedelta(days=1))
+                cfs, terminal = [(d, a) for d, a in cfs if d <= last], (last, float(bal))
         positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                   cls=asset.asset_type, current=float(current), cfs=cfs,
                                   goal_tag=asset.goal_tag if asset.asset_type != "real_estate" else None,
                                   rate=float(asset.interest_rate) if asset.interest_rate else None,
-                                  maturity=asset.maturity_date))
+                                  maturity=asset.maturity_date, terminal=terminal))
     return positions, skipped
 
 
@@ -391,17 +404,21 @@ def summarise(positions: list[Position], today: date) -> dict:
     all_current = sum(p.current for p in positions)
     cov_current = sum(p.current for p in cov)
     cfs: list[tuple[date, float]] = []
+    ret_current = 0.0                                  # value the return is measured to (today, or a PPF's last 31 March)
     for p in cov:
         cfs.extend(p.cfs)
-        if p.current > 0:
-            cfs.append((today, p.current))
+        end, val = p.terminal if p.terminal else (today, p.current)
+        ret_current += val
+        if val > 0:
+            cfs.append((end, val))
     invested = sum(-a for p in cov for _, a in p.cfs if a < 0)
     proceeds = sum(a for p in cov for _, a in p.cfs if a > 0)
     years = _years(cfs, today)
-    profit = cov_current + proceeds - invested
+    profit = ret_current + proceeds - invested
     coverage = (cov_current / all_current) if all_current > 0 else None
     r = xirr(cfs) if invested > 0 else None
-    per = [(sum(-a for _, a in p.cfs if a < 0), _avg_holding_days(p.cfs, today)) for p in cov if p.cfs]
+    per = [(sum(-a for _, a in p.cfs if a < 0), _avg_holding_days(p.cfs, p.terminal[0] if p.terminal else today))
+           for p in cov if p.cfs]
     avg_days = (sum(w * d for w, d in per) / sum(w for w, _ in per)) if per and sum(w for w, _ in per) > 0 else 0.0
     churn = invested > 0 and avg_days < _MIN_ANNUALISE_DAYS
     if churn:
@@ -490,7 +507,8 @@ def _xirr_with_balances(positions: list[Position], today: date) -> Optional[floa
             if p.current > 0 and p.rate:
                 flows += [(today - timedelta(days=365), -p.current / (1 + p.rate / 100)), (today, p.current)]
         elif p.covered:
-            flows += list(p.cfs) + ([(today, p.current)] if p.current > 0 else [])
+            end, val = p.terminal if p.terminal else (today, p.current)
+            flows += list(p.cfs) + ([(end, val)] if val > 0 else [])
     invested = sum(-a for _, a in flows if a < 0)
     return xirr(flows) if invested > 0 else None
 
@@ -551,13 +569,15 @@ def _manual_rows(positions: list[Position], today: date) -> list[dict]:
     for p in positions:
         if p.holding is not None or p.closed or p.isin is not None or p.current <= 0:
             continue
-        r = None if (p.deposit or not p.covered or not p.cfs) else xirr(p.cfs + [(today, p.current)])
-        if r is not None and _avg_holding_days(p.cfs, today) < _MIN_ANNUALISE_DAYS:
+        end, val = p.terminal if p.terminal else (today, p.current)
+        r = None if (p.deposit or not p.covered or not p.cfs) else xirr(p.cfs + [(end, val)])
+        if r is not None and _avg_holding_days(p.cfs, end) < _MIN_ANNUALISE_DAYS:
             r = None                                    # held under a year on average: plain gain, as everywhere
         invested = sum(-a for _, a in p.cfs if a < 0) or None
         out.append({"name": p.name, "owner": p.owner, "type": p.cls, "current": round(p.current, 2),
+                    "measured_to": end.isoformat() if p.terminal else None,
                     "rate": p.rate, "maturity": p.maturity.isoformat() if p.maturity else None,
-                    "invested": invested, "gain": round(p.current - invested, 2) if (invested and p.covered and not p.deposit) else None,
+                    "invested": invested, "gain": round(val - invested + sum(a for _, a in p.cfs if a > 0), 2) if (invested and p.covered and not p.deposit) else None,
                     "xirr_pct": r, "goal_tag": p.goal_tag, "contract": p.contract, "why": p.why})
     out.sort(key=lambda x: x["current"], reverse=True)
     return out

@@ -53,13 +53,11 @@ class Deposits(unittest.TestCase):
     def test_only_deposits_are_accrued(self):
         self.assertEqual(accrued_value(fd(100000, "106,400", kind="ppf"), date(2027, 3, 1)), D("100000"))
 
-    def test_a_ppf_is_worth_its_statement_balance_plus_interest_since_31_march(self):
+    def test_a_ppf_is_worth_exactly_its_statement_balance(self):
         ppf = SimpleNamespace(asset_type="ppf", owner_id="w", name="SBI PPF", current_value=D("1000000"), notes="",
                               source_statement_date=None, maturity_date=None, last_updated=None, accrued_interest=None)
         series = {("w", "SBI PPF"): [(date(2026, m, 28), D("1000000"), None) for m in (4, 5, 6, 7, 8)]}
-        today = date.today()
-        self.assertEqual(accrued_value(ppf, today), D("1000000"))                      # no statement history: as stated
-        self.assertTrue(accrued_value(ppf, today, series) >= D("1000000"))
+        self.assertEqual(accrued_value(ppf, date.today(), series), D("1000000"))      # interest comes on 31 March, not before
 
     def test_a_deposit_without_a_maturity_note_is_left_alone(self):
         self.assertEqual(accrued_value(fd(100000, None), date(2027, 3, 1)), D("100000"))

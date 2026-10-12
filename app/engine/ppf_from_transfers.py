@@ -109,11 +109,11 @@ def _compound_to_today(
     """
     Today's balance of a contribution stream by PPF's own rule and the officially notified rate history
     (app.engine.small_savings): lowest-balance-between-5th-and-month-end interest, credited every 31 March.
-    Interest earned since the last 31 March (completed months) is included as accrued.
+    Interest is credited on 31 March only, so nothing earned since then is added.
     """
     from app.engine.small_savings import ppf_balance
-    credited, accrued = ppf_balance(contribs, today)
-    return credited + accrued
+    credited, _accrued_not_yet_credited = ppf_balance(contribs, today)
+    return credited                          # interest is credited once, on 31 March; nothing is added before then
 
 
 def sync_ppf_from_transfers(
@@ -221,3 +221,21 @@ def sync_ppf_from_transfers(
 
     db.commit()
     return summary
+
+
+_OWN_TRANSFER_RE = re.compile(r"\bINB\s*MBS\b|\bMBS\b", re.IGNORECASE)
+
+
+def ppf_candidate_transfers(db: Session, owner_id: str) -> list[tuple[date, Decimal]]:
+    """Round own-account transfers whose narration does not say PPF ("INB MBS"): a PPF deposit can be one. They are
+    only candidates; the PPF reconciliation accepts one only when it closes a year's balance."""
+    rows = (
+        db.query(Transaction.date, Transaction.amount, Transaction.description)
+        .join(Account, Transaction.account_id == Account.id)
+        .filter(Account.owner_id == owner_id, Account.account_type == "bank",
+                Transaction.transaction_type == "debit", Transaction.amount >= 1000)
+        .all()
+    )
+    return [(r.date, Decimal(str(r.amount))) for r in rows
+            if _OWN_TRANSFER_RE.search(r.description or "") and not _PPF_TRANSFER_RE.search(r.description or "")
+            and Decimal(str(r.amount)) % 500 == 0]

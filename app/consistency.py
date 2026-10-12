@@ -234,6 +234,27 @@ def product_invariants(db: Session) -> dict:
                   "Broken: " + "; ".join(f"{k} ({v[0]})" for k, v in broken.items()), "fail", broken=broken)
 
 
+def ppf_reconciles(db: Session) -> dict:
+    """PPF: each measured year must close (opening + deposits + interest by the rule = closing) with every deposit
+    on a bank statement; a deposit found only through its interest is reported, an uncertain one is a warning."""
+    from app.api.routes.health import get_ppf_reconciliation
+    rows = get_ppf_reconciliation(db)
+    unsure = [(r["owner"], y["year"], y["inferred"]) for r in rows for y in r["years"]
+              if y["inferred"] and y["inferred"]["confidence"] != "high"]
+    lower = [(r["owner"], y["year"]) for r in rows for y in r["years"] if y["status"].startswith("balance lower")]
+    unmeasured = [r["owner"] for r in rows if not r["measured"]]
+    ok = not unsure and not lower and not unmeasured
+    parts = []
+    if unsure:
+        parts.append(f"{len(unsure)} PPF year(s) have a deposit whose month cannot be pinned down")
+    if lower:
+        parts.append(f"{len(lower)} PPF year(s) close lower than deposits + interest explain (withdrawal?)")
+    if unmeasured:
+        parts.append(f"PPF of {', '.join(sorted(set(unmeasured)))} has no two consecutive 31-March statements")
+    return _check("ppf_years_reconcile", ok, "Every measured PPF year reconciles: opening + deposits + interest = closing"
+                  if ok else "; ".join(parts) + " — see /api/health/ppf", "warn", unsure=unsure, lower=lower)
+
+
 def deposits_match_alerts(db: Session) -> dict:
     """SBI deposit accounts have no statements; their alerts are the only live balance. They must agree with Manual Assets."""
     from app.txn.alert_recon import alert_summary
@@ -255,7 +276,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, product_invariants,
+    deposits_match_alerts, ppf_reconciles, product_invariants,
 ]
 
 

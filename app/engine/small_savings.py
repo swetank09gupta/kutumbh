@@ -107,29 +107,6 @@ def ppf_current_rate(today: Optional[date] = None) -> float:
     return ppf_rate_on(today or date.today())
 
 
-def ppf_accrued_from_balances(balances: list[tuple[date, Decimal]], today: date,
-                              rate_on=ppf_rate_on) -> Decimal:
-    """
-    Interest a PPF has earned since the last 31 March but not yet had credited (the statement balance excludes it),
-    by the 5th-to-month-end rule, for the months completed so far. The lowest balance in a month is taken as the
-    lower of the previous and the current month-end balance. `balances` are the statements' month-end readings.
-    """
-    if not balances:
-        return Decimal(0)
-    balances = sorted(balances)
-    year = today.year if today >= date(today.year, 4, 1) else today.year - 1        # the financial year in progress
-    y, m = year, 4
-    accrued, prev = Decimal(0), None
-    while (y, m) < (today.year, today.month):                                        # completed months only
-        end = date(y, m, calendar.monthrange(y, m)[1])
-        at_end = next((b for d, b in reversed(balances) if d <= end), balances[0][1])
-        low = min(at_end, prev) if prev is not None else at_end
-        accrued += low * Decimal(str(rate_on(date(y, m, 1)))) / Decimal(1200)
-        prev = at_end
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-    return accrued.quantize(Decimal("0.01"))
-
-
 def ppf_balance(contribs: list[tuple[date, Decimal]], today: date, rate_on=ppf_rate_on) -> tuple[Decimal, Decimal]:
     """
     (balance credited so far, interest accrued since the last 31 March) for dated contributions,

@@ -2,61 +2,96 @@ import unittest
 from datetime import date
 from decimal import Decimal as D
 
-from app.engine.deposit_flows import ppf_flows
-
-FLAT = staticmethod(lambda d: 7.1)
+from app.engine.deposit_flows import _fy_interest, ppf_measure
 
 
 def rate(d):
     return 7.1
 
 
-class PpfFlows(unittest.TestCase):
-    def test_a_bank_transfer_is_the_contribution_and_explains_the_balance_step(self):
-        snaps = [(date(2025, 4, 30), D("500000")), (date(2025, 5, 31), D("600000"))]
-        flows, notes = ppf_flows(snaps, [(date(2025, 5, 10), D("100000"))], rate)
-        self.assertEqual(flows, [(date(2025, 4, 30), D("500000")), (date(2025, 5, 10), D("100000"))])
-        self.assertEqual(notes, [])
+def year_close(opening, deposits, fy_end):
+    """The balance the bank would print on 31 March: opening + deposits + the interest PPF's rule credits."""
+    return opening + sum((a for _, a in deposits), D(0)) + _fy_interest(opening, deposits, fy_end, rate).quantize(D("0.01"))
 
-    def test_interest_credited_on_31_march_is_not_a_contribution(self):
-        # nothing paid in; the balance rises by a year of 7.1% on 31 March
-        snaps = [(date(2023, 3, 31), D("1000000")), (date(2024, 2, 29), D("1000000")), (date(2024, 3, 31), D("1071000"))]
-        flows, _ = ppf_flows(snaps, [], rate)
-        self.assertEqual(len(flows), 1)                                     # only the opening position: no deposit invented
 
-    def test_a_rise_with_no_bank_transfer_is_an_undated_deposit_placed_mid_gap(self):
-        snaps = [(date(2022, 7, 31), D("969600")), (date(2022, 8, 31), D("1069600"))]
-        flows, notes = ppf_flows(snaps, [], rate)
-        self.assertEqual(flows[1][1], D("100000.00"))
-        self.assertTrue(date(2022, 7, 31) < flows[1][0] < date(2022, 8, 31))
-        self.assertIn("no bank statement", notes[0])
+class PpfMeasure(unittest.TestCase):
+    def series(self):
+        """FY24-25 fully on the bank statements; FY25-26 has a 1,50,000 deposit in July the bank rows do not show."""
+        m24 = D("1271870")
+        dep25 = [(date(2024, 5, 1), D("40000")), (date(2024, 5, 31), D("80000")), (date(2024, 11, 1), D("30000"))]
+        m25 = year_close(m24, dep25, date(2025, 3, 31))
+        hidden = [(date(2025, 7, 3), D("150000"))]
+        listed26 = [(date(2025, 10, 2), D("25000"))]
+        m26 = year_close(m25, listed26 + hidden, date(2026, 3, 31))
+        snaps = [(date(2024, 3, 31), m24), (date(2025, 3, 31), m25), (date(2026, 3, 31), m26),
+                 (date(2026, 4, 30), m26 + D("150000"))]                      # an April deposit after the last year-end
+        return snaps, dep25 + listed26, (m24, m25, m26)
 
-    def test_the_rebuilt_flows_reproduce_the_notified_rate(self):
+    def test_a_year_whose_deposits_are_all_on_bank_statements_reconciles_to_the_rupee(self):
+        snaps, bank, _ = self.series()
+        out = ppf_measure(snaps, bank, rate)
+        self.assertEqual(out["years"][0]["status"], "reconciled")
+        self.assertAlmostEqual(out["years"][0]["unexplained"], 0.0, places=0)
+
+    def test_a_deposit_missing_from_the_bank_statements_is_found_dated_and_flagged(self):
+        snaps, bank, _ = self.series()
+        out = ppf_measure(snaps, bank, rate)
+        y = out["years"][1]
+        self.assertEqual(y["inferred"]["amount"], 150000.0)                       # a round amount, not a leftover
+        self.assertEqual(y["inferred"]["month"], "Jul 2025")                      # the month, from the interest it earned
+        self.assertEqual(y["inferred"]["confidence"], "high")
+        self.assertIn("not on a bank statement", out["notes"][0])
+
+    def test_measured_over_whole_years_the_return_is_the_notified_rate(self):
         from app.engine.xirr_engine import xirr
-        snaps = [(date(2023, 3, 31), D("1000000"))]
-        bal, d = D("1000000"), date(2023, 3, 31)
-        dates = [date(2023, 4, 30), date(2023, 5, 31), date(2023, 6, 30), date(2023, 7, 31), date(2023, 8, 31), date(2023, 9, 30),
-                 date(2023, 10, 31), date(2023, 11, 30), date(2023, 12, 31), date(2024, 1, 31), date(2024, 2, 29),
-                 date(2024, 3, 31)]
-        for x in dates:
-            snaps.append((x, bal if x < date(2024, 3, 31) else bal * D("1.071")))
-        flows, _ = ppf_flows(snaps, [], rate)
-        cfs = [(d, -float(a)) for d, a in flows] + [(snaps[-1][0], float(snaps[-1][1]))]
-        self.assertAlmostEqual(xirr(cfs), 7.1, delta=0.4)
+        snaps, bank, _ = self.series()
+        out = ppf_measure(snaps, bank, rate)
+        cfs = [(d, -float(a)) for d, a in out["flows"]] + [(out["terminal"][0], float(out["terminal"][1]))]
+        self.assertAlmostEqual(xirr(cfs), 7.1, delta=0.15)
 
-    def test_a_part_year_before_the_first_year_end_is_not_counted(self):
-        snaps = [(date(2020, 10, 31), D("578766")), (date(2021, 2, 28), D("578766")),
-                 (date(2021, 3, 31), D("619796")), (date(2021, 4, 30), D("619796"))]
-        flows, _ = ppf_flows(snaps, [], rate)
-        self.assertEqual(flows[0], (date(2021, 3, 31), D("619796")))       # measured from the first 31 March
+    def test_two_unlisted_deposits_are_not_passed_off_as_certain(self):
+        # 60,000 and 20,000 in different months look like no single round deposit: say so, do not guess confidently
+        m24 = D("1000000")
+        deps = [(date(2024, 6, 30), D("60000")), (date(2024, 9, 4), D("20000"))]
+        m25 = year_close(m24, deps, date(2025, 3, 31))
+        out = ppf_measure([(date(2024, 3, 31), m24), (date(2025, 3, 31), m25)], [], rate)
+        self.assertEqual(out["years"][0]["inferred"]["confidence"], "low")
 
-    def test_one_statement_is_no_history(self):
-        flows, notes = ppf_flows([(date(2025, 1, 31), D("1000"))], [], rate)
-        self.assertEqual(flows, [])
+    def test_an_unlabelled_transfer_that_closes_the_year_is_recognised_as_the_deposit(self):
+        m24 = D("1000000")
+        deps = [(date(2024, 6, 30), D("60000")), (date(2024, 9, 4), D("20000"))]
+        m25 = year_close(m24, deps, date(2025, 3, 31))
+        # the bank row for the 60,000 says only "INB MBS": it is offered as a candidate; the 20,000 is on no statement
+        out = ppf_measure([(date(2024, 3, 31), m24), (date(2025, 3, 31), m25)], [], rate,
+                          maybe=[(date(2024, 6, 30), D("60000")), (date(2024, 8, 14), D("33000"))])
+        y = out["years"][0]
+        self.assertEqual(y["found_among_transfers"], ["30 Jun 2024 ₹60,000"])         # the 33,000 does not fit: not taken
+        self.assertEqual(y["inferred"]["amount"], 20000.0)
 
+    def test_the_window_ends_at_the_last_31_march_not_at_a_later_deposit(self):
+        snaps, bank, (_, _, m26) = self.series()
+        out = ppf_measure(snaps, bank, rate)
+        self.assertEqual(out["terminal"], (date(2026, 3, 31), m26))               # the April deposit is not in the return
+        self.assertTrue(all(d <= date(2026, 3, 31) for d, _ in out["flows"]))
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_years_without_a_31_march_statement_are_not_measured(self):
+        snaps = [(date(2021, 3, 31), D("600000")), (date(2022, 5, 31), D("969600")), (date(2024, 3, 31), D("1271870"))]
+        self.assertIsNone(ppf_measure(snaps, [], rate))                           # no two consecutive year-ends
+
+    def test_only_the_latest_run_of_consecutive_year_ends_is_used(self):
+        a = D("1000000")
+        b = year_close(a, [], date(2025, 3, 31))
+        c = year_close(b, [], date(2026, 3, 31))
+        snaps = [(date(2021, 3, 31), D("500000")), (date(2024, 3, 31), a), (date(2025, 3, 31), b), (date(2026, 3, 31), c)]
+        out = ppf_measure(snaps, [], rate)
+        self.assertEqual(out["flows"][0], (date(2024, 3, 31), a))                 # 2021 is cut off by the gap
+        self.assertEqual(len(out["years"]), 2)
+
+    def test_a_balance_lower_than_deposits_and_interest_explain_is_reported_not_hidden(self):
+        a = D("1000000")
+        snaps = [(date(2024, 3, 31), a), (date(2025, 3, 31), a)]                  # no interest at all: impossible
+        out = ppf_measure(snaps, [], rate)
+        self.assertIn("lower than", out["notes"][0])
 
 
 from app.engine.deposit_flows import fd_flows

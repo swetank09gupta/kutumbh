@@ -226,6 +226,20 @@ class Invariants(unittest.TestCase):
         row = next(m for m in compute_owner_returns(self.db, "wife")["manual_assets"] if m["name"] == "SBI PPF")
         self.assertTrue(6.8 < row["xirr_pct"] < 7.6, row["xirr_pct"])
 
+    def test_a_ppf_is_worth_its_statement_balance_with_no_interest_added_before_31_march(self):
+        from app.consistency import _latest_nw
+        from app.models.schemas import ManualAsset
+        a = self.db.query(ManualAsset).filter_by(owner_id="wife", name="SBI PPF").one()
+        self.assertEqual(float(_latest_nw(self.db)["wife"].ppf_value), float(a.current_value))
+
+    def test_the_ppf_reconciliation_report_shows_every_year(self):
+        from app.api.routes.health import get_ppf_reconciliation
+        rows = get_ppf_reconciliation(self.db)
+        wife = next(r for r in rows if r["owner"] == "wife")
+        self.assertTrue(wife["measured"])
+        self.assertTrue(all({"year", "opening", "bank_deposits", "interest", "closing", "status"} <= set(y) for y in wife["years"]))
+        self.assertTrue(wife["measured_to"].endswith("-03-31"))
+
     def test_tax_deducted_at_source_is_added_back_to_a_deposits_interest(self):
         from app.engine import portfolio_xirr as px
         from datetime import date as _d
