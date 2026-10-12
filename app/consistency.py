@@ -221,6 +221,19 @@ def alerts_match_statements(db: Session) -> dict:
                   "warn", **r)
 
 
+def product_invariants(db: Session) -> dict:
+    """The cross-page rules in app/invariants.py (docs/INVARIANTS.md): a page must not drop or disagree."""
+    from app.invariants import INVARIANTS
+    broken = {}
+    for name, fn in INVARIANTS:
+        found = fn(db)
+        if found:
+            broken[name] = found[:5]
+    return _check("product_invariants", not broken,
+                  f"All {len(INVARIANTS)} cross-page invariants hold" if not broken else
+                  "Broken: " + "; ".join(f"{k} ({v[0]})" for k, v in broken.items()), "fail", broken=broken)
+
+
 def deposits_match_alerts(db: Session) -> dict:
     """SBI deposit accounts have no statements; their alerts are the only live balance. They must agree with Manual Assets."""
     from app.txn.alert_recon import alert_summary
@@ -242,7 +255,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts,
+    deposits_match_alerts, product_invariants,
 ]
 
 

@@ -35,10 +35,6 @@ logger = logging.getLogger(__name__)
 
 ZERO = Decimal(0)
 
-# Only broker/AMC accounts carry investment cash flows (bank accounts are cash, CDSL/NSDL demat
-# statements are position snapshots with no prices).
-_INVESTING_ACCOUNT_TYPES = {"stocks", "mutual_fund"}
-
 # Manual asset types that are real investments (the rest, e.g. liabilities, are skipped).
 _INVESTING_ASSET_TYPES = {
     "fd", "rd", "ppf", "nps",
@@ -166,12 +162,13 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
     skipped: list[dict] = []
     holdings = _latest_holdings(db, owner_ids=owner_ids)
 
-    # Cash flows per (owner, isin) from the investing accounts' transactions.
+    # Cash flows per (owner, isin): every transaction tagged with an ISIN, whichever account it sits in —
+    # a SIP mandate debit arrives on the BANK statement (decision 23, ADR-0013). Only DEMAT unit-count
+    # rows are excluded.
     flows: dict[tuple[str, str], list[tuple[date, float]]] = defaultdict(list)
     rows = (db.query(Transaction, Account.owner_id)
             .join(Account, Account.id == Transaction.account_id)
-            .filter(Account.owner_id.in_(owner_ids), Account.account_type.in_(_INVESTING_ACCOUNT_TYPES),
-                    Transaction.isin.isnot(None))
+            .filter(Account.owner_id.in_(owner_ids), Transaction.isin.isnot(None))
             .order_by(Transaction.date).all())
     for t, owner in rows:
         amt = float(t.amount or 0)

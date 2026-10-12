@@ -94,6 +94,7 @@ children:
     marriage_age:  25                # marriage planning at age 25
   # Add more children below as needed (oldest drives the milestone)
 
+# Inflation is NOT set per goal: one automatic app-wide rate (10-year average India CPI), see ADR-0019.
 # ── Goals (seeded into DB on first startup) ────────────
 # Adjust amounts and dates to match your family situation.
 # target_amount is in TODAY'S money — inflation adjustment is automatic.
@@ -107,7 +108,6 @@ goals:
     target_amount:        5000000        # ₹50 lakhs in today's value
     target_date:          "2040-06-01"
     expected_return_rate: 12.0           # % annual returns on investments
-    inflation_rate:       8.0            # education inflation is higher
     notes:                "Engineering / Medical / MBA fund"
 
   - owner_id:             "family"
@@ -116,7 +116,6 @@ goals:
     target_amount:        3000000        # ₹30 lakhs in today's value
     target_date:          "2047-01-01"
     expected_return_rate: 10.0
-    inflation_rate:       6.0
 
   - owner_id:             "user"
     name:                 "Your Retirement"
@@ -124,7 +123,6 @@ goals:
     target_amount:        50000000       # ₹5 crore — sustains 25 years @ 4% withdrawal
     target_date:          "2050-01-01"
     expected_return_rate: 12.0
-    inflation_rate:       6.0
     notes:                "Target: retire at 60, corpus to last till 85"
 
   - owner_id:             "wife"
@@ -133,7 +131,6 @@ goals:
     target_amount:        30000000       # ₹3 crore
     target_date:          "2052-01-01"
     expected_return_rate: 12.0
-    inflation_rate:       6.0
 
   - owner_id:             "family"
     name:                 "Emergency Fund"
@@ -141,7 +138,6 @@ goals:
     target_amount:        600000         # 6× monthly expenses — update after first sync
     target_date:          "2025-12-31"
     expected_return_rate: 6.5            # liquid MF / savings account
-    inflation_rate:       0.0
     notes:                "Keep in liquid mutual fund or FD with instant redemption"
 
   - owner_id:             "family"
@@ -150,5 +146,4 @@ goals:
     target_amount:        2000000        # ₹20 lakhs
     target_date:          "2040-01-01"
     expected_return_rate: 8.0
-    inflation_rate:       10.0           # medical inflation is high
     notes:                "Covers parents' senior care + major medical events"

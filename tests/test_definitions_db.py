@@ -21,8 +21,8 @@ class Definitions(unittest.TestCase):
         from app.models.database import Base
         from app.semantic.definitions import VIEW_SQL
         cls.engine = create_engine(URL)
-        with cls.engine.begin() as c:
-            c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+        from tests.dbhelp import reset_schema
+        reset_schema(cls.engine)
         Base.metadata.create_all(cls.engine)
         with cls.engine.begin() as c:
             for stmt in VIEW_SQL:

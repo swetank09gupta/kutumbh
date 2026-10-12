@@ -1,6 +1,6 @@
-# ADR-0013: Custom XIRR (Newton–Raphson) over numpy-financial
+# ADR-0013: Custom XIRR over numpy-financial
 
-**Status:** Accepted
+**Status:** Accepted — solver superseded by [ADR-0026](0026-returns-from-evidence.md)
 **Date:** 2024-09 · **Updated:** 2026-07
 
 ## Context
@@ -50,3 +50,8 @@ Without the prefix fallback, closed equity positions were falling into whatever 
 - ✅ Closed equity positions no longer inflate MF XIRR.
 - ❌ The fallback logic adds ~20 lines of code that needed careful testing on adversarial cashflows.
 - ❌ Fetching all accounts widens the transaction scan; negligible on household scale (~10k rows) but worth noting if the DB grows.
+
+
+## Revisited (2026-10, ADR-0026)
+
+Newton-Raphson (with a +1000% sanity cap) returned `None` for cash-flow streams that change sign several times, which silently blanked the Equity card and every goal. `xirr_engine.xirr` now scans a log-spaced grid for the first sign change and bisects inside it. The *transaction scope* rule above still holds and is now enforced by `tests/test_invariants_db.py::test_a_bank_sip_debit_counts_as_a_purchase`: `build_positions` takes every ISIN-tagged transaction whichever account it sits in.

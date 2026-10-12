@@ -162,7 +162,6 @@ goals:
     target_amount:        5000000     # ₹50 L in today's value
     target_date:          "2040-06-01"
     expected_return_rate: 12.0        # % annual returns
-    inflation_rate:       8.0         # education inflation
     notes:                "Engineering / MBA fund"
 ```
 
@@ -173,14 +172,14 @@ goals:
 | `target_amount` | Corpus needed in today's rupees |
 | `target_date` | Overridden by age-based date for `child_*` and `retirement` goals when `children` / `dob` are set |
 | `expected_return_rate` | Assumed annual return on investments (%) |
-| `inflation_rate` | Annual inflation for this goal (%) — education inflation is typically 8%, general 6% |
+| *(inflation)* | Not a goal field any more. One app-wide rate, automatic: the 10-year average of India CPI (World Bank). Override or clear it on the Goals page or with `PUT/DELETE /api/goals/settings/inflation` (ADR-0019). A leftover `inflation_rate` key in a goal is ignored. |
 
 Goals can be created / edited after startup via the API:
 
 ```bash
 curl -X POST http://localhost:8000/api/goals/ \
   -H "Content-Type: application/json" \
-  -d '{"owner_id":"user","name":"Home Renovation","goal_type":"custom","target_amount":800000,"target_date":"2027-03-31","expected_return_rate":8.0,"inflation_rate":6.0}'
+  -d '{"owner_id":"user","name":"Home Renovation","goal_type":"custom","target_amount":800000,"target_date":"2027-03-31","expected_return_rate":8.0}'
 ```
 
 ---

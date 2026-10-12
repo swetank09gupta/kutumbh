@@ -204,7 +204,7 @@ manual_assets(id, owner_id, type, value,        -- PPF, NPS, gold, real estate, 
               interest_rate, monthly_payment,    -- monthly_payment = EMI on liability rows
               updated_on)
 goals(id, owner_id, name, target_amount,        -- "house 2030", "retire 2045"
-      target_date, inflation_rate)
+      target_date; inflation is one app-wide setting, ADR-0019)
 email_seen(mailbox, uid, processed_at)          -- ingestion idempotency
 
 -- Owner tax profile (drives 80C dead-weight & EMI burden splitting; UI-editable)

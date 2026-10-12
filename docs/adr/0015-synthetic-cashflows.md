@@ -77,3 +77,8 @@ Each source uses a distinct fingerprint prefix to prevent cross-source dedup col
 
 - 9 CY2024 trades (EMUDHRA, TATASTEEL, TITAGARH) have approximate dates (Jun-Jul 2024 window). Exact dates can be found in the physical contract notes. These are tagged with fingerprint prefix `tradebook_cy2024_approx_*` for easy identification.
 - NYKAA: AGTS shows 111 units bought, 131 units sold in Nov 2023. The 20-unit difference is explained by a 5:1 bonus issue in Nov 2022 (corporate action, not in AGTS). Position is fully closed; cost-basis impact is ~₹3,420 of untracked free units.
+
+
+## Revisited (2026-10, ADR-0026)
+
+The principle stands — nothing is invented. What changed: (1) SGB cost now lives in the ledger (`app/ledger/sgb.py`, rule `issue_price_cost`) instead of being synthesised inside the XIRR engine; (2) PPF built from transfers uses the Government's published rate history and PPF's own interest rule (`app/engine/small_savings.py`); (3) units the depository shows without a trade are turned into **persisted** `derived` trades (`app/ledger/derive.py`) — a deliberate reversal of "never persisted": the ledger reconciles statements against trades, so the evidence must be a row. They are marked `source='derived'`, rebuilt from scratch every refresh, and replaced the moment a real trade arrives; (4) the break-even *redemption* synthesis was removed entirely, because an assumed 0% return is not evidence (`tests/test_no_invented_data.py`).

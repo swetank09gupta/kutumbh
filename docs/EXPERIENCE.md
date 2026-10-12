@@ -42,7 +42,7 @@ Zerodha contract notes from Coin (MF, not equity) render as two side-by-side tab
 
 ## XIRR is sneaky
 
-`numpy_financial.xirr` is deprecated. `scipy.optimize.brentq` over the NPV polynomial works but is fragile near tax-loss-harvesting cashflows that flip sign multiple times. I wrote a small Newton–Raphson with a bisection fallback that's been stable across every cashflow stream I've thrown at it; <50 lines, no dependency. See `app/engine/portfolio_xirr.py`.
+`numpy_financial.xirr` is deprecated. `scipy.optimize.brentq` over the NPV polynomial works but is fragile near tax-loss-harvesting cashflows that flip sign multiple times. [Superseded: the solver was later changed to bracketing, ADR-0026.] I wrote a small Newton–Raphson with a bisection fallback that's been stable across every cashflow stream I've thrown at it; <50 lines, no dependency. See `app/engine/portfolio_xirr.py`.
 
 Validation matters: I keep 12 fixture cashflows in `tests/fixtures/xirr/` with known Excel XIRR values, and every change to the engine has to keep all 12 within ±1e-4.
 

@@ -19,8 +19,8 @@ class AlertRecon(unittest.TestCase):
         from app.models import schemas
         from app.models.database import Base
         cls.engine = create_engine(URL)
-        with cls.engine.begin() as c:
-            c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+        from tests.dbhelp import reset_schema
+        reset_schema(cls.engine)
         Base.metadata.create_all(cls.engine)
         cls.S, cls.m = sessionmaker(bind=cls.engine), schemas
 

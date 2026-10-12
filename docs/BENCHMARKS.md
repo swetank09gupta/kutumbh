@@ -32,7 +32,7 @@ Every dashboard panel renders in <200 ms end-to-end including Grafana overhead.
 
 ## XIRR engine
 
-`app/engine/portfolio_xirr.py` Newton-Raphson, 1e-6 tolerance, max 100 iterations.
+`app/engine/xirr_engine.py` bracketed root-finding (scan for a sign change, then bisect), tolerance 1e-9 — Newton was replaced because it returned nothing for sign-changing streams (ADR-0026).
 
 | Cashflow stream size | Time | Iterations to converge |
 |---|---|---|

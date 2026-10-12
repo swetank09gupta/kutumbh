@@ -347,6 +347,10 @@ Full interactive docs: http://localhost:8000/docs
 
 ---
 
+## Changing the code safely
+
+`scripts/check.sh` runs the unit tests, the scratch-database integration tests (including the cross-page invariants with mutation checks) and the UI↔API contract test; `--live` adds the invariants and a diff of key figures against your last accepted baseline. A pre-push hook runs it (`git config core.hooksPath .githooks`). What must stay true, and the test that guards it: [docs/INVARIANTS.md](docs/INVARIANTS.md); why things are the way they are: [docs/DECISIONS.md](docs/DECISIONS.md).
+
 ## Privacy & Security
 
 - **No cloud databases.** PostgreSQL runs inside Docker on your machine.
