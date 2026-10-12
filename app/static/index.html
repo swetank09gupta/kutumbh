@@ -2671,7 +2671,7 @@ async function saveProfiles() {
 async function loadCpi() {
   try {
     const d = await apiFetch('/api/goals/inflation');
-    $('cpi-badge').textContent = `India CPI: ${d.india_cpi.toFixed(1)}% (live)`;
+    $('cpi-badge').textContent = `India CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}% · 10-yr average ${d.avg_10y.toFixed(1)}% · each goal uses its own rate`;
   } catch { $('cpi-badge').textContent = 'India CPI: unavailable'; }
 }
 

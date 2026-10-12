@@ -59,3 +59,8 @@ Option (C). Specifically:
 
 - Tax on gains is **not** modeled — projections are pre-tax. The user's target should be set pre-tax to match.
 - Glide path defaults (3y / 8%) are tighter than typical target-date funds (5y / 5%). Picked to match Indian retiree behaviour, which de-risks later and tolerates more residual equity.
+
+
+## Addendum: inflation (2026-10)
+
+A goal's target is inflated at the goal's own `inflation_rate`. An earlier shortcut replaced any goal stored at 6.0% with the latest World Bank CPI print (2025: 2.4%), which silently shrank 20-year targets and the SIP needed for them. The badge now shows the latest print and the 10-year average (~4.7%) for reference; neither overrides a goal.

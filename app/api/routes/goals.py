@@ -294,8 +294,10 @@ def ai_insights(db: Annotated[Session, Depends(get_db)]):
 @router.get("/inflation")
 def current_inflation():
     """Return the latest cached India CPI inflation rate."""
-    from app.engine.inflation import get_india_cpi
-    return {"india_cpi": get_india_cpi(), "source": "World Bank Open Data"}
+    from app.engine.inflation import get_india_cpi_stats
+    st = get_india_cpi_stats()
+    return {"india_cpi": st["latest"], "latest_year": st["latest_year"], "avg_10y": st["avg_10y"],
+            "source": "World Bank Open Data"}
 
 
 @router.get("/market-signals")

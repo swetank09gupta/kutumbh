@@ -54,7 +54,7 @@ def build_context(db: Session) -> dict:
         Owner, Account, Transaction, NetWorthSnapshot, ManualAsset,
     )
     from app.engine.goals import project_all_goals
-    from app.engine.inflation import get_india_cpi
+    from app.engine.inflation import get_india_cpi_stats
 
     # Owner profiles
     owners   = db.query(Owner).filter(Owner.id != "family").all()
@@ -147,7 +147,8 @@ def build_context(db: Session) -> dict:
         "savings_rate":      savings_rate,
         "top_categories":    [{"cat": c, "monthly": round(float(t) / 3, 0)} for c, t in top_cats],
         "goals":             goals_data,
-        "india_cpi":         get_india_cpi(),
+        "india_cpi":         get_india_cpi_stats()["latest"],
+        "india_cpi_10y":     get_india_cpi_stats()["avg_10y"],
     }
 
 
@@ -203,7 +204,7 @@ TOP EXPENSE CATEGORIES:
 FINANCIAL GOALS:
 {goals_txt}
 
-INDIA CPI INFLATION: {ctx['india_cpi']:.1f}% (live data)
+INDIA CPI INFLATION: {ctx['india_cpi']:.1f}% last year (unusually low), {ctx['india_cpi_10y']:.1f}% ten-year average
 
 ---
 Provide your analysis in exactly this format:
