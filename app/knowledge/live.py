@@ -47,7 +47,70 @@ def fetch_repo() -> Decimal | None:
 
 # rule id → (fetcher, the page it reads)
 FETCHERS = {"rbi.repo_rate": (fetch_repo, RBI_HOME)}
+PROBE_MAX_AGE_DAYS = 10    # a rule whose probe has not matched for this long is reported: the page changed or went away
 MAX_AGE_DAYS = 3          # a self-updating rule not read again within this many days is reported (the daily job missed 3 runs)
+
+
+def page_text(url: str) -> str:
+    """The visible text of a page. NSI serves its own certificate without the intermediate, so it uses the bundled chain."""
+    verify: object = True
+    if "nsiindia.gov.in" in url:
+        from app.engine.small_savings import _ssl_context
+        verify = _ssl_context()
+    r = httpx.get(url, timeout=30, follow_redirects=True, verify=verify,
+                  headers={"User-Agent": "Mozilla/5.0 (kutumbh rules check)"})
+    r.raise_for_status()
+    return re.sub(r"\s+", " ", re.sub(r"<(style|script).*?</\1>", " ", re.sub(r"<[^>]+>", " ", r.text), flags=re.S | re.I))
+
+
+def probed_rule_ids() -> list[str]:
+    """Rules whose entry in force carries a probe: re-confirmed automatically."""
+    out = []
+    for rid in rules.load():
+        r = rules.rule(rid)
+        if r.probe:
+            out.append(rid)
+    return sorted(out)
+
+
+def verify_sources(db: Session, fetch=None, today: date | None = None) -> dict[str, str]:
+    """Re-read the page behind every probed rule. A page that still contains its probe confirms the rule's value, which is recorded
+    as an observation equal to the file's value (so `verified_on` moves to today with no human). A page that does not match, or
+    cannot be read, writes nothing: the rule then warns once PROBE_MAX_AGE_DAYS pass."""
+    fetch = fetch or page_text
+    today = today or date.today()
+    pages: dict[str, str | None] = {}
+    out: dict[str, str] = {}
+    for rid in probed_rule_ids():
+        r = rules.rule(rid, today)
+        url = r.probe_url or r.source
+        if url not in pages:
+            try:
+                pages[url] = fetch(url)
+            except Exception as exc:
+                logger.warning("probe for %s: %s unreadable: %s", rid, url, exc)
+                pages[url] = None
+        text = pages[url]
+        if text is None:
+            out[rid] = "unreachable"
+        elif re.search(r.probe, text, re.I):
+            _record(db, rid, r.value, url, today)
+            out[rid] = "confirmed"
+        else:
+            logger.warning("probe for %s no longer matches %s", rid, url)
+            out[rid] = "not confirmed"
+    db.commit()
+    load_observations(db)
+    return out
+
+
+def _record(db: Session, rule_id: str, value: Decimal, source: str, today: date) -> None:
+    last = (db.query(RuleObservation).filter(RuleObservation.rule_id == rule_id)
+            .order_by(RuleObservation.first_seen.desc(), RuleObservation.last_seen.desc()).first())
+    if last is not None and last.value == value:
+        last.last_seen = max(last.last_seen, today)
+    else:
+        db.add(RuleObservation(rule_id=rule_id, value=value, first_seen=today, last_seen=today, source=source[:300]))
 
 
 def load_observations(db: Session) -> int:

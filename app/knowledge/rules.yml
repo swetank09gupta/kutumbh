@@ -4,6 +4,9 @@
 # Every entry needs: id, value, unit, effective_from, source (URL), verified_on (the day it was read there).
 # Add a rule here only after it is written up, with its source, in docs/INSTRUMENTS.md.
 # `note` is optional. Live feeds (PPF rate table, CPI, NAV) stay where they are; this file is for the rest.
+# `probe` (optional): a regex the source page (or `probe_url`) must still contain. The daily job re-reads the page and, when it
+# matches, refreshes `verified_on` by itself; when it stops matching the rule warns within days. Rules without a probe (a PDF, a
+# blocked or moved page) are the only ones re-verified by hand.
 rules:
   - id: ppf.annual_limit
     value: 150000
@@ -12,13 +15,15 @@ rules:
     note: Finance Ministry notification GSR 588(E) of 13 Aug 2014 (was 100000)
     source: https://www.gconnect.in/orders-in-brief/retirement-benefits/ppf-subscription-limit-increased-to-rs-1-5-lakh.html
     verified_on: 2026-10-12
+    probe: '1[.,]5 ?lakh|1,50,000'
 
   - id: income_tax.80c_cap
     value: 150000
     unit: INR per financial year (old regime only)
     effective_from: 2014-04-01
-    source: https://www.businesstoday.in/story/union-budget-2014-15-tax-exemption-limit-under-80c-raised/1/208021.html
+    source: https://cleartax.in/s/80c-80-deductions
     verified_on: 2026-10-12
+    probe: '1[.,]5 ?lakh|1,50,000'
 
   - id: tds.194a.threshold
     value: 40000
@@ -32,6 +37,8 @@ rules:
     effective_from: 2025-04-01
     source: https://cleartax.in/s/tds-on-fd-interest
     verified_on: 2026-10-12
+    probe: '50,000'
+    probe_url: https://cleartax.in/s/tds-on-fd-interest
 
   - id: tds.194a.threshold_senior
     value: 50000
@@ -45,6 +52,8 @@ rules:
     effective_from: 2025-04-01
     source: https://www.business-standard.com/finance/personal-finance/senior-citizens-how-the-rs-1-lakh-tds-threshold-affects-your-fd-earnings-125021101166_1.html
     verified_on: 2026-10-12
+    probe: '1,00,000|1 lakh|100,000'
+    probe_url: https://cleartax.in/s/tds-on-fd-interest
 
   - id: cg.equity.stcg_rate
     value: 15
@@ -59,6 +68,8 @@ rules:
     effective_from: 2024-07-23
     source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
     verified_on: 2026-10-12
+    probe: '20%'
+    probe_url: https://zerodha.com/z-connect/business-updates/what-changes-for-investors-after-budget-2024
 
   - id: cg.equity.ltcg_rate
     value: 10
@@ -72,6 +83,8 @@ rules:
     effective_from: 2024-07-23
     source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
     verified_on: 2026-10-12
+    probe: '12\.5%'
+    probe_url: https://zerodha.com/z-connect/business-updates/what-changes-for-investors-after-budget-2024
 
   - id: cg.equity.ltcg_exemption
     value: 100000
@@ -85,6 +98,8 @@ rules:
     effective_from: 2024-07-23
     source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
     verified_on: 2026-10-12
+    probe: '1\.25 ?lakh|1,25,000'
+    probe_url: https://zerodha.com/z-connect/business-updates/what-changes-for-investors-after-budget-2024
 
   - id: mf.stamp_duty
     value: 0.005
@@ -92,6 +107,7 @@ rules:
     effective_from: 2020-07-01
     source: https://www.bajajamc.com/knowledge-centre/stamp-duty-on-mutual-funds
     verified_on: 2026-10-12
+    probe: '0\.005'
 
   - id: epf.interest_rate
     value: 8.25
@@ -99,6 +115,7 @@ rules:
     effective_from: 2025-04-01
     source: https://www.pib.gov.in/PressReleasePage.aspx?PRID=2234502&reg=3&lang=1
     verified_on: 2026-10-12
+    probe: '8\.25'
 
   - id: rbi.repo_rate
     value: 6.50
@@ -146,10 +163,12 @@ rules:
     unit: INR interest per owner per financial year (self-occupied house, old regime only)
     effective_from: 2014-04-01
     note: each co-owner claims up to the cap on their own share of the interest
-    source: https://cleartax.in/s/case-study-section-24-self-occupied-house
+    source: https://www.manipalcigna.com/blog/section-24b-of-income-tax-act
     verified_on: 2026-10-12
 
   # Long-standing rules: no change date was verified, so each starts on the day it was read at its source.
+    probe: '2,00,000|2 lakh'
+
   - id: ppf.interest_cutoff_day
     value: 5
     unit: day of month; interest runs on the lowest balance from this day to month end
@@ -165,14 +184,16 @@ rules:
     note: long-standing; earlier dates not verified
     source: https://www.nsiindia.gov.in/InternalPage.aspx?Id_Pk=55
     verified_on: 2026-10-12
+    probe: '15 (complete )?(financial )?years|fifteen'
 
   - id: elss.lock_in_years
     value: 3
     unit: years, per instalment from its allotment date
     effective_from: 2026-10-12
     note: long-standing; earlier dates not verified
-    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    source: https://cleartax.in/s/elss
     verified_on: 2026-10-12
+    probe: '3[- ]year|three[- ]year'
 
   - id: sgb.tenor_years
     value: 8
@@ -181,6 +202,7 @@ rules:
     note: long-standing; earlier dates not verified
     source: https://www.business-standard.com/amp/finance/personal-finance/gold-investors-get-387-returns-as-rbi-redeems-2017-18-sgb-series-126010200299_1.html
     verified_on: 2026-10-12
+    probe: '8[- ]year|eight[- ]year'
 
   - id: sgb.coupon_rate
     value: 2.5
@@ -191,6 +213,8 @@ rules:
     verified_on: 2026-10-12
 
   # Phase 4: tax lens
+    probe: '2\.5 ?(%|per ?cent)'
+
   - id: cg.holding_months
     value: 12
     unit: months; listed shares, equity funds and listed ETFs are long-term when held for more than this
@@ -198,6 +222,7 @@ rules:
     note: "12 months for all listed securities since the Budget 2024 changes; equity shares and equity funds were already 12 months"
     source: https://zerodha.com/z-connect/business-updates/what-changes-for-investors-after-budget-2024
     verified_on: 2026-10-12
+    probe: '12 months'
 
   - id: cg.listed_other.ltcg_rate
     value: 12.5
@@ -214,6 +239,7 @@ rules:
     note: was 5000 until FY 2024-25
     source: https://taxguru.in/income-tax/budget-2025-dividend-tax-deduction-threshold-rs-10000.html
     verified_on: 2026-10-12
+    probe: '10,000'
 
   - id: tds.194.dividend_rate
     value: 10
@@ -222,6 +248,7 @@ rules:
     note: long-standing; earlier dates not verified
     source: https://taxguru.in/income-tax/budget-2025-dividend-tax-deduction-threshold-rs-10000.html
     verified_on: 2026-10-12
+    probe: '10%|10 per ?cent'
 
   - id: income_tax.80tta_cap
     value: 10000
@@ -230,3 +257,6 @@ rules:
     note: applies from AY 2013-14 (income of FY 2012-13)
     source: https://www.incometaxindia.gov.in/w/section-80tta
     verified_on: 2026-10-12
+    probe: '10,000'
+    probe_url: https://cleartax.in/s/claiming-deduction-on-interest-under-section-80tta
+

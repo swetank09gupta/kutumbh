@@ -26,7 +26,7 @@ def _sync_job():
 
     db = SessionLocal()
     try:
-        result = pipeline.scheduled_run(db, since_days=7)       # incremental — last 7 days
+        result = pipeline.scheduled_run(db)       # incremental — since the last successful run (at least a week)
         if result.get("skipped"):
             return
         pipeline.record_run(db, "scheduler", True)
@@ -47,6 +47,7 @@ def _live_rules_job():
     db = SessionLocal()
     try:
         logger.info("Live rules: %s", live.refresh(db))
+        logger.info("Rule sources re-confirmed: %s", live.verify_sources(db))
     except Exception as exc:
         logger.error("Live rules refresh failed: %s", exc, exc_info=True)
         db.rollback()

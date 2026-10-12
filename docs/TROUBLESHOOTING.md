@@ -155,7 +155,8 @@ Some document types that arrive as PDF email attachments are **not** transaction
 
 | Pattern | What it is | Behaviour |
 |---------|-----------|-----------|
-| HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_FINAL`, `IT_PROV`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, and interest/tax certificates | Silently skipped (`DEBUG` log) |
+| HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, interest certificates | Silently skipped (`DEBUG` log) |
+| HDFC `IT_FINAL…` / `IT_PROV…` | Home-loan tax certificates (lender's principal/interest per FY; password = loan account number) | Not statements: read by the loan-certificate step of the update (ADR-0035), not by the router |
 | Any filename containing `TDS.CERTIFICATE` | Bank TDS / interest certificate (Axis, HDFC, SBI) | Silently skipped |
 | "on N% of the value — ₹X has no purchase history yet" | Units in the demat with no trade, no unit line and no matching bank debit | Import the Console tradebook CSV for that account (Reports → Tradebook, Mutual funds); derived trades are replaced automatically |
 | A deposit shows as closed but is not | The newest SBI statement's FD table did not list it (parse failure?) | Check `deposit_snapshots` for that statement date; re-read it with `python -m scripts.backfill_deposit_history` |
@@ -305,7 +306,7 @@ Gains use gross trade prices (brokerage and stamp duty are not netted, STT is no
 First check the raw mail: a Coin mail that prints the same line twice is two orders (ADR-0034); a contract note that parses to no trades is a new layout (docs/PARSERS.md). Units from an IPO allotment, a bonus issue or a transfer-in have no contract note; they stay listed rather than costed.
 
 ### A trade or holding appears twice after a rescan
-The scheduler re-reads the last 7 days every run, so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
+The scheduler re-reads everything since the last successful run (plus 3 days; 7–400 days),  so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
 
 ### Wipe and start fresh
 

@@ -114,7 +114,7 @@ class World(unittest.TestCase):
 
     def test_a_credit_long_after_the_ex_date_or_of_the_wrong_sum_is_unmatched(self):
         self.standard()
-        self.credit(date(2025, 9, 20), "360.00", "ACHCr HDFC00678000009461 ACMEDIV")                # 106 days after the ex-date
+        self.credit(date(2025, 10, 20), "360.00", "ACHCr HDFC00678000009461 ACMEDIV")               # 136 days after the ex-date
         self.credit(date(2025, 7, 4), "361.00", "ACHCr HDFC00678000009461 ACMEDIV")                 # a rupee off
         r = dividends.scan(self.db, TODAY)
         self.assertEqual((r["matched"], len(r["unmatched"])), ([], 2))
@@ -132,6 +132,43 @@ class World(unittest.TestCase):
         self.credit(date(2025, 7, 4), "288.00", "ACHCr HDFC00678000009461 ACMEDIV 2026", owner="wife")      # 80 x 3.6
         (m,) = dividends.scan(self.db, TODAY)["matched"]
         self.assertEqual((m["owner"], m["units"]), ("wife", 80.0))
+
+    def test_a_final_dividend_credited_84_days_after_the_ex_date_is_matched(self):
+        self.standard()
+        self.credit(date(2025, 8, 29), "360.00", "ACHCr HDFC00678000009461 ACMEDIV 2026")             # 84 days after 6 Jun
+        self.assertEqual(len(dividends.scan(self.db, TODAY)["matched"]), 1)
+
+    def test_the_amount_paid_per_old_share_is_found_when_a_later_bonus_adjusted_the_history(self):
+        self.standard()                                                 # Yahoo shows 1.8 per share after a 1:1 bonus (2:1) in Dec 2025;
+        self.tmp.write_text(json.dumps({"ACME": {"at": TODAY.isoformat(), "rows": [["2025-06-06", "1.8"]],
+                                                 "splits": [["2025-12-01", "2", "1"]]}}))      # the bank paid 3.6 on each of the 100 shares
+        self.credit(date(2025, 7, 4), "360.00", "ACHCr HDFC00678000009461 ACMEDIV 2026")
+        (m,) = dividends.scan(self.db, TODAY)["matched"]
+        self.assertEqual((m["dps"], m["units"]), (3.6, 100.0))
+
+    def test_a_registrar_that_pays_whole_rupees_is_matched(self):
+        self.standard()
+        self.credit(date(2025, 7, 10), "142.00", "ACHCr HDFC01383000011320 WIDGETFOOTWEAR")          # 57 x 2.5 = 142.50 paid down to the rupee
+        (m,) = dividends.scan(self.db, TODAY)["matched"]
+        self.assertEqual((m["symbol"], m["kind"]), ("WIDGET", "gross_rounded_down"))
+
+    def test_shares_held_before_our_history_are_matched_on_the_name_and_the_arithmetic_and_say_so(self):
+        self.standard()
+        self.credit(date(2025, 7, 4), "540.00", "ACHCr HDFC00678000009461 ACMEDIV 2026", owner="wife")   # wife has no ACME trades: 150 x 3.6
+        (m,) = dividends.scan(self.db, TODAY)["matched"]
+        self.assertEqual((m["symbol"], m["units"]), ("ACME", 150.0))
+        self.assertIn("before our trade history", m["units_from"])
+
+    def test_the_name_and_arithmetic_fallback_never_overrides_what_our_trades_say(self):
+        self.standard()                                                 # user held 100 ACME: 540 = 150 x 3.6 would need shares he did not have
+        self.credit(date(2025, 7, 4), "540.00", "ACHCr HDFC00678000009461 ACMEDIV 2026")
+        self.assertEqual(dividends.scan(self.db, TODAY)["matched"], [])
+
+    def test_a_renamed_ticker_is_looked_up_under_its_new_name(self):
+        resp = mock.Mock(); resp.json.return_value = {"chart": {"result": [{"events": {}}]}}
+        with mock.patch.object(dividends.httpx, "get", return_value=resp) as g:
+            dividends.fetch("TATAMOTORS")
+        self.assertIn("/TMPV.NS", g.call_args[0][0])
 
     # ── tagging ──
     def test_tagging_makes_a_dividend_income_and_a_flow_of_that_stock_and_is_idempotent(self):
@@ -242,6 +279,59 @@ class World(unittest.TestCase):
         self.assertEqual([i["kind"] for i in issues], ["debit_labelled_interest_income"])
         self.assertEqual(issues[0]["rows"][0]["amount"], 100000.0)
         self.assertEqual(self._income("wife", today=date(2021, 3, 1))["2020-21"]["investment_income_at_slab"], 0.0)   # and not counted as income
+
+    # ── the indicative tax estimate ──
+    def salary(self, owner, day, amount):
+        self.credit(day, amount, "NEFT SALARY", owner=owner, category="income", sub="salary")
+
+    def est(self, owner, fy="2025-26", claims=None, today=TODAY):
+        from app.engine import tax_view
+        o = self.db.get(self.m.Owner, owner)
+        inc = {i["fy"]: i for i in tax_view.income(self.db, o, today)}
+        return tax_view.estimate(self.db, o, fy, inc[fy], None, claims or {}, today)
+
+    def test_new_regime_salary_gets_the_standard_deduction_and_slab_tax(self):
+        for k in range(12):
+            self.salary("wife", date(2025, 4 + k % 9, 28) if k < 9 else date(2026, k - 8, 28), 100000)       # 12 months of 1 lakh
+        e = self.est("wife")
+        self.assertEqual((e["salary_credited"], e["salary_months_seen"]), (1200000.0, 12))
+        self.assertEqual(e["deductions"], {"standard_deduction": 75000.0})
+        self.assertEqual(e["taxable_ordinary_income"], 1125000.0)                      # 12.0 L - 75,000
+        self.assertEqual(e["indicative_total"], 0.0)                                   # under the 12 L rebate limit
+        self.assertTrue(any("floor" in c for c in e["caveats"]))
+
+    def test_old_regime_takes_the_home_loan_claims_and_80tta_and_caps_80c(self):
+        for k in range(12):
+            self.salary("user", date(2025, 4 + k % 9, 28) if k < 9 else date(2026, k - 8, 28), 300000)       # 36 L credited
+        self.credit(date(2026, 1, 10), 14000, "INTEREST CREDIT", category="income", sub="interest_dividend")
+        claims = {"2025-26": [{"owner": "user", "claim_24b": 200000.0, "principal_for_80c": 400000.0}]}
+        e = self.est("user", claims=claims)
+        self.assertEqual(e["deductions"], {"standard_deduction": 50000.0, "home_loan_interest_24b": 200000.0, "section_80c": 150000.0,
+                                           "savings_interest_80tta": 10000.0})            # 80C capped at 1.5 L, 80TTA at 10,000
+        self.assertEqual(e["taxable_ordinary_income"], 3600000 + 14000 - 50000 - 200000 - 150000 - 10000)
+
+    def test_the_new_regime_ignores_the_home_loan_and_80c(self):
+        self.salary("wife", date(2025, 6, 28), 2000000)
+        claims = {"2025-26": [{"owner": "wife", "claim_24b": 0.0, "principal_for_80c": 400000.0}]}
+        self.assertEqual(set(self.est("wife", claims=claims)["deductions"]), {"standard_deduction"})
+
+    def test_missing_months_and_an_unfinished_year_are_said(self):
+        self.salary("wife", date(2025, 6, 28), 50000)
+        e = self.est("wife")
+        self.assertTrue(any("only 1 month" in c for c in e["caveats"]))
+        cur = self.est("wife", fy="2026-27")
+        self.assertTrue(cur["partial_year"] and any("not over" in c for c in cur["caveats"]))
+
+    def test_a_year_with_no_slab_table_gets_no_estimate(self):
+        self.assertIsNone(self.est("wife", fy="2023-24", today=date(2024, 6, 1)))
+
+    def test_special_rate_tax_on_gains_is_added_with_cess(self):
+        from app.engine import tax_view
+        o = self.db.get(self.m.Owner, "wife")
+        inc = {i["fy"]: i for i in tax_view.income(self.db, o, TODAY)}
+        gains = {"estimated_tax": 1000.0, "debt_funds_at_slab": 0.0, "gold_silver_etf": {"stcg_at_slab": 0.0}}
+        e = tax_view.estimate(self.db, o, "2025-26", inc["2025-26"], gains, {}, TODAY)
+        self.assertEqual((e["special_rate_tax_on_gains"], e["indicative_total"]), (1000.0, 1040.0))
 
     def test_the_whole_view_builds_for_both_people(self):
         from app.engine import tax_view

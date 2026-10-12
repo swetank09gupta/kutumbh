@@ -25,13 +25,16 @@ RUN_LOCK = threading.Lock()      # one update at a time: the scheduler and the S
 
 def ingest_evidence(db: Session, since_days: int = 7) -> dict:
     from app.ingestion.alert_fetcher import ingest_alerts
-    from app.ingestion.loan_fetcher import ingest_loan_letters
+    from app.ingestion.loan_fetcher import ingest_loan_certificates, ingest_loan_letters
+    from app.ingestion.registrar_fetcher import ingest_registrar_notices
     from app.knowledge import live
     from app.ledger import dividends
 
     steps = (("alerts", lambda: ingest_alerts(db, since_days=max(since_days, 7))),
              ("loan_letters", lambda: ingest_loan_letters(db, since_days=max(since_days, 7))),
-             ("rules", lambda: live.refresh(db)),
+             ("loan_certificates", lambda: ingest_loan_certificates(db, since_days=max(since_days, 400))),
+             ("registrar_notices", lambda: ingest_registrar_notices(db, since_days=max(since_days, 400))),
+             ("rules", lambda: {**live.refresh(db), **{f"probe:{k}": v for k, v in live.verify_sources(db).items()}}),
              ("dividend_history", lambda: dividends.refresh_history(db)))
     out: dict = {}
     for name, fn in steps:
@@ -80,8 +83,23 @@ def last_run(db: Session) -> dict | None:
         return None
 
 
-def scheduled_run(db: Session, since_days: int = 7) -> dict:
-    """What the 6-hourly job does: new statements, then the same evidence + rebuild as the Sync button."""
+MIN_WINDOW_DAYS, MAX_WINDOW_DAYS, OVERLAP_DAYS = 7, 400, 3
+
+
+def catch_up_window(db: Session, today=None) -> int:
+    """How far back the next update must look: since the last successful run (plus an overlap), never less than a week.
+    A fixed week loses statements whenever runs are skipped (the laptop asleep, Docker down): the hole is never refilled."""
+    from datetime import date, datetime, timezone
+    today = today or date.today()
+    r = last_run(db)
+    if not r or not r.get("ok"):
+        return MAX_WINDOW_DAYS if r is None else max(MIN_WINDOW_DAYS, min(MAX_WINDOW_DAYS, 30))
+    last = datetime.fromisoformat(r["at"]).astimezone(timezone.utc).date()
+    return max(MIN_WINDOW_DAYS, min(MAX_WINDOW_DAYS, (today - last).days + OVERLAP_DAYS))
+
+
+def scheduled_run(db: Session, since_days: int | None = None) -> dict:
+    """What the 6-hourly job does: new statements since the last successful run, then the same evidence + rebuild as the Sync button."""
     if not RUN_LOCK.acquire(blocking=False):
         logger.warning("Scheduled update skipped: another update is still running")
         return {"skipped": True}
@@ -91,7 +109,9 @@ def scheduled_run(db: Session, since_days: int = 7) -> dict:
         RUN_LOCK.release()
 
 
-def _scheduled_run(db: Session, since_days: int) -> dict:
+def _scheduled_run(db: Session, since_days: int | None) -> dict:
+    if since_days is None:
+        since_days = catch_up_window(db)
     from app.ingestion.attachment_router import process_attachments
     from app.ingestion.email_fetcher import fetch_all_accounts
 

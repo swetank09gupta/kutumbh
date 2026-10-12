@@ -190,11 +190,11 @@ class Positions(unittest.TestCase):
         self.assertEqual(s.position.quality, "exact")
         self.assertEqual(s.position.invested, D(500))
 
-    def test_units_with_no_trade_cost_the_published_sgb_issue_price(self):
+    def test_units_with_no_trade_cost_the_online_sgb_price(self):
         sgb = "IN0020210178"
         s = compute_isin_state(sgb, [], [], [(date(2026, 8, 31), D(25))])
         self.assertEqual(s.position.quality, "exact")
-        self.assertEqual(s.position.invested, D(25) * D("4761"))
+        self.assertEqual(s.position.invested, D(25) * D("4711"))          # nominal 4,761 less the Rs.50 online discount
         self.assertEqual(s.position.first_buy_date, date(2021, 11, 2))
 
     def test_untraced_units_of_an_ordinary_fund_stay_partial(self):

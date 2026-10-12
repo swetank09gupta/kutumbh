@@ -33,6 +33,8 @@ class Rule:
     source: str
     verified_on: date
     note: str = ""
+    probe: str = ""          # regex the source page must still contain (app.knowledge.live.verify_sources)
+    probe_url: str = ""      # a page that can be re-read when the source cited is a PDF or blocks bots
 
 
 @lru_cache(maxsize=1)
@@ -42,7 +44,8 @@ def _from_file(path: Path = PATH) -> dict[str, tuple[Rule, ...]]:
     out: dict[str, list[Rule]] = {}
     for e in raw:
         r = Rule(id=e["id"], value=Decimal(str(e["value"])), unit=e["unit"], effective_from=e["effective_from"],
-                 source=e["source"], verified_on=e["verified_on"], note=e.get("note", ""))
+                 source=e["source"], verified_on=e["verified_on"], note=e.get("note", ""), probe=e.get("probe", ""),
+                 probe_url=e.get("probe_url", ""))
         out.setdefault(r.id, []).append(r)
     return {k: tuple(sorted(v, key=lambda r: r.effective_from)) for k, v in out.items()}
 

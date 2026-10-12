@@ -275,7 +275,9 @@ def rules_are_current(db: Session) -> dict:
     """The public-rules registry (app/knowledge/rules.yml) is read by hand: warn when a rule in force is over
     120 days old or predates this quarter, so a changed rate/threshold is not silently relied on."""
     from app.knowledge import live, rules
-    old = rules.stale(fresh_within={rid: live.MAX_AGE_DAYS for rid in live.FETCHERS})
+    fresh = {rid: live.PROBE_MAX_AGE_DAYS for rid in live.probed_rule_ids()}
+    fresh.update({rid: live.MAX_AGE_DAYS for rid in live.FETCHERS})
+    old = rules.stale(fresh_within=fresh)
     stuck = [r["id"] for r in old if r["why"].startswith("updates itself")]
     by_hand = [r["id"] for r in old if r["id"] not in stuck]
     parts = []
@@ -349,6 +351,14 @@ def dividends_reconcile(db: Session) -> dict:
                   else "; ".join(problems) + " — see /api/tax/dividends", "warn", unmatched=r["unmatched"], ambiguous=r["ambiguous"])
 
 
+def tax_slabs_are_current(db: Session) -> dict:
+    """The slab tables are per financial year and change at a Budget: warn when the current year has no verified entry."""
+    from app.engine import tax_slabs
+    msg = tax_slabs.stale()
+    return _check("tax_slabs_are_current", msg is None, "Income-tax slabs are verified for the current financial year" if msg is None else msg,
+                  "warn")
+
+
 def automation_is_running(db: Session) -> dict:
     """The update is meant to run by itself every few hours. If it has stopped, or its last run failed, say so
     instead of letting every card quietly go stale."""
@@ -384,7 +394,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, dividends_reconcile, automation_is_running, deadlines_have_a_basis, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, dividends_reconcile, tax_slabs_are_current, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 
 

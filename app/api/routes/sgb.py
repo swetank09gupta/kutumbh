@@ -33,10 +33,10 @@ def summary(db: Session, today: date | None = None) -> dict:
             hit = paid.get(s["isin"])
             s["cost"] = ({"source": "bank subscription debit", "date": hit[0].isoformat(), "per_gram": float(hit[1]),
                           "total": float(hit[1] * hit[2])} if hit else
-                         {"source": "nominal issue price assumed, no subscription debit found",
-                          "date": tranche(s["isin"]).issue_date.isoformat(), "per_gram": s["nominal"],
-                          "total": s["nominal"] * s["units"],
-                          "note": "online applicants paid ₹50 a gram less"})
+                         {"source": "online price assumed (nominal − ₹50), no subscription debit found",
+                          "date": tranche(s["isin"]).issue_date.isoformat(), "per_gram": s["online_price"],
+                          "total": s["online_price"] * s["units"],
+                          "note": "a bank debit for the subscription would replace this"})
     from app.models.schemas import ManualAsset
     for a in db.query(ManualAsset).filter(ManualAsset.asset_type == "sgb", ManualAsset.owner_id.in_(owners)):
         t = sgb_evidence.manual_tranche(a)

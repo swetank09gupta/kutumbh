@@ -25,7 +25,7 @@ Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · ev
 *Built* (`/api/sgb`, Gold bonds card, ADR-0031): tranche registry (fixed the wife's ISIN, a different series), coupons matched to the paisa and counted (14 for you, 10 for the wife), cost = what the bank shows was paid (your Series III: ₹5,359 a gram, the online price), next coupons on the deadlines card, check `sgb_coupons_reconcile`. The wife's 25 g 2022-23 Series I bond (held outside the demat, confirmed) is a Manual Asset valued like the nearest-maturity held SGB; its purchase is in missing statements, so cost/date are assumed.
 
 ## Phase 4 — tax lens (rule-driven, no new data) — DONE 12 Oct 2026
-*Built* (`/api/tax`, Tax card, ADR-0032; regimes: you old, wife new): dividends proven by arithmetic and counted in returns (32 credits matched, 6 listed as unmatched); realised gains per FY with set-off, exemption and rates by sale date; savings/deposit interest, dividends and SGB coupons per FY; deposit interest per bank vs the TDS threshold; 80TTA (old regime); tax if everything were sold today. Slab tax is not computed (total income is not in the system).
+*Built* (`/api/tax`, Tax card, ADR-0032; regimes: you old, wife new): dividends proven by arithmetic and counted in returns (32 credits matched, 6 listed as unmatched); realised gains per FY with set-off, exemption and rates by sale date; savings/deposit interest, dividends and SGB coupons per FY; deposit interest per bank vs the TDS threshold; 80TTA (old regime); tax if everything were sold today. Slab tax is estimated per person from credited salary plus proven income, labelled a floor (ADR-0036).
 
 ## Phase 5 — EPF (checked 12 Oct 2026: stays deferred)
 Looked for an automatic feed: the mailboxes hold only EPFO account-security notices (password and contact changes) and your 2023 mails about transferring the old PF balance; no passbook, balance or payslip mail exists (payslips: none after 2017). The balance needs a UAN login with OTP and captcha, which is not something to automate. Revisit only if a feed appears.
@@ -34,9 +34,9 @@ Looked for an automatic feed: the mailboxes hold only EPFO account-security noti
 - **Done:** Axis statements read properly (ADR-0033) and a missing Axis FD found; old contract notes and same-day orders (ADR-0034); restart policies and the bootstrap test fixed; Axis FD growth anchored correctly.
 - **Payees (333 groups, 621 small UPI payments, ₹2.1 L of debits over the years):** the local model answers "other" at 0.20 confidence, which is honest; these stay a human job in the Review list. They are already counted as expenses.
 - **Union Bank and Axis balances are stale** because no statement or alert mail has arrived since Nov/Dec 2025; nothing to fetch.
-- **Locked PDFs (cannot be opened with any derivable password):** 18 of your Union Bank statements from 2020-21 (`…_6026.pdf`; the newer ones open), 4 payroll tax sheets (`IT_PROV…`, `IT_FINAL…`), 3 of the wife's old SBI/Axis files. A password for the Union Bank rule of those years would unlock history that may hold your PPF's opening date.
+- **Locked PDFs — solved (ADR-0035):** Union Bank statements open with the account number (2020-21) or name+DDMM (2024+); `IT_PROV…`/`IT_FINAL…` are HDFC loan tax certificates (password: loan account number) and now feed the loan card and tax view. Still locked: 3 of the wife's old SBI/Axis files.
 - **Two newer FDs (…4395, …5054)** are balance-only until they have enough interest credits; they resolve by themselves.
-- **Cost unknown on sales:** your LIC and Nykaa units (IPO allotment, bonus) and the wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta units: no contract note exists.
+- **Cost unknown on sales:** your LIC (IPO allotment) and Nykaa (bonus) units are now proven from the registrar's mails (ADR-0035). Still unknown: the wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta units, for which no contract note or mail exists.
 
 ## How each phase is run
 1. Update the rule section in INSTRUMENTS.md (source, date) and the registry.
@@ -52,4 +52,4 @@ Looked for an automatic feed: the mailboxes hold only EPFO account-security noti
 
 ## Inbox (requests waiting for triage)
 - (Done) The five ₹100,000 "debits" in the wife's Axis account never happened: they were summary text read as transactions. Axis statements are now read by column and reconciled (ADR-0033); a real Axis FD (₹100,000, Oct 2025) was found.
-- Six dividend-looking credits are unmatched (Vedanta 2020, SBI 2021, ONGC Dec 2022, a ₹700 final dividend, LIC, Power Grid): shares from before the trade history or no ex-date history.
+- Dividends: 36 of 38 candidate credits are matched (older history, later bonus/split-adjusted amounts, 120-day window); the wife's Vedanta (2020) and SBI (2021) credits stay unmatched — shares held before any record.

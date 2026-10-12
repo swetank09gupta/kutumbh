@@ -103,6 +103,49 @@ def income(db: Session, owner: Owner, today: date) -> list[dict]:
     return out
 
 
+def estimate(db: Session, owner: Owner, fy: str, income_row: dict, gains_row: dict | None, loan_claims: dict, today: date) -> dict | None:
+    """An indicative tax for one person and year: the salary that was credited plus the investment income, less the regime's
+    deductions, at that year's slabs, plus the special-rate tax on gains. A floor, not a return: the credited salary is after
+    the employer's TDS and PF, and a month with no statement has no salary in it (both are shown). None for a year with no
+    verified slab table."""
+    from app.engine import tax_slabs
+    regime = (owner.tax_regime or "old").lower()
+    rules_ = tax_slabs.regime_rules(fy, regime)
+    if rules_ is None:
+        return None
+    sal_rows = (db.query(Transaction.date, Transaction.amount).join(Account, Account.id == Transaction.account_id)
+                .filter(Account.owner_id == owner.id, Account.account_type == "bank", Transaction.transaction_type == "credit",
+                        Transaction.category == "income", Transaction.subcategory == "salary").all())
+    mine = [(d, a) for d, a in sal_rows if tg.fy_of(d) == fy]
+    salary = sum((D(a) for _d, a in mine), D(0))
+    months = len({(d.year, d.month) for d, _a in mine})
+    other = D(str(income_row["investment_income_at_slab"]))
+    if gains_row:
+        other += D(str(gains_row["debt_funds_at_slab"])) + D(str(gains_row["gold_silver_etf"]["stcg_at_slab"]))
+    std = min(salary, tax_slabs.standard_deduction(fy, regime) or D(0))
+    ded = {"standard_deduction": float(std)}
+    if regime == "old":
+        claim = next((o for o in loan_claims.get(fy, []) if o["owner"] == owner.id), None)
+        cap80c = rules.value("income_tax.80c_cap", tg.fy_end(fy))
+        ded["home_loan_interest_24b"] = float(claim["claim_24b"]) if claim else 0.0
+        ded["section_80c"] = float(min(cap80c, D(str(claim["principal_for_80c"])))) if claim else 0.0
+        ded["savings_interest_80tta"] = float(income_row["deduction_80tta"] or 0)
+    taxable = max(salary + other - std - sum((D(str(v)) for k, v in ded.items() if k != "standard_deduction"), D(0)), D(0))
+    t = tax_slabs.slab_tax(taxable, fy, regime)
+    special = D(str(gains_row["estimated_tax"])) if gains_row else D(0)
+    total = t["total"] + special * D("1.04")
+    partial_year = fy == tg.fy_of(today)
+    return {"fy": fy, "regime": regime, "salary_credited": float(salary), "salary_months_seen": months,
+            "other_income_at_slab": float(other), "deductions": ded, "taxable_ordinary_income": float(taxable),
+            "slab_tax": float(t["tax_after_rebate"]), "rebate": float(t["rebate"]), "cess": float(t["cess"]),
+            "special_rate_tax_on_gains": float(special), "indicative_total": float(total),
+            "partial_year": partial_year,
+            "caveats": ["salary credited is after the employer's TDS and PF, so real income is higher: this is a floor"]
+                       + ([f"only {months} month(s) of salary are in the statements"] if months < 12 and not partial_year else [])
+                       + (["the year is not over: income so far only"] if partial_year else [])
+                       + (["the home-loan claim uses the CURRENT regime and the recorded shares"] if regime == "old" else [])}
+
+
 def _unit_prices(db: Session, owner_id: str) -> dict[str, Decimal]:
     from app.engine.holdings_view import latest_holdings
     return {h.isin: D(str(h.current_value)) / D(str(h.units)) for h in latest_holdings(db, owner_ids=[owner_id])
@@ -134,6 +177,18 @@ def _issues(db: Session, owners: list[str]) -> list[dict]:
     return out
 
 
+def loan_claims_by_year(db: Session, today: date) -> dict[str, list[dict]]:
+    """{fy: [per-owner home-loan claims]} from the loan's best evidence per year (HDFC certificates, the schedule)."""
+    from app.engine import loan_report
+    from app.models.schemas import LoanAnchor
+    out: dict[str, list[dict]] = {}
+    for (loan_owner,) in db.query(LoanAnchor.owner_id).distinct().all():
+        t = loan_report.tax(db, loan_owner, today)
+        for y in (t or {}).get("years", []):
+            out.setdefault(y["fy"], []).extend(y["owners"])
+    return out
+
+
 def build(db: Session, today: date | None = None) -> dict:
     from app.engine.amfi_isin import fund_category
     from app.engine.networth import real_owners
@@ -149,12 +204,15 @@ def build(db: Session, today: date | None = None) -> dict:
         fys = sorted({tg.fy_of(s.day) for s in res.sales} | {tg.fy_of(today)}, reverse=True)
         gains = [tg.year_summary(res.sales, fy) for fy in fys]
         cur = next(g for g in gains if g["fy"] == tg.fy_of(today))
+        loan_claims = loan_claims_by_year(db, today)
         left = D(str(cur["equity"]["ltcg_exemption"])) - D(str(cur["equity"]["ltcg_exemption_used"]))
         uncov = [u for u in res.unknown_cost]
         result["owners"][o.id] = {
             "regime": (o.tax_regime or "old").lower(),
             "gains": gains,
-            "income": income(db, o, today),
+            "income": (inc := income(db, o, today)),
+            "estimates": [e for e in (estimate(db, o, i["fy"], i, next((g for g in gains if g["fy"] == i["fy"]), None), loan_claims, today)
+                                       for i in inc) if e],
             "unrealised": tg.unrealised(res.open_lots, _unit_prices(db, o.id), names, cats, today, left),
             "sold_without_known_cost": uncov[:10], "sold_without_known_cost_count": len(uncov),
         }

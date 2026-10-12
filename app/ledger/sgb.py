@@ -3,8 +3,9 @@ Sovereign Gold Bond terms: the issue date, maturity and RBI issue price of a tra
 
 SGBs are subscribed through a bank or the RBI, not the broker, so no contract note carries their cost. The tranche
 calendar does: the nominal price per gram at issue and the issue date are published. Online applicants paid Rs.50 a
-gram less; app.ledger.sgb_evidence finds the subscription debit when the bank statement has it, and only without that
-evidence do units cost the nominal price.
+gram less (confirmed by a bank debit: Series III cost exactly nominal - 50); app.ledger.sgb_evidence finds the subscription
+debit when the bank statement has it, and only without that evidence do units cost the ONLINE price (nominal - 50), the
+way almost every holder subscribes. The coupon is always on the nominal price.
 """
 from __future__ import annotations
 
@@ -60,6 +61,6 @@ def issue_price(isin: str) -> Optional[float]:
 
 
 def issue_terms(isin: str) -> Optional[tuple[date, Decimal]]:
-    """(issue date, nominal price per unit) when both are published for this tranche."""
+    """(issue date, assumed price paid per unit): the online price, when no subscription debit proves what was paid."""
     t = tranche(isin)
-    return (t.issue_date, t.nominal) if t else None
+    return (t.issue_date, t.online) if t else None

@@ -276,8 +276,8 @@ class SgbWorld(unittest.TestCase):
         out = {s["isin"]: s for s in summary(self.db, TODAY)["streams"]}
         self.assertEqual(out[III_22]["cost"]["source"], "bank subscription debit")
         self.assertEqual(out[III_22]["cost"]["total"], 133975.0)
-        self.assertIn("assumed", out[VII]["cost"]["source"])
-        self.assertEqual(out[VII]["cost"]["total"], 25 * 4761.0)
+        self.assertIn("online price assumed", out[VII]["cost"]["source"])
+        self.assertEqual(out[VII]["cost"]["total"], 25 * 4711.0)
 
     def test_the_check_is_registered(self):
         from app import consistency

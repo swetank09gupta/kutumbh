@@ -43,7 +43,7 @@ class LoanWorld(unittest.TestCase):
     def setUp(self):
         from sqlalchemy import text
         with self.engine.begin() as c:
-            c.execute(text("TRUNCATE loan_anchors, transactions, bank_alerts, accounts, owners CASCADE"))
+            c.execute(text("TRUNCATE loan_anchors, loan_tax_certificates, transactions, bank_alerts, accounts, owners CASCADE"))
         self.db, m = self.S(), self.m
         db = self.db
         db.add(m.Owner(id="user", name="u", tax_regime="old", home_loan_share_pct=D(33)))
@@ -211,6 +211,69 @@ class LoanWorld(unittest.TestCase):
         self.assertAlmostEqual(fy["interest_paid"], float(expect_int), delta=0.01)
         self.assertAlmostEqual(fy["principal_paid"], float(expect_prin), delta=0.01)
         self.assertEqual(fy["prepaid"], 310000.0)
+
+    # ── HDFC's own certificates: the authority for a completed year ──
+    def cert(self, fy, kind, principal, interest, doc, pre=0):
+        self.db.add(self.m.LoanTaxCertificate(owner_id="user", lender="HDFC", fy=fy, kind=kind, doc_date=doc, principal=D(principal),
+                                              interest=D(interest), pre_emi_interest=D(pre), natural_key=f"{fy}|{kind}|{doc}"))
+        self.db.commit()
+
+    def _letters_for_two_years(self):
+        self.letter(date(2024, 5, 1), 20000000, rate="8.35", emi=151662, left=300)
+        self.letter(date(2024, 9, 1), 19000000, prepaid=400000, rate="8.35", emi=151662, left=290)       # a prepayment in FY2024-25
+        self.letter(date(2025, 7, 1), 15000000, prepaid=500000, rate="7.1", emi=170000, left=150)        # and one in FY2025-26
+
+    def test_a_completed_year_takes_the_lenders_final_certificate_and_adds_the_prepayments_from_the_letters(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()
+        self.cert("2024-25", "final", 233464, 1586480, date(2025, 4, 25))
+        f = loan_report.year_figures(self.db, "user", "2024-25", TODAY)
+        self.assertEqual((f["source"], f["interest"], f["principal"], f["exact"]), ("HDFC final certificate", 1586480.0, 233464.0, True))
+        self.assertEqual(f["prepaid"], 400000.0)
+
+    def test_pre_emi_interest_is_part_of_the_interest_claim(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()
+        self.cert("2023-24", "final", 25077, 278247, date(2024, 4, 23), pre=77781)
+        self.assertEqual(loan_report.year_figures(self.db, "user", "2023-24", TODAY)["interest"], 278247.0 + 77781.0)
+
+    def test_a_provisional_statement_never_overrides_the_schedule_of_the_current_year(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()
+        for d in (date(2025, 7, 5), date(2025, 8, 5)):
+            self.debit(d)
+        self.cert("2026-27", "provisional", 419179, 1400765, date(2026, 5, 15))
+        f = loan_report.year_figures(self.db, "user", "2026-27", TODAY)
+        self.assertIn("schedule", f["source"])
+        self.assertEqual(f["provisional_statement"], {"interest": 1400765.0, "principal": 419179.0})
+
+    def test_a_completed_year_with_only_a_provisional_statement_says_so(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()
+        self.cert("2024-25", "provisional", 157995, 1661949, date(2024, 6, 26))
+        f = loan_report.year_figures(self.db, "user", "2024-25", TODAY)
+        self.assertIn("provisional", f["source"])
+        self.assertFalse(f["exact"])
+
+    def test_a_year_the_letters_do_not_reach_back_to_is_flagged_incomplete(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()                                   # the first letter is May 2024: the year starts 1 Apr
+        self.cert("2024-25", "final", 233464, 1586480, date(2025, 4, 25))
+        self.assertTrue(loan_report.year_figures(self.db, "user", "2024-25", TODAY)["prepaid_complete"])
+        self.cert("2023-24", "final", 25077, 278247, date(2024, 4, 23))
+        self.assertFalse(loan_report.year_figures(self.db, "user", "2023-24", TODAY)["prepaid_complete"])
+
+    def test_the_claim_counts_prepayments_for_80c_and_caps_the_interest_for_24b(self):
+        from app.engine import loan_report
+        self._letters_for_two_years()
+        self.cert("2024-25", "final", 233464, 1586480, date(2025, 4, 25))
+        y = next(x for x in loan_report.tax(self.db, "user", TODAY)["years"] if x["fy"] == "2024-25")
+        mine = next(o for o in y["owners"] if o["owner"] == "user")
+        self.assertAlmostEqual(mine["interest_share"], 1586480 * 0.33, places=2)
+        self.assertEqual(mine["claim_24b"], 200000.0)                                   # capped
+        self.assertAlmostEqual(mine["principal_for_80c"], (233464 + 400000) * 0.33, places=2)   # EMI principal + prepayments
+        wife = next(o for o in y["owners"] if o["owner"] == "wife")
+        self.assertEqual(wife["claim_24b"], 0.0)                                        # new regime
 
     def test_the_eighty_c_advice_reads_the_schedule_not_its_own_estimate(self):
         import inspect

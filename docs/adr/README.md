@@ -38,3 +38,5 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0032](0032-dividends-and-tax-lens.md) | Dividends are proven from the stocks held; the tax lens reads proven data and the verified rules | Accepted |
 | [0033](0033-axis-statements-by-column.md) | Axis statements are read by column and accepted only if they reconcile | Accepted |
 | [0034](0034-old-notes-and-same-day-orders.md) | Old contract notes are read, and two identical lines of one mail are two orders | Accepted |
+| [0035](0035-lender-and-registrar-evidence.md) | Lenders and registrars already mail the missing facts; the update window follows the last good run | Accepted |
+| [0036](0036-tax-slabs-and-self-confirming-rules.md) | Slab tax is estimated per person; rules confirm themselves against their source | Accepted |

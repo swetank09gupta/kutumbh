@@ -22,6 +22,15 @@ def _reset():
     rules.set_observations([])
 
 
+def _sample(regex: str) -> str:
+    """Text that a probe regex matches: its first alternative with the regex syntax made literal."""
+    first = regex.split("|")[0]
+    for a, b in (("\\.", "."), ("\\d+", "1"), (" ?", " "), ("?", ""), ("(%", "%"), ("[.,]", "."), ("(complete )", ""), ("(financial )", ""), ("[- ]", "-"),
+                 ("(", ""), (")", ""), ("\\", "")):
+        first = first.replace(a, b)
+    return first
+
+
 class ParseRepo(unittest.TestCase):
     def test_reads_the_rate_from_the_current_rates_box(self):
         html = "<div>Policy&nbsp; Rates</div><p>Policy Repo Rate : <b>5.50%</b></p><p>Standing Deposit Facility Rate : 5.25%</p>"
@@ -111,6 +120,68 @@ class SelfUpdatingRulesMustKeepUpdating(unittest.TestCase):
         self.assertIn("rbi.repo_rate", c["detail"])
 
 
+class SourceProbes(unittest.TestCase):
+    """Rules whose source page can be re-read confirm themselves daily; one whose page stops confirming warns within days."""
+    def setUp(self):
+        self.addCleanup(_reset)
+        _reset()
+
+    def test_probed_rules_exist_and_every_probe_is_a_valid_regex(self):
+        import re
+        probed = live.probed_rule_ids()
+        self.assertGreaterEqual(len(probed), 12)
+        for rid in probed:
+            re.compile(rules.rule(rid).probe)
+
+    def test_a_probe_is_only_on_the_entry_in_force_and_its_page_is_a_url(self):
+        for rid, entries in rules.load().items():
+            for e in entries[:-1]:
+                self.assertEqual(e.probe, "", f"{rid}: an old entry must not be probed")
+            for e in entries:
+                if e.probe:
+                    self.assertRegex(e.probe_url or e.source, r"^https?://")
+
+    def test_the_stale_check_names_a_probed_rule_whose_page_stopped_confirming(self):
+        fresh = {rid: live.PROBE_MAX_AGE_DAYS for rid in live.probed_rule_ids()}
+        day = date(2026, 12, 1)                                                  # 50 days after verification, same quarter-ish
+        stuck = {r["id"] for r in rules.stale(day, fresh_within=fresh)}
+        self.assertIn("ppf.annual_limit", stuck)
+        self.assertTrue(all("updates itself" in r["why"] for r in rules.stale(day, fresh_within=fresh) if r["id"] in fresh))
+
+
+class CatchUpWindow(unittest.TestCase):
+    """The update looks back to the last successful run, so a sleeping laptop or a stopped container never leaves a permanent hole."""
+    def window(self, last, today=date(2026, 10, 12)):
+        from app.etl import pipeline
+        with mock.patch.object(pipeline, "last_run", return_value=last):
+            return pipeline.catch_up_window(mock.Mock(), today)
+
+    def at(self, days_ago, ok=True):
+        return {"at": (datetime(2026, 10, 12, 12, tzinfo=timezone.utc) - timedelta(days=days_ago)).isoformat(), "ok": ok}
+
+    def test_never_run_looks_back_a_long_way(self):
+        self.assertEqual(self.window(None), 400)
+
+    def test_a_recent_run_still_looks_back_a_week(self):
+        self.assertEqual(self.window(self.at(0)), 7)
+        self.assertEqual(self.window(self.at(2)), 7)
+
+    def test_a_gap_is_covered_with_an_overlap(self):
+        self.assertEqual(self.window(self.at(20)), 23)
+
+    def test_a_very_old_run_is_capped(self):
+        self.assertEqual(self.window(self.at(900)), 400)
+
+    def test_a_failed_last_run_looks_back_a_month(self):
+        self.assertEqual(self.window(self.at(1, ok=False)), 30)
+
+    def test_the_scheduled_run_asks_for_the_window_after_taking_the_lock(self):
+        import inspect
+        from app.etl import pipeline
+        self.assertIn("catch_up_window(db)", inspect.getsource(pipeline._scheduled_run))
+        self.assertNotIn("since_days=7", inspect.getsource(__import__("app.scheduler", fromlist=["x"])._sync_job))
+
+
 class OneSharedPipeline(unittest.TestCase):
     def test_rebuild_runs_in_dependency_order(self):
         from app.etl import pipeline
@@ -127,8 +198,11 @@ class OneSharedPipeline(unittest.TestCase):
         from app.etl import pipeline
         db = mock.Mock()
         with mock.patch("app.ingestion.alert_fetcher.ingest_alerts", side_effect=RuntimeError("imap down")), \
+             mock.patch("app.ingestion.loan_fetcher.ingest_loan_certificates", return_value={"new": 0}), \
+             mock.patch("app.ingestion.registrar_fetcher.ingest_registrar_notices", return_value={"notices": 0}), \
              mock.patch("app.ingestion.loan_fetcher.ingest_loan_letters", return_value={"new": 1}) as loans, \
              mock.patch("app.ledger.dividends.refresh_history", return_value={"fetched": 0}), \
+             mock.patch("app.knowledge.live.verify_sources", return_value={}), \
              mock.patch("app.knowledge.live.refresh", return_value={"rbi.repo_rate": "unchanged"}) as rule_refresh:
             out = pipeline.ingest_evidence(db, 7)
         self.assertEqual(out["alerts"], {"error": "imap down"})
@@ -235,6 +309,33 @@ class WithDatabase(unittest.TestCase):
         live.refresh(self.db, self._fetch(D("5.75")), today=date(2026, 12, 5))
         (item,) = [i for i in deadlines.build(self.db, today=date(2026, 12, 10))["items"] if i["kind"] == "loan_repo_change"]
         self.assertEqual((item["date"], item["title"]), ("2026-12-05", "Repo rate now 5.75%"))
+
+    # ── re-confirming rules from their pages ──
+    def _pages(self, miss=(), down=()):
+        def fetch(url):
+            if url in down:
+                raise OSError("down")
+            rid_for = [rules.rule(rid) for rid in live.probed_rule_ids() if (rules.rule(rid).probe_url or rules.rule(rid).source) == url]
+            return " ".join(_sample(r.probe) for r in rid_for if url not in miss) or "nothing relevant"
+        return fetch
+
+    def test_confirmed_pages_refresh_verified_on_and_missing_or_down_pages_write_nothing(self):
+        urls = {(rules.rule(r).probe_url or rules.rule(r).source) for r in live.probed_rule_ids()}
+        gone, down = sorted(urls)[0], sorted(urls)[1]
+        out = live.verify_sources(self.db, fetch=self._pages(miss={gone}, down={down}), today=date(2026, 12, 1))
+        statuses = set(out.values())
+        self.assertEqual(statuses, {"confirmed", "not confirmed", "unreachable"})
+        confirmed = [r for r, v in out.items() if v == "confirmed"]
+        self.assertTrue(confirmed)
+        self.assertEqual(rules.rule(confirmed[0], date(2026, 12, 1)).verified_on, date(2026, 12, 1))     # nobody edited a file
+        for rid in (r for r, v in out.items() if v != "confirmed"):
+            self.assertEqual(rules.rule(rid, date(2026, 12, 1)).verified_on, date(2026, 10, 12))
+        self.assertEqual(self.db.query(self.m.RuleObservation).count(), len(confirmed))
+
+    def test_a_confirmation_never_changes_a_value(self):
+        before = {rid: rules.value(rid, date(2026, 12, 1)) for rid in live.probed_rule_ids()}
+        live.verify_sources(self.db, fetch=self._pages(), today=date(2026, 12, 1))
+        self.assertEqual({rid: rules.value(rid, date(2026, 12, 1)) for rid in live.probed_rule_ids()}, before)
 
     # ── the check that notices a silent stop ──
     def test_automation_check_states(self):

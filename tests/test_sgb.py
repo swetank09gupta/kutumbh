@@ -47,6 +47,11 @@ class CouponArithmetic(unittest.TestCase):
         self.assertEqual(ev._match_coupon(D("1590.94"), date(2024, 3, 15), today), [])      # right sum, wrong time of year
         self.assertEqual(ev._match_coupon(D("1591.94"), date(2024, 6, 30), today), [])      # right time, sum off by a rupee
 
+    def test_coupons_stay_on_the_nominal_price_whatever_was_paid(self):
+        t = sgb.tranche("IN0020220110")
+        self.assertEqual(t.coupon(D(25)), D("1690.31"))                       # 25 x 5,409 x 1.25%, not 5,359
+        self.assertEqual(sgb.issue_terms("IN0020220110"), (date(2022, 12, 27), D(5359)))
+
     def test_the_subscription_price_is_nominal_or_the_online_price(self):
         t = sgb.tranche("IN0020220110")
         self.assertEqual(t.nominal * 25 - t.online * 25, 1250)                               # what the Dec 2022 debit shows
@@ -55,9 +60,9 @@ class CouponArithmetic(unittest.TestCase):
 class LedgerCost(unittest.TestCase):
     ISIN = "IN0020220110"
 
-    def test_without_evidence_units_cost_the_nominal_price_and_say_so(self):
+    def test_without_evidence_units_cost_the_online_price_and_say_so(self):
         s = compute_isin_state(self.ISIN, [], [], [(date(2026, 8, 31), D(25))])
-        self.assertEqual(s.position.invested, D(25) * D(5409))
+        self.assertEqual(s.position.invested, D(25) * D(5359))                 # nominal 5,409 less Rs.50: what the real debit showed
         self.assertIn("issue_price_cost", s.position.flags)
 
     def test_a_subscription_debit_sets_cost_and_date_to_what_was_paid(self):
@@ -67,9 +72,9 @@ class LedgerCost(unittest.TestCase):
         self.assertIn("subscription_cost", s.position.flags)
         self.assertNotIn("issue_price_cost", s.position.flags)
 
-    def test_units_beyond_the_subscription_stay_at_the_nominal_price(self):
+    def test_units_beyond_the_subscription_stay_at_the_online_price(self):
         s = compute_isin_state(self.ISIN, [], [], [(date(2026, 8, 31), D(30))], paid=(date(2022, 12, 19), D(5359), D(25)))
-        self.assertEqual(s.position.invested, D(25) * D(5359) + D(5) * D(5409))
+        self.assertEqual(s.position.invested, D(30) * D(5359))
         self.assertEqual(s.position.quality, "exact")
 
 

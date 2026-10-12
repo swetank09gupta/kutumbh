@@ -45,6 +45,13 @@ class SbiPpf(unittest.TestCase):
         self.assertEqual((p.current_value, p.interest_rate, p.start_date, p.statement_date),
                          (D("1937131.00"), D("7.10"), date(2014, 10, 31), date(2026, 8, 31)))
 
+    def test_a_fund_house_called_ppfas_is_not_a_ppf_account(self):
+        from unittest import mock
+        text = "As on 31-08-26\n2026-01-02 NSE Clearing EQ INF879O01027 PPFAS FCF D-GROWTH 0.0 21"
+        with mock.patch.object(SbiParser, "_llm_extract", side_effect=AssertionError("asked the LLM for a PPF")):
+            assets, *_ = SbiParser()._extract_fd_ppf(text, "user")
+        self.assertEqual([a for a in assets if a.asset_type == "ppf"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,11 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | Every API call the UI makes hits a route that exists, with that method | `tests/test_ui_api_contract.py` |
 | Goal cards, projections and Grafana use one SIP figure | consistency check `goal_sip_stored_equals_projection` |
 | Every page reads the same owner (Self / Spouse / Family) | UI `switchOwner`; browser check in the release routine below |
+| An update run covers everything since the last successful run | `tests/test_automation.py` (catch-up window) |
+| A past loan year shows the lender's certified figures when one exists | `tests/test_loan_report_db.py` |
+| A bonus/IPO trade exists only when a demat credit of the same quantity proves it | `tests/test_registrar_notices.py` |
+| A dividend credit matches only shares our trades say were held (name+arithmetic only where none are recorded) | `tests/test_dividends_tax_db.py` |
+| Every active tax year has a slab entry; probed rules were re-confirmed recently | consistency checks `tax_slabs_are_current`, `rules_are_current` |
 
 ## Release routine for any change
 

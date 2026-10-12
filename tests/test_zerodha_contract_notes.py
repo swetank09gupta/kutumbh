@@ -49,6 +49,18 @@ class LegacyContractNoteText(unittest.TestCase):
         self.assertEqual(self.parse("Net total (1602.00)\nSub total 2 (1602.00)\n"), [])
 
 
+class MarginStatement(unittest.TestCase):
+    def test_a_daily_margin_statement_holds_nothing(self):
+        from pathlib import Path
+        from unittest import mock
+        page = mock.Mock(); page.extract_text.return_value = ("Daily Margin Statement as On\nTrade date 23/05/2022\n"
+                                                              "Sub Total 23/05/2022 1334.41 0.0 4384.88 5719.29")
+        pdf = mock.MagicMock(); pdf.__enter__.return_value = pdf; pdf.pages = [page]
+        with mock.patch.object(ZerodhaParser, "_open_pdf", return_value=pdf):
+            r = ZerodhaParser()._parse_pdf(Path("margin.pdf"))
+        self.assertEqual((r.holdings, r.transactions), ([], []))                  # "Sub Total" was once read as a holding of ₹4,384.88
+
+
 if __name__ == "__main__":
     unittest.main()
 

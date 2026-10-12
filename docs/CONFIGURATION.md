@@ -119,6 +119,13 @@ If your HDFC PDF uses a NetBanking CIF-based password (different formula), set i
 hdfc_pdf_password: "268955063"   # overrides the dob-derived password
 ```
 
+Other passwords the bank mails state, tried in addition to the formulas (Union Bank 2020-21 statements, HDFC home-loan tax certificates):
+
+```yaml
+union_bank_account_no: "123456789012345"
+hdfc_loan_account_no: "12345678"
+```
+
 #### Salary keyword matching
 
 The categoriser already catches narrations containing `salary`, `sal credit`, `payroll`, etc. You only need `salary_keywords` when your bank's narration is just the employer name with no "salary" word, e.g. `NEFT FROM ACMECORP`.

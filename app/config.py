@@ -119,7 +119,8 @@ class Settings(BaseSettings):
     def get_owner_profile(self, owner_id: str) -> dict[str, str]:
         """
         Return personal-info fields for an owner from accounts.yml.
-        Keys: name, dob (YYYY-MM-DD), pan, mobile.
+        Keys: name, dob (YYYY-MM-DD), pan, mobile, hdfc_pdf_password, and the two account-number passwords
+        (union_bank_account_no, hdfc_loan_account_no).
         Used to derive PDF open passwords at runtime — never stored.
         """
         cfg = Path("config/accounts.yml")
@@ -134,6 +135,8 @@ class Settings(BaseSettings):
                     "pan":              str(owner.get("pan",              "") or "").upper().strip(),
                     "mobile":           str(owner.get("mobile",           "") or ""),
                     "hdfc_pdf_password": str(owner.get("hdfc_pdf_password", "") or ""),
+                    "union_bank_account_no": str(owner.get("union_bank_account_no", "") or ""),
+                    "hdfc_loan_account_no":  str(owner.get("hdfc_loan_account_no", "") or ""),
                 }
         return {}
 

@@ -296,7 +296,7 @@ class SbiParser(BaseParser):
                     ))
             except Exception:
                 pass
-        elif "PPF" in full_text.upper():
+        elif re.search(r"\bPPF\b", full_text, re.I):          # the word, not "PPFAS" (a fund house) inside a securities statement
             # PPF keyword present but regex didn't match — try LLM
             msg = "SBI PPF: regex matched nothing despite PPF keyword in text. Falling back to LLM."
             logger.warning(msg)

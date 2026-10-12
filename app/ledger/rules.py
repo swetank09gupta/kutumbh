@@ -32,6 +32,8 @@ MATCH_DAYS_AFTER = 3                 # ...and rarely a day or two before the tra
 
 # Lower rank wins when two sources describe the same (isin, date, side).
 SOURCE_RANK = {"contract_note": 1, "coin": 1, "tradebook": 2, "derived": 3}
+# Units that arrive without a market trade (IPO allotment, bonus issue). Never merged with a same-day trade of the same stock.
+ARRIVAL_SOURCES = ("ipo_allotment", "bonus")
 
 
 # ── value objects ────────────────────────────────────────────────────────────
@@ -131,12 +133,12 @@ def effective_trades(trades: Iterable[Trade]) -> tuple[list[Trade], list[Trade],
     """
     groups: dict[tuple, list[Trade]] = defaultdict(list)
     for t in trades:
-        groups[(t.isin, t.trade_date, t.side)].append(t)
+        groups[(t.isin, t.trade_date, t.side, t.source if t.source in ARRIVAL_SOURCES else "")].append(t)
 
     effective: list[Trade] = []
     superseded: list[Trade] = []
     conflicts: list[Conflict] = []
-    for (isin, d, side), rows in groups.items():
+    for (isin, d, side, _arrival), rows in groups.items():
         by_source: dict[str, list[Trade]] = defaultdict(list)
         for r in rows:
             by_source[r.source].append(r)
@@ -392,13 +394,13 @@ def compute_isin_state(
     # intervals could not attribute to a trade. Lots are consumed oldest-first.
     events: list[tuple] = []
     for t in trades:
-        events.append((t.trade_date, 0 if t.side == "B" else 1, t.side, t.qty, t.price))
+        events.append((t.trade_date, 0 if t.side == "B" else 1, t.side, t.qty, t.price, t.source == "bonus"))
     boundary = boundary_indices(intervals)
     for i, iv in enumerate(intervals):
         if iv.residual > iv.tol and i not in boundary:
-            events.append((iv.start, 0, "B", iv.residual, None))        # untraced inflow, unknown cost
+            events.append((iv.start, 0, "B", iv.residual, None, False))        # untraced inflow, unknown cost
     for a in alert_only:
-        events.append((a.move_date, 0 if a.side == "B" else 1, a.side, a.qty, None))
+        events.append((a.move_date, 0 if a.side == "B" else 1, a.side, a.qty, None, False))
     events.sort(key=lambda e: (e[0], e[1]))
 
     pos = Position(isin=isin)
@@ -425,9 +427,9 @@ def compute_isin_state(
         if left > tol and "negative_position" not in pos.flags:
             pos.flags.append("negative_position")
 
-    for d, _o, side, qty, price in events:
+    for d, _o, side, qty, price, nil_cost in events:
         if side == "B":
-            has_price = price is not None and price > 0
+            has_price = price is not None and (price > 0 or nil_cost)       # a bonus share costs nothing, and that is known
             lots.append([qty, price if has_price else None, d])
             if has_price:
                 pos.last_price, pos.last_price_date = price, d

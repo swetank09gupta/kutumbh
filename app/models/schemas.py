@@ -484,6 +484,24 @@ class LoanAnchor(Base):
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class LoanTaxCertificate(Base):
+    """The lender's own principal / interest figures for one financial year (HDFC IT_FINAL certificate, IT_PROV statement)."""
+    __tablename__ = "loan_tax_certificates"
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id        = Column(String(20), nullable=False)
+    lender          = Column(String(20), nullable=False)
+    fy              = Column(String(8), nullable=False)               # "2024-25"
+    kind            = Column(String(12), nullable=False)              # final | provisional
+    doc_date        = Column(Date)
+    principal       = Column(Numeric(15, 2), nullable=False)          # of the year's EMIs (prepayments are in the letters)
+    interest        = Column(Numeric(15, 2), nullable=False)
+    pre_emi_interest = Column(Numeric(15, 2), default=0)
+    rate            = Column(Numeric(6, 3))
+    source_file     = Column(String(300))
+    natural_key     = Column(String(120), nullable=False, unique=True)
+
+
 class AppSetting(Base):
     """App-wide assumptions that are not per-person or per-goal (e.g. the inflation rate)."""
     __tablename__ = "app_settings"

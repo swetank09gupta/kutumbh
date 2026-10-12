@@ -71,7 +71,9 @@ Standard CSV. No password. Axis narration format differs from HDFC/SBI — the c
 
 Password-protected PDF. Password formula: `name[:4].upper() + DDMM`.
 
-**Known issue:** Union Bank occasionally changes their PDF password scheme without notice. If parsing fails with a decryption error, check the actual password used on a recent statement and set `hdfc_pdf_password` (reused field) in `accounts.yml`, or open the PDF manually and inspect the format — see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+**Passwords:** 2024+ statements use `name[:4].upper() + DDMM`; 2020-21 ones use the 15-digit account number (the bank's own mail states each rule). Set `union_bank_account_no` (and `hdfc_loan_account_no` for the loan certificates) under the owner in `accounts.yml` (git-ignored); all candidates are tried. If the bank changes the scheme again, read the password rule in its statement mail and add it the same way — see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+Also read from mail, not as statements: HDFC loan tax certificates (`parsers/loan_certificate.py`) and registrar IPO-allotment / bonus notices (`parsers/registrar_notice.py`) — ADR-0035.
 
 ---
 

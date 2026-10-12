@@ -153,8 +153,10 @@ class ZerodhaParser(BaseParser):
             # Weekly settlement/cash ledger statements — not holdings files, skip entirely.
             # "Statement of Accounts of Securities" = demat settlement
             # "Statement of Accounts of Funds" = cash ledger
+            # "Daily Margin Statement" = margin available/required per segment; its "Sub Total" row once became a holding.
             if ("Statement of Accounts of Securities" in full_text
-                    or "Statement of Accounts of Funds" in full_text):
+                    or "Statement of Accounts of Funds" in full_text
+                    or "Daily Margin Statement" in full_text):
                 logger.debug("Skipping weekly settlement statement: %s", path.name)
                 return ParseResult(institution=self.institution, account_type=self.account_type,
                                    source_file=str(path))

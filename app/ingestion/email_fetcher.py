@@ -67,6 +67,7 @@ KNOWN_SENDERS: dict[str, dict] = {
     # Union Bank uses multiple domains — match any address containing "unionbank"
     "unionbankofindia.com":             {"institution": "Union Bank", "account_type": "bank"},
     "unionbank.co.in":                  {"institution": "Union Bank", "account_type": "bank"},
+    "ubi.bank.in":                      {"institution": "Union Bank", "account_type": "bank"},   # since 2026: noreplyunionbank@ubi.bank.in
     "donotreply@unionbankofindia.com":  {"institution": "Union Bank", "account_type": "bank"},
     "alerts@unionbankofindia.com":      {"institution": "Union Bank", "account_type": "bank"},
     "statements@unionbankofindia.com":  {"institution": "Union Bank", "account_type": "bank"},
@@ -285,6 +286,15 @@ def _all_pdf_passwords(institution: str, primary_owner_id: str) -> list[str]:
         if pwd and pwd not in seen:
             seen.add(pwd)
             passwords.append(pwd)
+        # Documents whose password is an account number, not a name+DOB formula (kept in the private config):
+        #   Union Bank statements of 2020-21: the 15-digit account number (the bank's own e-mail says so)
+        #   HDFC home-loan tax documents (IT_PROV / IT_FINAL): the loan account number
+        profile = settings.get_owner_profile(oid) or {}
+        for key, bank in (("union_bank_account_no", "union"), ("hdfc_loan_account_no", "hdfc")):
+            extra = str(profile.get(key) or "").strip()
+            if extra and bank in institution.lower() and extra not in seen:
+                seen.add(extra)
+                passwords.append(extra)
         # HDFC: when a CIF password is configured it wins as primary, but some
         # email-delivered statements use the name+DOB formula instead.  Add
         # the formula as an extra candidate so both are tried.

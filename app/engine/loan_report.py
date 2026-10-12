@@ -222,8 +222,71 @@ def fy_split(db: Session, owner_id: str, today: date | None = None) -> dict | No
             "interest_year": float(paid_int + rest_int), "principal_year": float(paid_prin + rest_prin)}
 
 
+def _certificate(db: Session, owner_id: str, fy: str, kind: str):
+    from app.models.schemas import LoanTaxCertificate
+    return (db.query(LoanTaxCertificate).filter(LoanTaxCertificate.owner_id == owner_id, LoanTaxCertificate.fy == fy,
+                                                LoanTaxCertificate.kind == kind)
+            .order_by(LoanTaxCertificate.doc_date.desc()).first())
+
+
+def year_figures(db: Session, owner_id: str, fy: str, today: date) -> dict | None:
+    """Interest and principal of one financial year, from the best evidence there is for it:
+      HDFC's final certificate (the lender's own figures)  >  the schedule built from the letters (the current year, which
+      knows the prepayments)  >  HDFC's provisional statement (issued in advance, ignores prepayments: a fallback, labelled)."""
+    start = date(int(fy[:4]), 4, 1)
+    L = _letters(db, owner_id)
+    if not L:
+        return None
+    prepaid = sum((D(x.prepaid) for x in L if start <= x.as_on <= date(start.year + 1, 3, 31)), D(0))
+    complete = L[0].as_on <= date(start.year, 5, 1)             # the letters reach back to the start of that year
+    fin, prov = _certificate(db, owner_id, fy, "final"), _certificate(db, owner_id, fy, "provisional")
+    base = {"fy": fy, "prepaid": float(prepaid), "prepaid_complete": complete}
+    if fin:
+        return {**base, "source": "HDFC final certificate", "interest": float(fin.interest + (fin.pre_emi_interest or 0)),
+                "principal": float(fin.principal), "exact": True}
+    if tg_fy(today) == fy:
+        sp = fy_split(db, owner_id, today)
+        if sp:
+            return {**base, "source": "schedule built from HDFC's letters (estimate for the full year)", "interest": sp["interest_year"],
+                    "principal": sp["principal_year"], "exact": False,
+                    "provisional_statement": prov and {"interest": float(prov.interest), "principal": float(prov.principal)}}
+    if prov:
+        return {**base, "source": "HDFC provisional statement (before prepayments; the final certificate replaces it)",
+                "interest": float(prov.interest), "principal": float(prov.principal), "exact": False}
+    return None
+
+
+def tg_fy(d: date) -> str:
+    y = d.year if d.month >= 4 else d.year - 1
+    return f"{y}-{str(y + 1)[2:]}"
+
+
+def _claims(db: Session, fig: dict, today: date) -> list[dict]:
+    fy_end = date(int(fig["fy"][:4]) + 1, 3, 31)
+    cap24, cap80c = rules.value("income_tax.24b_cap", fy_end), rules.value("income_tax.80c_cap", fy_end)
+    people = []
+    for o in db.query(Owner).filter(Owner.id != "family", ~Owner.id.like(".%")).order_by(Owner.id).all():
+        share = D(str(o.home_loan_share_pct or 0))
+        if share <= 0:
+            continue
+        regime = (o.tax_regime or "old").lower()
+        mine_int, mine_prin = D(str(fig["interest"])) * share / 100, D(str(fig["principal"])) * share / 100
+        mine_pre = D(str(fig["prepaid"])) * share / 100
+        row = {"owner": o.id, "share_pct": float(share), "regime": regime, "interest_share": float(mine_int),
+               "principal_share": float(mine_prin), "prepaid_share": float(mine_pre)}
+        if regime == "old":
+            row.update(claim_24b=float(min(mine_int, cap24)), cap_24b=float(cap24), interest_above_cap=float(max(mine_int - cap24, 0)),
+                       principal_for_80c=float(mine_prin + mine_pre), cap_80c=float(cap80c),
+                       uses_whole_80c=bool(mine_prin + mine_pre >= cap80c))
+        else:
+            row.update(claim_24b=0.0, note="new regime: no deduction for a self-occupied home loan")
+        people.append(row)
+    return people
+
+
 def tax(db: Session, owner_id: str, today: date | None = None) -> dict | None:
-    """What each co-borrower can claim: s.24(b) interest (cap per owner, on their share) and s.80C principal, old regime only."""
+    """What each co-borrower can claim: s.24(b) interest (cap per owner, on their share) and s.80C principal, old regime only.
+    `fy` is the current year from the schedule; `years` lists recent years with the best evidence for each (HDFC's certificates)."""
     today = today or date.today()
     fy = fy_split(db, owner_id, today)
     if fy is None:
@@ -241,10 +304,19 @@ def tax(db: Session, owner_id: str, today: date | None = None) -> dict | None:
                "principal_share": float(mine_prin), "prepaid_share": float(mine_pre)}
         if regime == "old":
             row.update(claim_24b=float(min(mine_int, cap24)), cap_24b=float(cap24), interest_above_cap=float(max(mine_int - cap24, 0)),
-                       principal_for_80c=float(mine_prin), cap_80c=float(cap80c), uses_whole_80c=bool(mine_prin >= cap80c))
+                       principal_for_80c=float(mine_prin + mine_pre), cap_80c=float(cap80c),
+                       uses_whole_80c=bool(mine_prin + mine_pre >= cap80c))
         else:
             row.update(claim_24b=0.0, note="new regime: no deduction for a self-occupied home loan")
         people.append(row)
-    return {"fy": fy, "owners": people,
-            "note": "EMI principal only; part-prepayments are shown apart (most readings let them count under 80C, confirm before relying). "
-                    "Interest is split by the recorded share of the loan."}
+    years = []
+    cur = int(tg_fy(today)[:4])
+    for y in range(cur, cur - 3, -1):
+        fyl = f"{y}-{str(y + 1)[2:]}"
+        fig = year_figures(db, owner_id, fyl, today)
+        if fig:
+            years.append({**fig, "owners": _claims(db, fig, today)})
+    return {"fy": fy, "owners": people, "years": years,
+            "note": "Interest is split by the recorded share of the loan. Principal for 80C counts EMI principal plus part-prepayments, "
+                    "which HDFC's own certificate says qualify (the 1.5 L cap is shared with PPF, EPF and the rest). Completed years use "
+                    "HDFC's final certificate."}
