@@ -111,7 +111,7 @@ class SbiParser(BaseParser):
     _FD_LINE_RE = re.compile(
         r'TERM DEPOSIT\s+X+(\w{4})\s+(\d{2}-\d{2}-\d{2})\s+([\d,]+\.\d+)\s+[PS]'
         r'(?:\s+[A-Z]+(?:\s+[A-Z]+)*)?\s+([\d.]+)'
-        r'\s+[\d.]+\s+[\d.]+\s+([\d,]+\.\d+)\s+(\d{2}-\d{2}-\d{2})',
+        r'\s+[\d.]+\s+([\d.]+)\s+([\d,]+\.\d+)\s+(\d{2}-\d{2}-\d{2})',          # lien, interest accrued, maturity amount, date
         re.I,
     )
     # ACCOUNT(S) CLOSED DURING THE MONTH rows
@@ -201,6 +201,7 @@ class SbiParser(BaseParser):
                             for a in re.findall(r'[\d,]+\.\d+', raw)
                         ]
                         principal  = Decimal(raw_amounts[0])  if raw_amounts else None
+                        accrued_llm = Decimal(raw_amounts[-2]) if len(raw_amounts) >= 4 else None
                         mat_amount = Decimal(raw_amounts[-1]) if raw_amounts else \
                             (Decimal(str(rec["maturity_amount"])) if rec.get("maturity_amount") else None)
 
@@ -218,17 +219,19 @@ class SbiParser(BaseParser):
                             start_date=open_date,
                             maturity_date=mat_date,
                             maturity_amount=mat_amount,
+                            accrued_interest=accrued_llm,
                             statement_date=stmt_date,
                         ))
                     except Exception as exc:
                         logger.warning("SBI LLM FD record conversion failed: %s — %s", rec, exc)
             else:
                 for m in regex_hits:
-                    last4, open_raw, principal_raw, roi_raw, mat_amt_raw, mat_date_raw = m.groups()
+                    last4, open_raw, principal_raw, roi_raw, accrued_raw, mat_amt_raw, mat_date_raw = m.groups()
                     open_date = self._parse_date(open_raw, ["%d-%m-%y", "%d-%m-%Y"])
                     mat_date  = self._parse_date(mat_date_raw, ["%d-%m-%y", "%d-%m-%Y"])
                     try:
                         principal  = Decimal(principal_raw.replace(",", ""))
+                        accrued    = Decimal(accrued_raw)
                         roi        = Decimal(roi_raw)
                         mat_amount = Decimal(mat_amt_raw.replace(",", ""))
                     except Exception:
@@ -243,6 +246,7 @@ class SbiParser(BaseParser):
                         start_date=open_date,
                         maturity_date=mat_date,
                         maturity_amount=mat_amount,
+                        accrued_interest=accrued,
                         statement_date=stmt_date,
                     ))
 

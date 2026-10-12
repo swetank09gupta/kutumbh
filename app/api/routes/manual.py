@@ -270,6 +270,16 @@ def _compute_returns(a: ManualAsset) -> dict:
     return result
 
 
+def _value_today(a: ManualAsset) -> float:
+    from app.engine.deposits import accrued_value
+    return float(accrued_value(a, date.today()))
+
+
+def _contract_rate(a: ManualAsset):
+    from app.engine.deposits import contract_rate_pct
+    return contract_rate_pct(a)
+
+
 def _asset_dict(a: ManualAsset) -> dict:
     returns = _compute_returns(a)
     return {
@@ -278,7 +288,9 @@ def _asset_dict(a: ManualAsset) -> dict:
         "asset_type":       a.asset_type,
         "institution":      a.institution,
         "name":             a.name,
-        "current_value":    float(a.current_value or 0),
+        "current_value":    float(a.current_value or 0),           # as stored (what an edit changes)
+        "value_today":      _value_today(a),                       # what it is worth today (deposits: + accrued interest)
+        "contract_rate_pct": _contract_rate(a),
         "invested_amount":  float(a.invested_amount or 0),
         "interest_rate":    float(a.interest_rate or 0),
         "monthly_payment":  float(a.monthly_payment or 0) if a.monthly_payment else None,

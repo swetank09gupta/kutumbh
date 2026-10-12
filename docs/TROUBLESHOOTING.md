@@ -158,6 +158,7 @@ Some document types that arrive as PDF email attachments are **not** transaction
 | HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_FINAL`, `IT_PROV`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, and interest/tax certificates | Silently skipped (`DEBUG` log) |
 | Any filename containing `TDS.CERTIFICATE` | Bank TDS / interest certificate (Axis, HDFC, SBI) | Silently skipped |
 | "on N% of the value — ₹X has no purchase history yet" | Units in the demat with no trade, no unit line and no matching bank debit | Import the Console tradebook CSV for that account (Reports → Tradebook, Mutual funds); derived trades are replaced automatically |
+| Deposit value or accrued interest looks off after a parser change | Parse results are cached | Bump `_CACHE_SCHEMA` in `parsers/base.py`, then `python -m scripts.backfill_fd_accrued` (or reprocess) |
 | Deposit row shows "x% FD rate" instead of a measured XIRR | Fewer than ~80% of its monthly "INT TRF FRM" credits are in the bank statements, or the principal changed | Import the missing statements; the measured return appears on the next sync |
 | PPF rate looks stale | The NSI page was unreachable; last known table is used | Check `data/cache/ppf_rates.json`; it refreshes weekly |
 | Return shows plain gain, not a rate | Money held under a year on average | Intended (SEBI/AMFI convention) |

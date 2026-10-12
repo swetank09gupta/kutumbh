@@ -131,6 +131,7 @@ class Position:
     deposit: bool = False             # FD / RD: earns its stated rate, so no return is derived from it
     rate: Optional[float] = None      # stated interest rate, manual investments
     maturity: Optional[date] = None
+    contract: bool = False            # rate implied by the statement's maturity value (not typed, not printed)
 
 
 def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
@@ -241,8 +242,10 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                             "reason": "matured before today"})
             continue
         if asset.asset_type in ("fd", "rd"):
-            rate = float(asset.interest_rate) if asset.interest_rate else None
-            current = float(asset.current_value or 0)
+            from app.engine.deposits import accrued_value, contract_rate_pct
+            contract = contract_rate_pct(asset)               # from the statement's own maturity value, if cumulative
+            rate = contract if contract is not None else (float(asset.interest_rate) if asset.interest_rate else None)
+            current = float(accrued_value(asset, today))       # the same value net worth uses
             tail = re.search(r"(\d{4})\s*$", asset.name or "")
             credits = fd_interest.get((asset.owner_id, tail.group(1)), []) if tail else []
             invested = float(asset.invested_amount or 0)
@@ -250,7 +253,7 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             months = ((today - asset.start_date).days / 30.4) if asset.start_date else 0
             # Interest is paid monthly: a deposit counts as measurable only when (nearly) every month's
             # credit is on file, otherwise the missing credits would read as a low return.
-            if (paid and invested > 0 and abs(current - invested) <= 1.0 and months >= 6
+            if (contract is None and paid and invested > 0 and abs(float(asset.current_value or 0) - invested) <= 1.0 and months >= 6
                     and len(paid) >= 0.8 * (months - 1)):
                 # Measured, not stated: principal in on the start date, every interest credit the deposit
                 # actually paid into savings, and the principal still held.
@@ -262,7 +265,7 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                 # No measurable history (renewed, part-withdrawn, or no interest credit found): a balance at its rate.
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=current, covered=False, deposit=True,
-                                          rate=rate, maturity=asset.maturity_date))
+                                          rate=rate, maturity=asset.maturity_date, contract=contract is not None))
             continue
         out = _manual_asset_cashflows(db, asset, today)
         if out is None:
@@ -455,7 +458,7 @@ def _manual_rows(positions: list[Position], today: date) -> list[dict]:
         out.append({"name": p.name, "owner": p.owner, "type": p.cls, "current": round(p.current, 2),
                     "rate": p.rate, "maturity": p.maturity.isoformat() if p.maturity else None,
                     "invested": invested, "gain": round(p.current - invested, 2) if (invested and p.covered and not p.deposit) else None,
-                    "xirr_pct": r, "goal_tag": p.goal_tag})
+                    "xirr_pct": r, "goal_tag": p.goal_tag, "contract": p.contract})
     out.sort(key=lambda x: x["current"], reverse=True)
     return out
 

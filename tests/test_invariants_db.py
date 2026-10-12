@@ -98,10 +98,16 @@ class Invariants(unittest.TestCase):
             db.add(m.ManualAssetContribution(asset_id=p1.id, date=d, amount=D(amt)))
         asset("wife", "ppf", "SBI PPF", 1900000, invested_amount=D(1700000), interest_rate=D("7.1"))   # no dates at all
         asset("user", "fd", "SBI FD ...1111", 100000, invested_amount=D(100000), start_date=today - timedelta(days=400),
-              maturity_date=today + timedelta(days=300), interest_rate=D("6.25"))
+              maturity_date=today + timedelta(days=300), interest_rate=D("6.25"),
+              notes="Maturity value: ₹100,000.00", accrued_interest=D("450"), source_statement_date=today - timedelta(days=10))
         asset("wife", "fd", "SBI FD ...2222", 50000, invested_amount=D(80000), start_date=today - timedelta(days=500),
               maturity_date=today + timedelta(days=200), interest_rate=D("6.25"))
         asset("wife", "fd", "SBI FD ...3333", 30000, maturity_date=today - timedelta(days=10))               # matured
+        # a cumulative deposit: the statement amount plus the interest in its maturity value, accrued to today
+        asset("wife", "fd", "SBI FD ...4444", 100000, invested_amount=D(100000), start_date=today - timedelta(days=200),
+              maturity_date=today + timedelta(days=165), interest_rate=D("6.25"),
+              notes="Maturity value: ₹106,400.00", source_statement_date=today - timedelta(days=30),
+              accrued_interest=D("3000"))
         asset("user", "real_estate", "Flat", 4_000_000_0, invested_amount=D(3_000_000_0))
         asset("user", "liability", "Home Loan", -13000000, inst="HDFC", invested_amount=D(20000000),
               start_date=date(2024, 1, 15), source_statement_date=date(2026, 4, 1), interest_rate=D("7.1"))
@@ -142,6 +148,21 @@ class Invariants(unittest.TestCase):
         inst = {i["isin"]: i for i in compute_owner_returns(self.db, "user")["instruments"]}
         self.assertEqual(inst["INF001A01011"]["invested"], 50000.0)
         self.assertIsNotNone(inst["INF001A01011"]["xirr_pct"])
+
+    def test_a_cumulative_deposit_is_worth_its_accrued_value_on_every_page(self):
+        from app.api.routes.manual import _value_today
+        from app.consistency import _latest_nw
+        from app.engine.portfolio_xirr import compute_owner_returns
+        from app.models.schemas import ManualAsset
+        a = self.db.query(ManualAsset).filter_by(name="SBI FD ...4444").one()
+        accrued = _value_today(a)
+        self.assertTrue(103000 < accrued < 106400)                              # principal + accrued interest, grown on, not yet at maturity
+        row = next(m for m in compute_owner_returns(self.db, "wife")["manual_assets"] if m["name"] == "SBI FD ...4444")
+        self.assertAlmostEqual(row["current"], accrued, delta=0.01)             # Investments
+        self.assertAlmostEqual(row["rate"], 6.2, delta=0.4)                     # the rate the statement's own numbers imply
+        self.assertTrue(row["contract"])
+        wife_fd = float(_latest_nw(self.db)["wife"].fd_value)
+        self.assertTrue(wife_fd >= accrued)                                     # net worth includes the accrued interest
 
     def test_a_deposit_with_monthly_interest_on_file_is_measured_not_stated(self):
         from app.engine.portfolio_xirr import compute_owner_returns

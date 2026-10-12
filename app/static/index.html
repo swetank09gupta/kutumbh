@@ -2346,6 +2346,7 @@ function assetReturnCell(a) {
 
   if (xirr != null)       { primary = xirr;  primaryLabel = `${xirr.toFixed(1)}% XIRR`; }
   else if (cagr != null)  { primary = cagr;  primaryLabel = `${cagr.toFixed(1)}% CAGR`; }
+  else if (a.contract_rate_pct != null) { primary = a.contract_rate_pct; primaryLabel = `${a.contract_rate_pct.toFixed(1)}% to maturity`; }
   else if (rate)          { primary = rate;  primaryLabel = `${rate.toFixed(1)}% p.a.`; }
 
   if (primary == null) return '—';
@@ -2404,7 +2405,7 @@ async function loadManualAssets() {
         <td style="color:#64748b;text-transform:capitalize">${a.owner_id}</td>
         <td style="color:#64748b">${a.institution||'—'}</td>
         <td style="text-align:right;color:#64748b;font-size:12px">${qtyLabel}</td>
-        <td style="text-align:right;font-weight:600;color:#a5b4fc">₹${fmt(a.current_value)}</td>
+        <td style="text-align:right;font-weight:600;color:#a5b4fc">₹${fmt(a.value_today ?? a.current_value)}</td>
         <td style="text-align:right;color:#64748b">${a.invested_amount?'₹'+fmt(a.invested_amount):'—'}</td>
         <td style="text-align:right">${assetReturnCell(a)}</td>
         <td style="color:${matColor};font-size:12px">${a.maturity_date||'—'}</td>
@@ -2462,7 +2463,7 @@ async function loadManualAssets() {
 
     // ── Net summary strip ────────────────────────────────────────
     const strip      = $('manual-net-strip');
-    const totalAssets = assets.reduce((s, a) => s + (a.current_value || 0), 0);
+    const totalAssets = assets.reduce((s, a) => s + ((a.value_today ?? a.current_value) || 0), 0);
     const totalLiabs  = liabs.reduce((s, l) => s + Math.abs(l.current_value || 0), 0);
     const netWorth    = totalAssets - totalLiabs;
     strip.style.display = 'flex';

@@ -208,6 +208,9 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
         if snap_date < date.today() and asset.start_date and asset.start_date > snap_date:
             continue
         val = asset.current_value or ZERO
+        if asset.asset_type in ("fd", "rd"):
+            from app.engine.deposits import accrued_value           # statement amount + interest accrued to maturity value
+            val = accrued_value(asset, snap_date)
         if asset.asset_type == "liability" and asset.institution == "HDFC" and snap_date < date.today():
             from app.engine.loan import principal_on             # what was owed THEN, from the lender's letters
             then = principal_on(db, owner_id, snap_date, asset.invested_amount)

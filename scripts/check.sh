@@ -27,6 +27,8 @@ fi
 if [ "$1" = "--live" ]; then
   echo "== live data: invariants and figure diff"
   LIVE="postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB"
+  # schema first: a new column must exist before anything reads it (the app does the same at startup)
+  run -e DATABASE_URL="$LIVE" --env-file .env --entrypoint python kutumbh-app -c "from app.main import _migrate_db; _migrate_db()" >/dev/null
   run -e DATABASE_URL="$LIVE" --env-file .env --entrypoint python kutumbh-app - <<'PY'
 from app.models.database import SessionLocal
 from app.invariants import INVARIANTS

@@ -246,6 +246,7 @@ class ManualAsset(Base):
     is_liquid            = Column(Boolean, default=False)  # MOD/sweep FDs count toward emergency fund
     notes                = Column(Text)
     source_statement_date = Column(Date)   # date of the statement this record came from
+    accrued_interest     = Column(Numeric(15, 2))  # interest earned but not yet added to the principal, at that statement date
     goal_tag             = Column(String(30))  # emergency | retirement | child_education | child_marriage | health | wife_retirement
     last_updated         = Column(DateTime(timezone=True), server_default=func.now(),
                                   onupdate=func.now())

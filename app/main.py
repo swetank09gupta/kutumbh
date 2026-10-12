@@ -36,6 +36,7 @@ def _migrate_db() -> None:
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS quantity NUMERIC(15,4)",
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS metal_purity VARCHAR(4)",
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS source_statement_date DATE",
+        "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS accrued_interest NUMERIC(15,2)",
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS is_liquid BOOLEAN DEFAULT FALSE",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag VARCHAR(30)",
         # XIRR / returns tracking additions

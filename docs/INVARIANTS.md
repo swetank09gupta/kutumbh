@@ -18,6 +18,7 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | INV-06 | Every current holding is listed at the holdings-view value | — |
 | INV-07 | The loan in net worth is the lender's figure rolled forward, unless you typed a newer one | Loan was 1 Cr 28 L when HDFC said 1 Cr 5 L |
 | INV-08 | No payload contains NaN or infinity | — |
+| INV-09 | The Manual Assets page shows the same value as net worth for deposits and PPF | Deposit values were principal on one page and accrued on another |
 
 ## Behavioural decisions and their tests
 
@@ -32,6 +33,7 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | SGB units cost the issue price; ordinary untraced units stay "partial" | `tests/test_ledger_rules.py` |
 | Derived trades price from NAV, confirmed by a bank debit, one debit confirms one line | `tests/test_derive.py` |
 | A figure you typed later is never overwritten by an older lender letter | `test_invariants_db::test_a_figure_you_typed_later…` |
+| A cumulative deposit is worth its statement amount plus the interest in its maturity value, accrued; the same on net worth, Investments and Manual Assets | `tests/test_deposits.py`, `test_invariants_db::test_a_cumulative_deposit…`, INV-03, INV-09 |
 | Loan roll-forward reproduces the lender's next figure | `tests/test_loan.py` |
 | Inflation: one automatic app-wide rate (10-year CPI average); an override can be set and cleared; goals ignore their own rate | `tests/test_settings.py`, `tests/test_inflation.py` |
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |

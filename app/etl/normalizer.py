@@ -507,7 +507,9 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
         # not last_updated (which is the DB write time, not the statement generation date).
         # The email pipeline processes oldest-to-newest so the last write wins correctly.
         if existing and pa.statement_date and existing.source_statement_date:
-            if pa.statement_date <= existing.source_statement_date:
+            fills_accrued = existing.accrued_interest is None and pa.accrued_interest is not None \
+                and pa.statement_date == existing.source_statement_date
+            if pa.statement_date <= existing.source_statement_date and not fills_accrued:
                 continue
 
         if existing:
@@ -521,6 +523,7 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
                 existing.maturity_date = pa.maturity_date
             if pa.maturity_amount:
                 existing.notes = f"Maturity value: ₹{pa.maturity_amount:,.2f}"
+            existing.accrued_interest = pa.accrued_interest
             count += 1
         else:
             db.add(ManualAsset(
@@ -535,6 +538,7 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
                 maturity_date=pa.maturity_date,
                 source_statement_date=pa.statement_date,
                 notes=f"Maturity value: ₹{pa.maturity_amount:,.2f}" if pa.maturity_amount else None,
+                accrued_interest=pa.accrued_interest,
             ))
             count += 1
 

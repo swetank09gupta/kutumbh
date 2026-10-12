@@ -157,6 +157,26 @@ def inv08_payloads_are_finite(db: Session) -> list[str]:
     return out
 
 
+# INV-09  The Manual Assets page shows the same value as net worth for deposits and PPF.
+def inv09_manual_assets_match_net_worth(db: Session) -> list[str]:
+    from app.api.routes.manual import _value_today
+    from app.consistency import _latest_nw
+    from app.models.schemas import ManualAsset
+    nw = _latest_nw(db)
+    out = []
+    today = date.today()
+    for o in _owners(db):
+        if o not in nw:
+            continue
+        rows = db.query(ManualAsset).filter(ManualAsset.owner_id == o).all()
+        fd = sum(_value_today(a) for a in rows if a.asset_type in ("fd", "rd") and not (a.maturity_date and a.maturity_date < today))
+        ppf = sum(_value_today(a) for a in rows if a.asset_type == "ppf")
+        for label, mine, theirs in (("deposits", fd, float(nw[o].fd_value or 0)), ("PPF", ppf, float(nw[o].ppf_value or 0))):
+            if abs(mine - theirs) > TOL:
+                out.append(f"{o}: {label} are ₹{mine:,.0f} on Manual Assets but ₹{theirs:,.0f} in net worth")
+    return out
+
+
 INVARIANTS: list[tuple[str, Callable[[Session], list[str]]]] = [
     ("INV-01 every manual investment is on the Investments page", inv01_every_manual_investment_is_listed),
     ("INV-02 classes add up to the total value", inv02_classes_add_up_to_total_value),
@@ -166,4 +186,5 @@ INVARIANTS: list[tuple[str, Callable[[Session], list[str]]]] = [
     ("INV-06 every holding is listed at its value", inv06_every_holding_is_listed),
     ("INV-07 the loan follows the lender", inv07_loan_follows_the_lender),
     ("INV-08 payloads are finite", inv08_payloads_are_finite),
+    ("INV-09 Manual Assets match net worth", inv09_manual_assets_match_net_worth),
 ]
