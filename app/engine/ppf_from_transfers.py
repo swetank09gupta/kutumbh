@@ -42,6 +42,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.engine.small_savings import ppf_current_rate
 from app.models.schemas import (
     Account, ManualAsset, ManualAssetContribution, Transaction,
 )
@@ -57,9 +58,10 @@ _PPF_TRANSFER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Default PPF rate. Government revises quarterly; 7.1% has been steady since
-# 2020 except for very minor moves. Override per-asset via ManualAsset.interest_rate.
-_PPF_RATE_DEFAULT = Decimal("7.1")
+# Default PPF rate: the Government-notified rate in force (NSI table, see small_savings). Override per-asset
+# via ManualAsset.interest_rate.
+def _ppf_rate_default(today) -> Decimal:
+    return Decimal(str(ppf_current_rate(today)))
 
 # PPF compounds annually (officially), but accumulating quarterly-credited
 # interest gives a close-enough running balance for the dashboard.
@@ -201,7 +203,7 @@ def sync_ppf_from_transfers(
             total_invested = sum(amt for _, amt in flows)
             start_date = min(d for d, _ in flows)
             current = _compound_to_today(flows, asset.interest_rate
-                                                or _PPF_RATE_DEFAULT, today)
+                                                or _ppf_rate_default(today), today)
 
             asset.invested_amount = total_invested
             asset.current_value   = current

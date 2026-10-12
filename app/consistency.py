@@ -271,12 +271,23 @@ def deposits_match_alerts(db: Session) -> dict:
                   if ok else "; ".join(parts) + " — see /api/health/alerts", "warn", drift=drift, missing=miss)
 
 
+def rules_are_current(db: Session) -> dict:
+    """The public-rules registry (app/knowledge/rules.yml) is read by hand: warn when a rule in force is over
+    120 days old or predates this quarter, so a changed rate/threshold is not silently relied on."""
+    from app.knowledge import rules
+    old = rules.stale()
+    return _check("public_rules_are_current", not old,
+                  "Every public rule was verified this quarter" if not old else
+                  f"{len(old)} rule(s) need re-reading at their source ({', '.join(r['id'] for r in old[:4])}"
+                  f"{'…' if len(old) > 4 else ''}) — see docs/INSTRUMENTS.md", "warn", stale=old)
+
+
 CHECKS: list[Callable[[Session], dict]] = [
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, product_invariants,
 ]
 
 

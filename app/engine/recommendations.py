@@ -12,6 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.engine.goals import project_all_goals
+from app.knowledge import rules
 from app.models.schemas import Account, Balance, Goal, ManualAsset, NetWorthSnapshot, Transaction
 
 ZERO = Decimal(0)
@@ -225,7 +226,7 @@ def _emi_burden_check(db: Session, owner_id: str) -> list[Recommendation]:
 
 
 def _ppf_nudge(db: Session, owner_id: str) -> list[Recommendation]:
-    """Remind to max out PPF contributions (₹1.5L/year limit)."""
+    """Remind to max out PPF contributions (annual limit from the rules registry)."""
     ppf_assets = (
         db.query(ManualAsset)
         .filter(ManualAsset.asset_type == "ppf")
@@ -253,14 +254,14 @@ def _ppf_nudge(db: Session, owner_id: str) -> list[Recommendation]:
         .scalar()
     ) or ZERO
 
-    limit = Decimal("150000")
+    limit = rules.value("ppf.annual_limit")
     if ppf_contrib < limit:
         remaining = limit - ppf_contrib
         return [Recommendation(
             priority="low",
             category="investment",
             title="PPF Annual Limit Not Maxed",
-            detail=f"₹{ppf_contrib:,.0f} contributed this FY. Limit: ₹1,50,000.",
+            detail=f"₹{ppf_contrib:,.0f} contributed this FY. Limit: ₹{limit:,.0f}.",
             action=f"Deposit ₹{remaining:,.0f} more before 31 March to max PPF (80C benefit).",
         )]
     return []
@@ -434,7 +435,7 @@ def _80c_dead_weight_check(db: Session, owner_id: str) -> list[Recommendation]:
         home_principal_est = household_principal_annual * share_pct / Decimal(100)
 
         consumed = ppf_fy + epf_annual + home_principal_est
-        cap = Decimal("150000")
+        cap = rules.value("income_tax.80c_cap")
 
         # Find ELSS holdings for this owner
         elss_value = Decimal(0)
@@ -452,7 +453,7 @@ def _80c_dead_weight_check(db: Session, owner_id: str) -> list[Recommendation]:
                     f"{oid.title()}'s 80C is already saturated "
                     f"(PPF ₹{float(ppf_fy):,.0f} + EPF ₹{float(epf_annual):,.0f} + "
                     f"home-loan principal ~₹{float(home_principal_est):,.0f} = "
-                    f"₹{float(consumed):,.0f} vs ₹1.5L cap). "
+                    f"₹{float(consumed):,.0f} vs ₹{float(cap)/100000:g}L cap). "
                     f"ELSS holdings worth ₹{float(elss_value):,.0f} give zero "
                     f"additional tax benefit and carry a 3-yr lock-in."
                 ),

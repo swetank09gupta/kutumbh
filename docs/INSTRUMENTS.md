@@ -47,9 +47,9 @@ Legend: ✅ the system already follows it · ◐ partly · ✗ not handled · �
 | Repo rate | RBI policy statements | home-loan reset forecast | ✗ |
 | EPF rate | EPFO / PIB | EPF projection | ✗ |
 | SGB exit calendar, gold price | RBI, IBJA | SGB deadlines, redemption value | ✗ |
-| Tax rates & thresholds | Income-tax Act / Finance Acts | tax lens, TDS forecast | ✗ (this page only) |
+| Tax rates & thresholds, PPF limit, EPF rate, repo | Income-tax Act / Finance Acts / RBI | limits, tax lens, TDS forecast, loan forecast | ✅ `app/knowledge/rules.yml` (effective-dated; stale-rule warning) |
 
 ## What is *not* public
 Your balances, deposit dates, unlabelled transfers, property value (the flat is entered by hand), EPF passbook. The system never guesses these: it reads statements, alerts and lender letters, or says what is missing.
 
-Rates and thresholds change; each is effective-dated. Re-verify this page at least quarterly (PPF/small savings on 1 Jan / 1 Apr / 1 Jul / 1 Oct, repo after each RBI MPC meeting, tax rates after each Budget).
+Rates and thresholds change; each is effective-dated in `app/knowledge/rules.yml` (a rule is added there only after it is written up here, with its source). Re-verify this page at least quarterly (PPF/small savings on 1 Jan / 1 Apr / 1 Jul / 1 Oct, repo after each RBI MPC meeting, tax rates after each Budget).

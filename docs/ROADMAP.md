@@ -2,11 +2,11 @@
 
 Written 12 Oct 2026, after collecting the public rules in [INSTRUMENTS.md](INSTRUMENTS.md). Nothing below is built yet. Each phase is **rules → tests → code → check before/after → docs**, finished before the next starts. New requests go into the Inbox at the bottom and are triaged here instead of being coded on the spot (a bug in shipped behaviour is the only exception).
 
-## Phase 0 — a rules registry (foundation, no visible number changes)
+## Phase 0 — a rules registry (foundation, no visible number changes) — DONE 12 Oct 2026
 Public parameters stop living as constants scattered through the code. `app/knowledge/rules.yml`, effective-dated, each entry with `source`, `effective_from`, `verified_on`:
 PPF limits and dates · TDS thresholds (₹40k/₹50k → ₹50k/₹1L on 1 Apr 2025) · capital-gains rates and holding periods (STCG 15%→20%, LTCG 10%→12.5% on 23 Jul 2024; ₹1L→₹1.25L) · SGB terms and the 1 Apr 2026 exemption change · MF stamp duty · equity charges · EPF rate · repo rate.
 Live feeds stay where one exists (NSI PPF table, AMFI/mfapi, World Bank); the rest are verified by hand with a **staleness guard** (consistency warning when `verified_on` is over 120 days old, or a quarter-start has passed).
-*Acceptance:* a test per rule (source and dates present, effective ranges do not overlap, lookup by date returns the right value); the existing PPF/TDS/CPI code reads the registry; `check.sh --live` shows no figure moved.
+*Built:* PPF limit, 80C cap, TDS, capital gains, MF stamp duty, EPF, repo (SGB and equity charges join when their phase needs them); PPF/80C code reads it; `public_rules_are_current` warns each quarter; no figure moved. *Acceptance was:* a test per rule (source and dates present, effective ranges do not overlap, lookup by date returns the right value); the existing PPF/TDS/CPI code reads the registry; `check.sh --live` shows no figure moved.
 
 ## Phase 1 — a rules-and-deadlines calendar (most useful, time-sensitive)
 One list, each item tied to a rule id: SGB exit windows (RBI calendar, shown as dates only, no early-exit comparison) · PPF: next 5th-of-month, ₹1.5L headroom for the FY, maturity/extension, 7th-year withdrawal · FD/MOD maturities · ELSS unlock dates (3 years per instalment) · loan reset after a repo change · TDS threshold about to be crossed.

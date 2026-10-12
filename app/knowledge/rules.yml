@@ -1,0 +1,109 @@
+# Public parameters the app relies on. Each entry is one value for one date range: a rule that changes gets a
+# NEW entry with a later effective_from (the old one stays, so history dates still resolve). The range of an
+# entry runs to the day before the next entry's effective_from.
+# Every entry needs: id, value, unit, effective_from, source (URL), verified_on (the day it was read there).
+# Add a rule here only after it is written up, with its source, in docs/INSTRUMENTS.md.
+# `note` is optional. Live feeds (PPF rate table, CPI, NAV) stay where they are; this file is for the rest.
+rules:
+  - id: ppf.annual_limit
+    value: 150000
+    unit: INR per financial year
+    effective_from: 2014-08-13
+    note: Finance Ministry notification GSR 588(E) of 13 Aug 2014 (was 100000)
+    source: https://www.gconnect.in/orders-in-brief/retirement-benefits/ppf-subscription-limit-increased-to-rs-1-5-lakh.html
+    verified_on: 2026-10-12
+
+  - id: income_tax.80c_cap
+    value: 150000
+    unit: INR per financial year (old regime only)
+    effective_from: 2014-04-01
+    source: https://www.businesstoday.in/story/union-budget-2014-15-tax-exemption-limit-under-80c-raised/1/208021.html
+    verified_on: 2026-10-12
+
+  - id: tds.194a.threshold
+    value: 40000
+    unit: INR interest per payer per year (non-senior)
+    effective_from: 2019-04-01
+    source: https://taxguru.in/income-tax/section-194a-tds-interest-other-interest-securities.html
+    verified_on: 2026-10-12
+  - id: tds.194a.threshold
+    value: 50000
+    unit: INR interest per payer per year (non-senior)
+    effective_from: 2025-04-01
+    source: https://cleartax.in/s/tds-on-fd-interest
+    verified_on: 2026-10-12
+
+  - id: tds.194a.threshold_senior
+    value: 50000
+    unit: INR interest per payer per year (senior citizen)
+    effective_from: 2019-04-01
+    source: https://taxguru.in/income-tax/section-194a-tds-interest-other-interest-securities.html
+    verified_on: 2026-10-12
+  - id: tds.194a.threshold_senior
+    value: 100000
+    unit: INR interest per payer per year (senior citizen)
+    effective_from: 2025-04-01
+    source: https://www.business-standard.com/finance/personal-finance/senior-citizens-how-the-rs-1-lakh-tds-threshold-affects-your-fd-earnings-125021101166_1.html
+    verified_on: 2026-10-12
+
+  - id: cg.equity.stcg_rate
+    value: 15
+    unit: percent (listed equity and equity funds, held up to 12 months)
+    effective_from: 2018-04-01
+    note: also in force before; the registry starts where LTCG tax began
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+  - id: cg.equity.stcg_rate
+    value: 20
+    unit: percent (listed equity and equity funds, held up to 12 months)
+    effective_from: 2024-07-23
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+
+  - id: cg.equity.ltcg_rate
+    value: 10
+    unit: percent (above the exemption, held over 12 months)
+    effective_from: 2018-04-01
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+  - id: cg.equity.ltcg_rate
+    value: 12.5
+    unit: percent (above the exemption, held over 12 months)
+    effective_from: 2024-07-23
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+
+  - id: cg.equity.ltcg_exemption
+    value: 100000
+    unit: INR gain per financial year
+    effective_from: 2018-04-01
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+  - id: cg.equity.ltcg_exemption
+    value: 125000
+    unit: INR gain per financial year
+    effective_from: 2024-07-23
+    source: https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf
+    verified_on: 2026-10-12
+
+  - id: mf.stamp_duty
+    value: 0.005
+    unit: percent of every purchase and SIP instalment
+    effective_from: 2020-07-01
+    source: https://www.bajajamc.com/knowledge-centre/stamp-duty-on-mutual-funds
+    verified_on: 2026-10-12
+
+  - id: epf.interest_rate
+    value: 8.25
+    unit: percent a year, declared per financial year
+    effective_from: 2025-04-01
+    source: https://www.pib.gov.in/PressReleasePage.aspx?PRID=2234502&reg=3&lang=1
+    verified_on: 2026-10-12
+
+  - id: rbi.repo_rate
+    value: 5.50
+    unit: percent
+    effective_from: 2026-10-07
+    note: first hike since Feb 2023; earlier values are not in the registry
+    source: https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/
+    verified_on: 2026-10-12
