@@ -1811,17 +1811,21 @@ async function loadHoldings() {
     const showClosed = $('show-closed-chk')?.checked;
     $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, showClosed);
 
-    const totals = {};
-    _holdingsCache.forEach(h => { const k = h.holding_type||'other'; totals[k] = (totals[k]||0) + Number(h.current_value||0); });
-    const labels = Object.keys(totals);
-    if (labels.length) {
-      makeChart('holdings-alloc', $('chart-holdings-alloc'), {
-        type: 'doughnut',
-        data: { labels, datasets:[{ data:Object.values(totals), backgroundColor:CHART_COLORS, borderWidth:0, hoverOffset:6 }] },
-        options: { ...chartDefaults, cutout:'65%', plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',boxWidth:12,font:{size:11}}}} }
-      });
-    }
+    _renderAllocation();
   } catch (e) { $('holdings-tbody').innerHTML = `<tr class="empty-row"><td colspan="8" style="color:#f87171">${e.message}</td></tr>`; }
+}
+
+function _renderAllocation() {
+  // Everything held on this page — market holdings, PPF and deposits — from the same payload as the chips.
+  const bc = (_returnsData && _returnsData.by_class) || [];
+  const rows = bc.filter(c => (c.current_all || 0) > 0);
+  if (!rows.length) return;
+  makeChart('holdings-alloc', $('chart-holdings-alloc'), {
+    type: 'doughnut',
+    data: { labels: rows.map(c => (_CLASS_LABELS[c.class] || c.class)),
+            datasets:[{ data: rows.map(c => c.current_all), backgroundColor: CHART_COLORS, borderWidth:0, hoverOffset:6 }] },
+    options: { ...chartDefaults, cutout:'65%', plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',boxWidth:12,font:{size:11}}}} }
+  });
 }
 
 function toggleClosedHoldings() {
@@ -1884,6 +1888,7 @@ async function loadPortfolioReturns() {
 function _renderReturnsStrip() {
   const strip = $('returns-strip');
   if (!strip || !_returnsData) return;
+  _renderAllocation();
   const t  = _returnsData.total || {};
   const bc = _returnsData.by_class || [];
 
@@ -2665,22 +2670,35 @@ async function saveProfiles() {
 async function loadCpi() {
   try {
     const d = await apiFetch('/api/goals/inflation');
-    $('cpi-badge').innerHTML = `Inflation assumed <b>${d.assumption.toFixed(1)}%</b> a year for every goal `
-      + `<a href="#" onclick="changeInflation(${d.assumption});return false" style="color:#a5b4fc">change</a>`
-      + ` · <span style="color:#64748b">India CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}%, 10-yr average ${d.avg_10y.toFixed(1)}%</span>`;
+    const auto = d.mode === 'auto';
+    $('cpi-badge').innerHTML = `Inflation <b>${d.assumption.toFixed(1)}%</b> for every goal — `
+      + (auto ? `automatic: 10-year average of India CPI <a href="#" onclick="changeInflation(${d.assumption});return false" style="color:#a5b4fc">override</a>`
+              : `manual <a href="#" onclick="clearInflation();return false" style="color:#a5b4fc">back to automatic (${d.avg_10y.toFixed(1)}%)</a>`)
+      + ` · <span style="color:#64748b">CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}%</span>`;
   } catch { $('cpi-badge').textContent = 'Inflation assumption unavailable'; }
 }
 
+async function _afterInflationChange(msg) {
+  toast(msg);
+  loadCpi(); loadGoals(); loadProjections(); loadRecommendations(); loadHealth();
+}
+
+async function clearInflation() {
+  try {
+    await apiFetch('/api/goals/settings/inflation', { method: 'DELETE' });
+    _afterInflationChange('Inflation follows the 10-year CPI average again — goals recomputed');
+  } catch (e) { toast(e.message, true); }
+}
+
 async function changeInflation(cur) {
-  const v = prompt('Inflation % per year, used for every goal and projection:', cur);
+  const v = prompt('Override inflation % per year (used for every goal):', cur);
   if (v === null) return;
   const rate = parseFloat(v);
   if (!isFinite(rate)) { toast('Enter a number, e.g. 6', true); return; }
   try {
     await apiFetch('/api/goals/settings/inflation', { method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                             body: JSON.stringify({ rate }) });
-    toast(`Inflation set to ${rate}% — goals recomputed`);
-    loadCpi(); loadGoals(); loadProjections(); loadRecommendations(); loadHealth();
+                                                      body: JSON.stringify({ rate }) });
+    _afterInflationChange(`Inflation overridden to ${rate}% — goals recomputed`);
   } catch (e) { toast(e.message, true); }
 }
 

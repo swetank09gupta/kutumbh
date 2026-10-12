@@ -297,18 +297,29 @@ class InflationBody(BaseModel):
 
 def _inflation_payload(db: Session) -> dict:
     from app.engine.inflation import get_india_cpi_stats
-    from app.engine.settings_store import get_inflation
+    from app.engine.settings_store import get_inflation, inflation_override
     st = get_india_cpi_stats()
-    return {"assumption": get_inflation(db), "india_cpi": st["latest"], "latest_year": st["latest_year"],
-            "avg_10y": st["avg_10y"], "source": "World Bank Open Data"}
+    manual = inflation_override(db)
+    return {"assumption": get_inflation(db), "mode": "manual" if manual is not None else "auto",
+            "india_cpi": st["latest"], "latest_year": st["latest_year"], "avg_10y": st["avg_10y"],
+            "source": "World Bank Open Data"}
 
 
-@router.get("/inflation", summary="The one inflation assumption used by every goal, with CPI for reference")
+@router.get("/inflation", summary="The one inflation assumption used by every goal (auto: 10-year average CPI)")
 def current_inflation(db: Annotated[Session, Depends(get_db)]):
     return _inflation_payload(db)
 
 
-@router.put("/settings/inflation", summary="Change the inflation assumption for all goals and recompute them")
+@router.delete("/settings/inflation", summary="Drop the manual override: inflation follows the 10-year average again")
+def clear_inflation_rate(db: Annotated[Session, Depends(get_db)]):
+    from app.engine.goals import refresh_goals
+    from app.engine.settings_store import clear_inflation_override
+    clear_inflation_override(db)
+    refresh_goals(db)
+    return _inflation_payload(db)
+
+
+@router.put("/settings/inflation", summary="Override the inflation assumption (all goals) and recompute them")
 def set_inflation_rate(body: InflationBody, db: Annotated[Session, Depends(get_db)]):
     from app.engine.goals import refresh_goals
     from app.engine.settings_store import set_inflation

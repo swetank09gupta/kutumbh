@@ -61,6 +61,6 @@ Option (C). Specifically:
 - Glide path defaults (3y / 8%) are tighter than typical target-date funds (5y / 5%). Picked to match Indian retiree behaviour, which de-risks later and tolerates more residual equity.
 
 
-## Addendum: one inflation rate (2026-10)
+## Addendum: one automatic inflation rate (2026-10)
 
-Inflation is a single app-wide assumption (`app_settings.inflation_rate`, default 6%, changed from the Goals page or `PUT /api/goals/settings/inflation`, which recomputes every goal). It replaces the per-goal rate, and an earlier shortcut that swapped in the latest one-year World Bank CPI print (2025: 2.4%), which shrank 20-year targets and the SIP needed for them. The latest print and the 10-year average (~4.7%) are shown beside it for reference only.
+Inflation is a single app-wide assumption, **automatic**: the 10-year average of India's annual CPI from the World Bank (~4.7%, refreshed daily from cache, last known figures when offline). A long-horizon goal should assume the long-run rate, not last year's print (2025: 2.4%). It replaces the per-goal rate and an earlier shortcut that swapped in the latest print for goals stored at 6.0%. An optional override (`PUT /api/goals/settings/inflation`, from the Goals page) can be set and cleared (`DELETE`); changing either recomputes every goal.

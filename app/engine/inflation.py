@@ -42,7 +42,7 @@ def get_india_cpi_stats() -> dict:
         try:
             cached = json.loads(_CACHE_FILE.read_text())
             age = datetime.now() - datetime.fromisoformat(cached["cached_at"])
-            if age < timedelta(hours=_CACHE_HOURS) and "avg_10y" in cached:
+            if age < timedelta(hours=cached.get("ttl_hours", _CACHE_HOURS)) and "avg_10y" in cached:
                 return {k: cached[k] for k in ("latest", "latest_year", "avg_10y")}
         except Exception:
             pass
@@ -53,8 +53,19 @@ def get_india_cpi_stats() -> dict:
         logger.info("India CPI refreshed: %s", stats)
         return stats
     except Exception as exc:
-        logger.warning("CPI fetch failed (%s) — using defaults", exc)
-        return dict(_DEFAULT)
+        # Offline: keep the last real figures (annual data barely moves), else the planning default,
+        # and retry in an hour rather than once per goal per request.
+        logger.warning("CPI fetch failed (%s) — using the last known figures", exc)
+        try:
+            last = json.loads(_CACHE_FILE.read_text())
+            stats = {k: last[k] for k in ("latest", "latest_year", "avg_10y")}
+        except Exception:
+            stats = dict(_DEFAULT)
+        try:
+            _CACHE_FILE.write_text(json.dumps({**stats, "cached_at": datetime.now().isoformat(), "ttl_hours": 1}))
+        except Exception:
+            pass
+        return stats
 
 
 def get_india_cpi() -> float:
