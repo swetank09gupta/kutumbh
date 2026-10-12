@@ -47,9 +47,16 @@ def is_cumulative(asset) -> bool:
     return bool(base and mat and mat > base * Decimal("1.0001") and asset.maturity_date)
 
 
-def accrued_value(asset, as_of: date) -> Decimal:
-    """What the deposit is worth on `as_of`."""
+def accrued_value(asset, as_of: date, series: dict | None = None) -> Decimal:
+    """What the deposit (or PPF) is worth on `as_of`. A PPF's statement balance leaves out the interest earned
+    since the last 31 March (credited once a year), so today's value adds it, from the statements' own balances."""
     base = base_value(asset)
+    if getattr(asset, "asset_type", None) == "ppf":
+        snaps = (series or {}).get((getattr(asset, "owner_id", None), getattr(asset, "name", None)))
+        if snaps and as_of >= date.today():
+            from app.engine.small_savings import ppf_accrued_from_balances
+            return (asset.current_value or ZERO) + ppf_accrued_from_balances([(d, p) for d, p, _a in snaps], as_of)
+        return asset.current_value or ZERO
     if getattr(asset, "asset_type", None) not in ("fd", "rd"):
         return asset.current_value or ZERO
     if not is_cumulative(asset):

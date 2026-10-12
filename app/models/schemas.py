@@ -514,6 +514,18 @@ class DepositSnapshot(Base):
     __table_args__ = (UniqueConstraint("owner_id", "name", "as_on", name="uq_deposit_snapshot"),)
 
 
+class TdsDeduction(Base):
+    """Tax the bank deducted at source from a deposit's interest (SBI e-mail). Interest credited to savings is net of it."""
+    __tablename__ = "tds_deductions"
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id      = Column(String(20), nullable=False)
+    account_last4 = Column(String(4), nullable=False)
+    deducted_on   = Column(Date, nullable=False)
+    amount        = Column(Numeric(15, 2), nullable=False)
+    natural_key   = Column(String(120), nullable=False, unique=True)
+
+
 class PayeeMemory(Base):
     """
     What a payee (UPI/IMPS counterparty) is, learned once and applied everywhere.

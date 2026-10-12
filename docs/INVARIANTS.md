@@ -39,6 +39,8 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | PPF contributions are rebuilt from the statements' balance series; interest-credit steps are not contributions | `tests/test_deposit_flows.py`, `test_invariants_db::test_ppf_contributions_are_rebuilt…` |
 | Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |
 | Each purchase takes its own bank debit even when two debits have the same amount | `tests/test_derive_db.py` |
+| A PPF measured from its statements earns about the notified rate (interest since 31 March is part of its value) | `test_invariants_db::test_a_ppf_measured…`, `tests/test_small_savings.py` |
+| Tax deducted at source is added back to a deposit's interest (returns are pre-tax) | `test_invariants_db::test_tax_deducted_at_source…`, `tests/test_bank_alert.py` |
 | Loan roll-forward reproduces the lender's next figure | `tests/test_loan.py` |
 | Inflation: one automatic app-wide rate (10-year CPI average); an override can be set and cleared; goals ignore their own rate | `tests/test_settings.py`, `tests/test_inflation.py` |
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |

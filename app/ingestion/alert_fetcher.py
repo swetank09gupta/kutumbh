@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.email_fetcher import _imap_connect, _parse_imap_fetch
-from app.ingestion.parsers.bank_alert import BankAlert, clean_text, parse_alert
-from app.models.schemas import BankAlertRow
+from app.ingestion.parsers.bank_alert import BankAlert, clean_text, parse_alert, parse_tds
+from app.models.schemas import BankAlertRow, TdsDeduction
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,9 @@ def _mailbox(host: str) -> str:
     return '"[Gmail]/All Mail"' if "gmail" in host else "INBOX"
 
 
-def fetch_alerts(since_days: int) -> list[tuple[str, BankAlert, datetime | None]]:
-    """(owner_id, alert, sent_at) for every parseable alert in every mailbox."""
+def fetch_alerts(since_days: int, tds: list | None = None) -> list[tuple[str, BankAlert, datetime | None]]:
+    """(owner_id, alert, sent_at) for every parseable alert in every mailbox. TDS notices (not transactions) are
+    appended to `tds` as (owner_id, last4, amount, date) when a list is given."""
     since = (date.today() - timedelta(days=since_days)).strftime("%d-%b-%Y")
     out: list[tuple[str, BankAlert, datetime | None]] = []
     for acc in settings.get_email_accounts():
@@ -81,13 +82,16 @@ def fetch_alerts(since_days: int) -> list[tuple[str, BankAlert, datetime | None]
                     subj = _subject(msg).lower()
                     if not any(h in subj for h in _SUBJECT_HINTS):
                         continue
-                    alert = parse_alert(msg.get("From", ""), _body(msg))
+                    body = _body(msg)
+                    alert = parse_alert(msg.get("From", ""), body)
+                    try:
+                        sent = parsedate_to_datetime(msg.get("Date"))
+                    except Exception:
+                        sent = None
                     if alert:
-                        try:
-                            sent = parsedate_to_datetime(msg.get("Date"))
-                        except Exception:
-                            sent = None
                         out.append((acc["owner_id"], alert, sent))
+                    elif tds is not None and (t := parse_tds(msg.get("From", ""), body)) and sent:
+                        tds.append((acc["owner_id"], t[0], t[1], sent.date()))
                 except Exception as exc:                   # one bad mail must not stop the rest
                     logger.warning("alerts: skipped a message in %s: %s", acc["address"], exc)
             logger.info("alerts: %s → %d alerts from %d candidate mails", acc["address"],
@@ -101,7 +105,14 @@ def fetch_alerts(since_days: int) -> list[tuple[str, BankAlert, datetime | None]
 
 
 def ingest_alerts(db: Session, since_days: int = 30) -> dict[str, int]:
-    found = fetch_alerts(since_days)
+    tds: list = []
+    found = fetch_alerts(since_days, tds)
+    tds_new = 0
+    for owner_id, last4, amount, when in tds:
+        key = f"{owner_id}|{last4}|{when}|{amount}"
+        tds_new += db.execute(pg_insert(TdsDeduction.__table__).values(
+            id=uuid.uuid4(), owner_id=owner_id, account_last4=last4, deducted_on=when, amount=amount, natural_key=key
+        ).on_conflict_do_nothing(index_elements=["natural_key"])).rowcount
     rows, keys = [], set()
     for owner_id, a, sent in found:
         k = alert_key(owner_id, a)
@@ -117,4 +128,4 @@ def ingest_alerts(db: Session, since_days: int = 30) -> dict[str, int]:
         stmt = pg_insert(BankAlertRow.__table__).values(rows[i:i + 500])
         inserted += db.execute(stmt.on_conflict_do_nothing(index_elements=["natural_key"])).rowcount
     db.commit()
-    return {"parsed": len(found), "new": inserted}
+    return {"parsed": len(found), "new": inserted, "tds_new": tds_new}

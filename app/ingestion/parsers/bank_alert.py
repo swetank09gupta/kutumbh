@@ -103,6 +103,18 @@ _SBI = [
 ]
 
 
+_TDS = re.compile(rf"TDS of INR {_N} deducted for interest paid on A/C No X*(\d+)", re.I)
+
+
+def parse_tds(sender: str, text: str) -> tuple[str, Decimal] | None:
+    """SBI's "TDS of INR 73.00 deducted for interest paid on A/C No XXXXX826925": (last 4 digits of the deposit, amount).
+    Not a transaction: tax deducted at source from the interest, which is why a deposit's credits are net."""
+    if "sbi" not in (sender or "").lower():
+        return None
+    m = _TDS.search(text)
+    return (m.group(2)[-4:], _amt(m.group(1))) if m else None
+
+
 def parse_alert(sender: str, text: str) -> BankAlert | None:
     """Parse one alert body (already tag-stripped). Returns None for anything that is not a transaction."""
     s = (sender or "").lower()

@@ -33,6 +33,10 @@ The Investments page showed "—" for equity ("opened and closed within days"), 
 
 **Statement history** (`deposit_snapshots`, `app/engine/deposit_flows.py`): every monthly SBI statement prints each deposit's principal, interest accrued and maturity value, and the PPF balance. Each reading is kept (new statements record themselves; `scripts/backfill_deposit_history.py` read the 96 on disk; LLM-read rows are never kept). From the series: a **PPF's contributions are its balance steps** (minus the 31-March interest by PPF's own rule; bank transfers date them exactly where the bank statement exists), measured from the first financial year-end; a **deposit's part-withdrawals and top-ups** are drops and non-interest rises in its principal; and a deposit the **newest statement no longer lists is closed** and is worth nothing (two such rows had been counted — ₹1.84L — and are now excluded everywhere).
 
+**Interest reconciliation.** A deposit that pays its interest out monthly shows those payments as credits in savings ("INT TRF FRM <deposit> TO <savings>"). They are one fact seen from two sides: *income* in the cash-flow view, an *inflow of the deposit* in the returns view; net worth carries only principal plus the small unpaid accrual, so nothing is counted twice. The credits are **net of tax deducted at source** (about 10% from July 2026: ₹518 became ₹466 on ₹1,00,000), so SBI's "TDS of INR … deducted for interest paid on A/C …" notices are read (`tds_deductions`) and added back: the return is quoted before tax, like the PPF and the funds.
+
+**PPF value and return.** Interest is credited once a year (31 March), so the statement balance omits what has been earned since; today's value adds it (`ppf_accrued_from_balances`, by the 5th-to-month-end rule at the notified rate) on every page. Without that, a PPF that is earning 7.1% measured about 6.6%.
+
 ## Consequences
 
 - Family coverage went from 50% to 98%; the remaining gap is a few units of one fund bought before any evidence we hold. A Console MF tradebook CSV would close it and replaces derived trades automatically.

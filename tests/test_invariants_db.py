@@ -117,6 +117,9 @@ class Invariants(unittest.TestCase):
         for k in range(1, 13):
             txn(hdfc, today - timedelta(days=30 * k), 520, "credit", None, "INT TRF FRM 40000001111 TO 30778223316")
         cls._deposit_history(today)
+        for k in range(1, 5):                                           # tax deducted at source on FD ...1111's interest
+            db.add(m.TdsDeduction(owner_id="user", account_last4="1111", deducted_on=today - timedelta(days=30 * k),
+                                  amount=D("52"), natural_key=f"t{k}"))
         db.add(m.LoanAnchor(owner_id="user", lender="HDFC", loan_no="1", as_on=date(2026, 5, 3), prepaid=D(0),
                             principal_after=D(12803080), emi=D(170000), rate=D("7.1"), natural_key="t1"))
         db.commit()
@@ -160,6 +163,8 @@ class Invariants(unittest.TestCase):
             if d.month == 3:
                 bal += int(bal * 0.071)
             snap("wife", "SBI PPF", "ppf", d, bal)
+        m_ = cls.m.ManualAsset                                          # the asset row is the newest statement's balance
+        db.query(m_).filter_by(owner_id="wife", name="SBI PPF").update({"current_value": D(bal)})
 
     def run_all(self):
         from app.invariants import INVARIANTS
@@ -178,7 +183,7 @@ class Invariants(unittest.TestCase):
         self.assertNotIn("SBI FD ...3333", names)                        # matured deposits are not
         self.assertNotIn("SBI FD ...5555", names)                        # a deposit the newest statement dropped is closed
         by = {c["class"]: c for c in fam["by_class"]}
-        self.assertAlmostEqual(by["ppf"]["current_all"], 2_440_000, delta=1)
+        self.assertTrue(by["ppf"]["current_all"] > 540_000 + 1_500_000)         # balances + interest since 31 March
         self.assertLess(by["mutual_fund"]["coverage_pct"], 100)          # the no-history fund is named, not hidden
         self.assertIsNotNone(by["mutual_fund"]["xirr_pct"])              # ...and does not blank the class
         self.assertEqual(sum(1 for i in fam["instruments"] if i["cost_quality"] == "partial"), 1)
@@ -213,6 +218,22 @@ class Invariants(unittest.TestCase):
         row = next(m for m in compute_owner_returns(self.db, "wife")["manual_assets"] if m["name"] == "SBI PPF")
         self.assertIsNone(row["why"])                                        # measured, not a bare balance
         self.assertIsNotNone(row["invested"])
+
+    def test_a_ppf_measured_from_its_statements_earns_about_the_notified_rate(self):
+        # the fixture's balances grow by exactly 7.1% a year: the measured return must not fall short of it
+        # because interest earned since 31 March is not yet in the statement balance
+        from app.engine.portfolio_xirr import compute_owner_returns
+        row = next(m for m in compute_owner_returns(self.db, "wife")["manual_assets"] if m["name"] == "SBI PPF")
+        self.assertTrue(6.8 < row["xirr_pct"] < 7.6, row["xirr_pct"])
+
+    def test_tax_deducted_at_source_is_added_back_to_a_deposits_interest(self):
+        from app.engine import portfolio_xirr as px
+        from datetime import date as _d
+        ps, _ = px.build_positions(self.db, ["user"], _d.today())
+        fd = next(p for p in ps if p.name == "SBI FD ...1111")
+        flows = [a for _, a in fd.cfs]
+        self.assertEqual(sum(1 for a in flows if a == 52.0), 4)              # the four TDS amounts are in the flows
+        self.assertGreater(len([a for a in flows if a == 520.0]), 5)         # next to the credited (net) interest
 
     def test_a_cumulative_deposit_is_worth_its_accrued_value_on_every_page(self):
         from app.api.routes.manual import _value_today

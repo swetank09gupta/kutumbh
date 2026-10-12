@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from app.ingestion.parsers.bank_alert import parse_alert
+from app.ingestion.parsers.bank_alert import parse_alert, parse_tds
 
 HDFC = "alerts@hdfcbank.bank.in"
 SBI = "noreply@alerts.sbi.bank.in"
@@ -70,8 +70,11 @@ class SbiAlerts(unittest.TestCase):
         self.assertEqual((n.ref, n.amount, n.txn_date), ("SBIN526152155683", Decimal("200000.00"), date(2026, 6, 1)))
         self.assertEqual((s.ref, s.txn_date, s.account_last4), ("SBIN526274293555", date(2026, 10, 1), "3316"))
 
-    def test_interest_certificate_and_tds_are_ignored(self):
-        self.assertIsNone(parse_alert(SBI, "Dear Customer, TDS of INR 73.00 deducted for interest paid on A/C No XXXXX826925."))
+    def test_a_tds_notice_is_not_a_transaction_but_is_read_as_tax_on_a_deposit(self):
+        text = "Dear Customer, TDS of INR 1,277.00 deducted for interest paid on A/C No XXXXX826925. Please submit 15G/H"
+        self.assertIsNone(parse_alert(SBI, text))
+        self.assertEqual(parse_tds(SBI, text), ("6925", Decimal("1277.00")))
+        self.assertIsNone(parse_tds(HDFC, text))
 
 
 if __name__ == "__main__":

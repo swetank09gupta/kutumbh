@@ -144,6 +144,15 @@ def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
 _FD_INT = re.compile(r"INT\s*TRF\s*FRM\s*(\d{6,})\s*TO", re.I)
 
 
+def _fd_tds(db: Session, owner_ids: list[str]) -> dict[tuple[str, str], list[tuple[date, float]]]:
+    """Tax deducted at source from each deposit's interest: {(owner, last4): [(date, amount)]}."""
+    from app.models.schemas import TdsDeduction
+    out: dict[tuple[str, str], list[tuple[date, float]]] = defaultdict(list)
+    for r in db.query(TdsDeduction).filter(TdsDeduction.owner_id.in_(owner_ids)).all():
+        out[(r.owner_id, r.account_last4)].append((r.deducted_on, float(r.amount)))
+    return out
+
+
 def _fd_interest_credits(db: Session, owner_ids: list[str]) -> dict[tuple[str, str], list[tuple[date, float]]]:
     """Interest each SBI deposit actually paid into savings, found by the deposit's account number in the
     narration ("INT TRF FRM 43960134737 TO 30778223316"): {(owner, last4 of the deposit): [(date, amount)]}."""
@@ -253,6 +262,7 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
     hist, newest = deposit_history(db)
     fd_interest = _fd_interest_credits(db, owner_ids)
     fd_breaks = _fd_breaks(db, owner_ids)
+    fd_tds = _fd_tds(db, owner_ids)
     for asset in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(owner_ids)).all():
         if asset.asset_type not in _INVESTING_ASSET_TYPES:
             continue
@@ -276,14 +286,18 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             credits = fd_interest.get((asset.owner_id, tail.group(1)), []) if tail else []
             first = min((d for d, _ in flows), default=None)
             months = ((today - first).days / 30.4) if first else 0
-            paid = [(d, a) for d, a in credits if first and d > first]
+            # Credits to savings are NET of tax deducted at source; the return is quoted before tax (as for the PPF
+            # and the funds), so the deducted tax is added back.
+            paid = [(d, a) for d, a in credits if first and d > first] \
+                + [(d, a) for d, a in (fd_tds.get((asset.owner_id, tail.group(1)), []) if tail else []) if first and d > first]
+            n_credits = sum(1 for d, a in credits if first and d > first)
             if flows and contract is not None:
                 # Cumulative deposit: its own statements give the opening, every part-withdrawal and top-up; the
                 # interest stays inside it and is part of what it is worth today.
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=current, cfs=flows, rate=rate,
                                           maturity=asset.maturity_date, contract=True))
-            elif flows and months >= 6 and len(paid) >= 0.8 * (months - 1):
+            elif flows and months >= 6 and n_credits >= 0.8 * (months - 1):
                 # Interest is paid out monthly: the same flows plus every interest credit it paid into savings.
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=current, cfs=flows + paid, rate=rate,
@@ -291,7 +305,7 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             else:
                 why = ("no statement history for it" if not flows else
                        "history under six months" if months < 6 else
-                       f"its interest is paid out monthly but only {len(paid)} of about {max(0, int(months - 1))} credits are on file")
+                       f"its interest is paid out monthly but only {n_credits} of about {max(0, int(months - 1))} credits are on file")
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=current, covered=False, deposit=True,
                                           rate=rate, maturity=asset.maturity_date, contract=contract is not None,
@@ -304,8 +318,9 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             bank = [(d, a) for d, a, _desc, _inst in _ppf_contribution_txns_for(db, asset.owner_id)]
             put_in, _notes = ppf_flows(snaps, bank)
             if put_in:
+                from app.engine.deposits import accrued_value
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
-                                          cls="ppf", current=float(asset.current_value or 0),
+                                          cls="ppf", current=float(accrued_value(asset, today, hist)),
                                           cfs=[(d, -float(a)) for d, a in put_in], goal_tag=asset.goal_tag,
                                           rate=float(asset.interest_rate) if asset.interest_rate else None,
                                           maturity=asset.maturity_date))
