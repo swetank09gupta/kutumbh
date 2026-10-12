@@ -26,6 +26,7 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 |---|---|
 | Nothing is invented: no assumed redemptions, no guessed costs | `tests/test_no_invented_data.py` |
 | ISIN-tagged flows count whichever account they sit in (bank SIP mandates) | `test_invariants_db::test_a_bank_sip_debit_counts_as_a_purchase` |
+| The headline return states its coverage of everything held, and names what is left out and why | `test_invariants_db::test_the_headline_return_says_what_it_leaves_out` |
 | Missing cost is named with a coverage %, not hidden; one unknown fund never blanks a class | `test_invariants_db::test_the_awkward_cases_are_really_in_play`, `test_returns_core` |
 | Under a year of holding: plain gain, not an annual rate | `tests/test_returns_core.py` |
 | XIRR finds a rate for sign-changing flows and says `None` when none exists | `tests/test_xirr.py` |

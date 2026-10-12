@@ -143,6 +143,14 @@ class Invariants(unittest.TestCase):
         self.assertIsNotNone(by["mutual_fund"]["xirr_pct"])              # ...and does not blank the class
         self.assertEqual(sum(1 for i in fam["instruments"] if i["cost_quality"] == "partial"), 1)
 
+    def test_the_headline_return_says_what_it_leaves_out(self):
+        from app.engine.portfolio_xirr import compute_owner_returns
+        t = compute_owner_returns(self.db, "family")["total"]
+        self.assertAlmostEqual(t["coverage_pct"], t["current"] / t["value_all"] * 100, delta=0.1)   # share of EVERYTHING held
+        self.assertLess(t["coverage_pct"], 100)
+        self.assertIn("PPF", t["note"])                                   # the 19L-style PPF balance is named...
+        self.assertIn("no purchase history", t["note"])                   # ...and so is the fund with no history
+
     def test_a_bank_sip_debit_counts_as_a_purchase(self):
         from app.engine.portfolio_xirr import compute_owner_returns
         inst = {i["isin"]: i for i in compute_owner_returns(self.db, "user")["instruments"]}

@@ -409,12 +409,33 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
         })
     total = summarise([p for p in positions if not p.deposit], today)
     total["value_all"] = round(sum(p.current for p in positions), 2)          # everything held, balances included
+    _describe_total(total, by_class)
     return {
         "owner_id": owner_id, "as_of": today.isoformat(), "total": total, "by_class": by_class,
         "instruments": _instruments(positions, today), "by_goal": _goals(positions, today),
         "manual_assets": _manual_rows(positions, today),
         "skipped": skipped,
     }
+
+
+def _describe_total(total: dict, by_class: list[dict]) -> None:
+    """Say plainly what the headline return covers: the share of EVERYTHING held, and what is left out and why."""
+    held, covered = total["value_all"], total["current"]
+    total["coverage_pct"] = round(covered / held * 100, 1) if held > 0 else None
+    total["uncovered_current"] = round(held - covered, 2)
+    left = []
+    for c in by_class:
+        gap = (c.get("current_all") or 0) - (c.get("current") or 0)
+        if gap > max(1.0, 0.005 * (c.get("current_all") or 0)):
+            why = ("balance, no return measurable" if c["class"] in ("fd", "rd", "ppf")
+                   else "no purchase history yet")
+            left.append(f"₹{gap:,.0f} {_CLASS_NAMES.get(c['class'], c['class'])} ({why})")
+    total["note"] = (f"Return covers ₹{covered:,.0f} of the ₹{held:,.0f} held ({total['coverage_pct']:.0f}%)"
+                     + (". Left out: " + "; ".join(left) if left else "")) if held > 0 else None
+
+
+_CLASS_NAMES = {"fd": "fixed deposits", "rd": "recurring deposits", "ppf": "PPF", "mutual_fund": "mutual funds",
+                "equity": "equity", "bonds": "bonds", "nps": "NPS", "gold": "gold", "silver": "silver", "sgb": "SGB"}
 
 
 def _instruments(positions: list[Position], today: date) -> list[dict]:
