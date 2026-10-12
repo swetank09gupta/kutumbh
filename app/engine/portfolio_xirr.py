@@ -132,6 +132,8 @@ class Position:
     holding: object = None            # the holdings-view row, for CAGR inputs
     closed: bool = False
     deposit: bool = False             # FD / RD: earns its stated rate, so no return is derived from it
+    rate: Optional[float] = None      # stated interest rate, manual investments
+    maturity: Optional[date] = None
 
 
 def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
@@ -226,7 +228,8 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             # the principal, so "invested vs current" is not a return. Valued at its balance, like net worth.
             positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                       cls=asset.asset_type, current=float(asset.current_value or 0), covered=False,
-                                      deposit=True))
+                                      deposit=True, rate=float(asset.interest_rate) if asset.interest_rate else None,
+                                      maturity=asset.maturity_date))
             continue
         out = _manual_asset_cashflows(db, asset, today)
         if out is None:
@@ -237,7 +240,9 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=float(asset.current_value or 0),
                                           covered=False, goal_tag=asset.goal_tag,
-                                          deposit=asset.asset_type == "ppf"))
+                                          deposit=asset.asset_type == "ppf",
+                                          rate=float(asset.interest_rate) if asset.interest_rate else None,
+                                          maturity=asset.maturity_date))
             else:
                 skipped.append({"kind": "manual_asset", "name": asset.name or asset.asset_type,
                                 "reason": "no start_date or contributions"})
@@ -247,7 +252,9 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
             cfs = cfs[:-1]                              # drop the terminal value; summarise() adds it
         positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                   cls=asset.asset_type, current=float(current), cfs=cfs,
-                                  goal_tag=asset.goal_tag if asset.asset_type != "real_estate" else None))
+                                  goal_tag=asset.goal_tag if asset.asset_type != "real_estate" else None,
+                                  rate=float(asset.interest_rate) if asset.interest_rate else None,
+                                  maturity=asset.maturity_date))
     return positions, skipped
 
 
@@ -363,9 +370,11 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
             "excluded_from_total": False,
         })
     total = summarise([p for p in positions if not p.deposit], today)
+    total["value_all"] = round(sum(p.current for p in positions), 2)          # everything held, balances included
     return {
         "owner_id": owner_id, "as_of": today.isoformat(), "total": total, "by_class": by_class,
         "instruments": _instruments(positions, today), "by_goal": _goals(positions, today),
+        "manual_assets": _manual_rows(positions, today),
         "skipped": skipped,
     }
 
@@ -396,6 +405,22 @@ def _instruments(positions: list[Position], today: date) -> list[dict]:
             "years": round(years, 2), "xirr_pct": r, "cagr_pct": h_cagr, "goal_tag": p.goal_tag,
             "cost_quality": getattr(h, "cost_basis_quality", None),
         })
+    out.sort(key=lambda x: x["current"], reverse=True)
+    return out
+
+
+def _manual_rows(positions: list[Position], today: date) -> list[dict]:
+    """PPF, FDs and other manual investments as rows for the holdings table (the market holdings are the other rows)."""
+    out = []
+    for p in positions:
+        if p.holding is not None or p.closed or p.isin is not None or p.current <= 0:
+            continue
+        r = None if (p.deposit or not p.covered or not p.cfs) else xirr(p.cfs + [(today, p.current)])
+        invested = sum(-a for _, a in p.cfs if a < 0) or None
+        out.append({"name": p.name, "owner": p.owner, "type": p.cls, "current": round(p.current, 2),
+                    "rate": p.rate, "maturity": p.maturity.isoformat() if p.maturity else None,
+                    "invested": invested, "gain": round(p.current - invested, 2) if (invested and p.covered and not p.deposit) else None,
+                    "xirr_pct": r, "goal_tag": p.goal_tag})
     out.sort(key=lambda x: x["current"], reverse=True)
     return out
 

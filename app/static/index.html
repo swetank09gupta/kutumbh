@@ -623,7 +623,7 @@
         <div class="page-title" style="margin-bottom:0">Investments</div>
         <button class="btn btn-ghost" onclick="autoTagHoldings()" id="btn-autotag" style="font-size:12px" title="Auto-assign goals to untagged MF/equity holdings using ISIN database">✦ Auto-tag Goals</button>
       </div>
-      <div class="page-sub">Stocks and mutual fund holdings</div>
+      <div class="page-sub">Everything you hold — stocks, funds, bonds, PPF and deposits</div>
 
       <!-- Unified page filter -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">
@@ -1789,13 +1789,36 @@ function _holdingRow(h, returnsMap, isClosed) {
   </tr>`;
 }
 
+function _manualHoldingRows() {
+  // PPF, fixed deposits and other manual investments belong in the holdings list too.
+  const rows = (_returnsData && _returnsData.manual_assets) || [];
+  const who = o => (o === 'wife' ? 'Spouse' : o === 'user' ? 'Self' : o);
+  return rows.filter(m => _classFilter === 'all' || m.type === _classFilter).map(m => {
+    const pnl = m.gain, color = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8';
+    const pct = (pnl != null && m.invested) ? pnl / m.invested * 100 : null;
+    const rate = m.xirr_pct != null ? `<span style="color:${m.xirr_pct >= 0 ? '#4ade80' : '#f87171'}">${m.xirr_pct.toFixed(1)}% XIRR</span>`
+               : (m.rate ? `<span style="color:#94a3b8">${m.rate.toFixed(1)}% stated</span>` : '—');
+    return `<tr>
+      <td><div style="font-weight:500">${_esc(m.name)}</div>
+          <div style="font-size:11px;color:#475569">${who(m.owner)}${m.maturity ? ' · matures ' + fmtDate(m.maturity) : ''}</div></td>
+      <td><span class="badge" style="background:#052e2b;color:#5eead4">${_esc(m.type)}</span></td>
+      <td><span style="color:#64748b;font-size:11px">${_esc(m.goal_tag || '—')}</span></td>
+      <td style="text-align:right;font-family:monospace">—</td>
+      <td style="text-align:right;font-weight:600">₹${fmt(m.current)}</td>
+      <td style="text-align:right;font-family:monospace;color:${color}">${pnl != null ? (pnl >= 0 ? '+' : '−') + fmt(Math.abs(pnl)) : '—'}</td>
+      <td style="text-align:right;font-family:monospace;color:${color}">${pct != null ? (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%' : '—'}</td>
+      <td style="text-align:right;font-size:12px">${rate}</td></tr>`;
+  }).join('');
+}
+
 function _renderHoldingsTable(holdings, closed, showClosed) {
   const returnsMap = {};
   if (_returnsData) {
     (_returnsData.instruments || _returnsData.holdings || []).forEach(r => { if (r.isin) returnsMap[r.isin] = r; });
   }
-  const openRows   = holdings.map(h => _holdingRow(h, returnsMap, false));
-  const closedRows = showClosed ? (closed||[]).map(h => _holdingRow(h, returnsMap, true)) : [];
+  const keep = h => _classFilter === 'all' || h.holding_type === _classFilter;      // the class pills filter the list too
+  const openRows   = holdings.filter(keep).map(h => _holdingRow(h, returnsMap, false)).concat(_manualHoldingRows());
+  const closedRows = showClosed ? (closed||[]).filter(keep).map(h => _holdingRow(h, returnsMap, true)) : [];
   const all = [...openRows, ...closedRows];
   return all.length
     ? all.join('')
@@ -1875,6 +1898,7 @@ async function loadPortfolioReturns() {
       return;
     }
     _renderReturnsStrip();
+    $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, $('show-closed-chk')?.checked);
 
     // Closed positions arrive later — refresh just the holdings table when ready.
     closedP.then(closed => {
@@ -1904,16 +1928,16 @@ function _renderReturnsStrip() {
   // Active class data — either total (when 'all') or the matching by_class entry
   let chips = '';
   if (_classFilter === 'all') {
-    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, t.gain_pct, t.note);
+    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, t.gain_pct, t.note, t.value_all);
     for (const c of bc) {
       const lbl = (_CLASS_LABELS[c.class] || c.class) + ' XIRR';
-      chips += _xirrChip(lbl, c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note);
+      chips += _xirrChip(lbl, c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note, c.current_all);
     }
   } else {
     const c = bc.find(x => x.class === _classFilter);
     if (c) {
       chips += _xirrChip((_CLASS_LABELS[c.class] || c.class) + ' XIRR',
-                         c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note);
+                         c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note, c.current_all);
       // Add CAGR + period chips for context
       chips += _xirrChip('CAGR', c.cagr_pct, c.invested, c.current, c.gain, null);
       const yrLabel = c.years != null ? `${c.years.toFixed(1)} yrs` : '—';
@@ -2010,9 +2034,10 @@ function _renderReturnsStrip() {
 function setClassFilter(cls) {
   _classFilter = cls;
   _renderReturnsStrip();
+  $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, $('show-closed-chk')?.checked);
 }
 
-function _xirrChip(label, xirr_v, invested, current, gain, total_return, note) {
+function _xirrChip(label, xirr_v, invested, current, gain, total_return, note, value) {
   // Primary: XIRR; when no annual rate exists show the plain gain % and say so
   const display_v   = xirr_v   != null ? xirr_v   : total_return;
   const display_lbl = xirr_v   != null ? 'XIRR'   : (total_return != null ? 'gain, no annual rate' : null);
@@ -2022,13 +2047,13 @@ function _xirrChip(label, xirr_v, invested, current, gain, total_return, note) {
     : '—';
   const subtitle_lbl = display_lbl ? `<div style="font-size:10px;color:#64748b;margin-top:1px">${display_lbl}</div>` : '';
 
-  let detail = '';
+  let detail = value ? `<div style="font-size:12px;color:#cbd5e1;margin-top:4px">₹${fmt(value)} held</div>` : '';
   if (gain != null && invested > 0) {
-    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} on ₹${fmt(invested)}</div>`;
+    detail += `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} on ₹${fmt(invested)}</div>`;
   } else if (gain != null && current > 0) {
-    detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} P&L · ₹${fmt(current)} value</div>`;
+    detail += `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} P&L · ₹${fmt(current)} value</div>`;
   }
-  if (gain == null && invested == null && current > 0) detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">₹${fmt(current)} value</div>`;
+  if (gain == null && invested == null && current > 0 && !value) detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">₹${fmt(current)} value</div>`;
   if (note) detail += `<div style="font-size:10px;color:#92400e;margin-top:4px;max-width:210px">${_esc(note)}</div>`;
   return `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:10px 16px;min-width:160px">
     <div style="font-size:11px;color:#64748b;margin-bottom:4px">${label}</div>
