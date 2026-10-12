@@ -8,10 +8,11 @@ PPF limits and dates · TDS thresholds (₹40k/₹50k → ₹50k/₹1L on 1 Apr 
 Live feeds stay where one exists (NSI PPF table, AMFI/mfapi, World Bank); the rest are verified by hand with a **staleness guard** (consistency warning when `verified_on` is over 120 days old, or a quarter-start has passed).
 *Built:* PPF limit, 80C cap, TDS, capital gains, MF stamp duty, EPF, repo (SGB and equity charges join when their phase needs them); PPF/80C code reads it; `public_rules_are_current` warns each quarter; no figure moved. *Acceptance was:* a test per rule (source and dates present, effective ranges do not overlap, lookup by date returns the right value); the existing PPF/TDS/CPI code reads the registry; `check.sh --live` shows no figure moved.
 
-## Phase 1 — a rules-and-deadlines calendar (most useful, time-sensitive)
-One list, each item tied to a rule id: SGB exit windows (RBI calendar, shown as dates only, no early-exit comparison) · PPF: next 5th-of-month, ₹1.5L headroom for the FY, maturity/extension, 7th-year withdrawal · FD/MOD maturities · ELSS unlock dates (3 years per instalment) · loan reset after a repo change · TDS threshold about to be crossed.
-*Acceptance:* API + a card; every item cites its rule; fixture tests for each rule; an invariant that no item is shown without a registry rule.
-**SGB early exit: not wanted.** You will hold to maturity, so no early-exit tax comparison is built (decided 12 Oct 2026). Exit windows stay as plain dates only.
+## Phase 1 — a rules-and-deadlines calendar — DONE 12 Oct 2026
+*Built* (`/api/deadlines`, Overview card): PPF next 5th-of-month, FY headroom, FY end and maturity (only where the opening date is known) · deposit maturities (and matured-but-still-listed) · ELSS unlocks (3 years per instalment, FIFO) · SGB maturity · repo change against the loan letter. Each item cites a registry rule or its evidence; the acceptance guard is `deadlines_cite_a_basis`.
+*Moved:* TDS-threshold tracking → Phase 4 (needs interest per payer per year); loan reset date and EMI forecast → Phase 2 (the lender's reset date is not in its letters).
+
+**SGB early exit: not wanted.** You will hold to maturity, so neither an early-exit comparison nor exit windows are built (decided 12 Oct 2026); only the maturity date is shown.
 
 ## Phase 2 — home loan, fully reconciled
 Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · every EMI debit checked against the schedule (principal/interest split, EMIs-left count) · payoff date and **interest saved by each prepayment** · **rate forecast**: the loan has passed the repo through 1:1, so after the 7 Oct 2026 hike expect ≈ 7.35% at the next reset (shown as a forecast, replaced by the next letter) · old-regime 24(b)/80C use per co-borrower share.

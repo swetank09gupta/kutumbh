@@ -38,5 +38,6 @@ A reading-order summary of the trade-offs. For full context per decision, see `d
 | 33 | Deposits and PPF | History comes from the monthly statements (principal, interest accrued, maturity value, PPF balance series), kept in `deposit_snapshots`; a deposit absent from the newest statement is closed | Current-state rows overwritten each month; typed rates | See [ADR-0026](adr/0026-returns-from-evidence.md). |
 | 32 | Change discipline | Cross-page invariants (`app/invariants.py`) run as a live guard and in tests with mutation checks; UI↔API contract test; figures baseline; pre-push hook | Per-fix unit tests only | Fixes kept breaking other pages. See [INVARIANTS.md](INVARIANTS.md). |
 | 34 | Public rules | One effective-dated registry (`app/knowledge/rules.yml`, source + dates per entry); code asks for the value on a date; a stale-rule warning each quarter | Limits/rates typed into code; guessing history before the first verified entry | See [ADR-0027](adr/0027-public-rules-registry.md). |
+| 35 | Deadlines | One calendar (`/api/deadlines`, Overview card); every item cites a registry rule or its evidence; unknown opening dates are gaps, not guesses; SGB shows maturity only | Dates typed into the UI; a guessed PPF maturity; early-exit nudges | See [ADR-0028](adr/0028-deadlines-calendar.md). |
 
 Each row above is expanded in its own ADR under `docs/adr/`.

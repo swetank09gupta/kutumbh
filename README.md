@@ -329,6 +329,7 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/transactions/cashflow` · `/summary` · `/expense-breakdown` | GET | Income / expense / prepayment / invested per month — one shared definition (ADR-0024) |
 | `/api/transactions/review` · `/review/label` · `/review/suggest` | GET/POST | Unlabelled payees; label one once (applied to every payment); optional local-AI suggestions |
 | `/api/ledger/summary` · `/api/ledger/issues` | GET | Open reconciliation findings (missing trade, duplicate, transfer …) by kind / severity |
+| `/api/deadlines/` | GET | Coming-up dates (PPF, deposits, ELSS, SGB maturity, repo watch), each with its rule or evidence |
 | `/api/ledger/reconcile` · `/api/ledger/rollforward` | POST | Re-run the checks / rebuild today's holdings (also runs after every sync) |
 | `/api/ledger/positions` | GET | Ledger positions: qty, FIFO avg cost, traced vs untraced units, cost quality |
 | `/api/ledger/verify` | POST | Diff quantities copied from Zerodha Console against the ledger |

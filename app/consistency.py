@@ -282,12 +282,22 @@ def rules_are_current(db: Session) -> dict:
                   f"{'…' if len(old) > 4 else ''}) — see docs/INSTRUMENTS.md", "warn", stale=old)
 
 
+def deadlines_have_a_basis(db: Session) -> dict:
+    """Every date on the deadlines card cites a registry rule that resolves, or the evidence it was read from."""
+    from app.engine import deadlines
+    bad = deadlines.uncited(deadlines.build(db))
+    return _check("deadlines_cite_a_basis", not bad,
+                  "Every deadline cites a public rule or its evidence" if not bad else
+                  f"{len(bad)} deadline(s) have no rule in the registry and no evidence: " + "; ".join(i["title"] for i in bad[:3]),
+                  "fail", items=bad)
+
+
 CHECKS: list[Callable[[Session], dict]] = [
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, deadlines_have_a_basis, product_invariants,
 ]
 
 

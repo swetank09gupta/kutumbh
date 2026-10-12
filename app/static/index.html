@@ -367,6 +367,12 @@
         <div class="metric-card hero" style="grid-column:span 2"><div class="metric-label">Loading net worth…</div></div>
       </div>
 
+      <div class="card" id="deadlines-card" style="margin-bottom:16px;display:none">
+        <div class="card-title" style="margin:0 0 2px">Coming up <span id="deadlines-count" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">Dates from your statements and the public rules (each line says which). Nothing here is advice to act.</div>
+        <div id="deadlines-body"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card">
           <div class="card-title">Asset Allocation</div>
@@ -1283,7 +1289,7 @@ function nav(id, opts = {}) {
     if (location.hash !== target) history.pushState({ navId: id }, '', target);
   }
 
-  if (id === 'overview')     { loadNetworth(); loadCashflow(); refreshGrafana('overview'); }
+  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
@@ -1324,6 +1330,7 @@ function switchOwner(o) {
   const active = document.querySelector('.page.active')?.id.replace('page-', '');
   loadNetworth();
   loadCashflow();
+  loadDeadlines();
   ['overview', 'transactions', 'investments'].forEach(refreshGrafana);
   if (active === 'transactions') { _applyTxPageFilter(); loadAlerts(); }
   if (active === 'investments')  { loadHoldings(); loadPortfolioReturns(); }
@@ -2976,6 +2983,32 @@ async function applyLabel(i) {
   } catch (e) { toast(e.message, true); }
 }
 
+/* ── deadlines: what is coming up, with the rule or evidence behind each ── */
+let _deadlinesAll = false;
+async function loadDeadlines() {
+  const card = $('deadlines-card');
+  if (!card) return;
+  try {
+    const d = await apiFetch('/api/deadlines/');
+    const owner = _currentOwner;
+    const rows = d.items.filter(i => owner === 'family' || i.owner === owner);
+    const gaps = (d.gaps || []).filter(g => owner === 'family' || g.owner === owner);
+    if (!rows.length && !gaps.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const shown = _deadlinesAll ? rows : rows.slice(0, 8);
+    const who = o => owner === 'family' ? `<span style="color:#64748b">${o === 'user' ? 'Self' : o === 'wife' ? 'Spouse' : _esc(o)} · </span>` : '';
+    const colour = i => i.status === 'past' ? '#fca5a5' : i.status === 'soon' || i.status === 'today' ? '#fcd34d' : '#94a3b8';
+    const when = i => i.status === 'info' ? 'FYI' : i.days < 0 ? `${-i.days} d ago` : i.days === 0 ? 'today' : `in ${i.days} d`;
+    $('deadlines-count').textContent = `· ${rows.length} in the next ${Math.round(d.horizon_days / 30)} months`;
+    $('deadlines-body').innerHTML = `<table style="width:100%;font-size:12px"><tbody>${shown.map(i => `<tr title="${_esc(i.detail)}">
+        <td style="color:#64748b;white-space:nowrap;padding:3px 10px 3px 0">${fmtDate(i.date)}</td>
+        <td style="white-space:nowrap;color:${colour(i)};padding-right:10px">${when(i)}</td>
+        <td>${who(i.owner)}${_esc(i.title)}<div style="font-size:11px;color:#64748b">${_esc(i.detail)} <i>[${_esc([...i.rules, i.evidence].filter(Boolean).join(' · '))}]</i></div></td></tr>`).join('')}</tbody></table>` +
+      (rows.length > 8 ? `<div style="margin-top:6px;font-size:11px"><a href="#" onclick="_deadlinesAll=!_deadlinesAll;loadDeadlines();return false">${_deadlinesAll ? 'show fewer' : `show all ${rows.length}`}</a></div>` : '') +
+      (gaps.length ? `<div style="margin-top:8px;font-size:11px;color:#94a3b8">${gaps.map(g => _esc(g.what)).join(' · ')}</div>` : '');
+  } catch (e) { card.style.display = 'none'; }
+}
+
 /* ── bank alerts: what happened since the last statement ────────── */
 async function loadAlerts() {
   const card = $('alerts-card');
@@ -3032,6 +3065,7 @@ if (location.hash && VALID_NAV_IDS.includes(location.hash.replace(/^#/, ''))) {
 } else {
   loadNetworth();
   loadCashflow();
+  loadDeadlines();
   refreshGrafana('overview');
 }
 setInterval(loadSysStatus, 30000);
