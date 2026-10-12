@@ -128,8 +128,12 @@ def _fetch_navall() -> list[dict]:
     resp = httpx.get(_AMFI_URL, timeout=30, follow_redirects=True)
     resp.raise_for_status()
     out: list[dict] = []
+    category = ""
     for line in resp.text.splitlines():
         parts = line.split(";")
+        if len(parts) == 1 and re.match(r"(Open|Close|Interval)[A-Za-z ]*Schemes?\s*\(", line.strip(), re.I):
+            category = re.sub(r"^[^(]*\(|\)\s*$", "", line.strip())        # "Equity Scheme - Large Cap Fund"
+            continue
         if len(parts) < 5:
             continue
         code, isin_growth, isin_reinv, name, nav = parts[0], parts[1], parts[2], parts[3], parts[4]
@@ -146,9 +150,11 @@ def _fetch_navall() -> list[dict]:
             nav_f = 0.0
         out.append({
             "isin":        isin,
+            "isin2":       (isin_reinv or "").strip(),
             "scheme_name": name.strip(),
             "scheme_code": code.strip(),
             "nav":         nav_f,
+            "category":    category,          # AMFI's own scheme category, the basis of the tax class
         })
     return out
 
@@ -314,3 +320,23 @@ def get_nav(isin: str) -> Optional[float]:
         return None
     nav = _get_nav_map().get(isin)
     return nav if nav and nav > 0 else None
+
+
+def fund_category(isin: str) -> Optional[str]:
+    """AMFI's scheme category for this ISIN ("Equity Scheme - Large Cap Fund", "Debt Scheme - Liquid Fund", ...), read from
+    the cached daily master file; None when the file lacks it (never guessed from the name)."""
+    try:
+        data = json.loads(_CACHE_FILE.read_text())
+    except Exception:
+        return None
+    entries = data.get("entries", [])
+    if entries and not any("category" in e for e in entries):           # a cache written before categories were kept
+        try:
+            refresh()
+            entries = json.loads(_CACHE_FILE.read_text()).get("entries", [])
+        except Exception as exc:
+            logger.warning("AMFI category refresh failed: %s", exc)
+    for e in entries:
+        if isin in (e.get("isin"), e.get("isin2")):
+            return e.get("category") or None
+    return None

@@ -385,6 +385,12 @@
         <div id="sgb-body"></div>
       </div>
 
+      <div class="card" id="tax-card" style="margin-bottom:16px;display:none">
+        <div class="card-title" style="margin:0 0 2px">Tax and investment income <span id="tax-sub" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">Gains from your own trades (first in, first out), interest and dividends from the statements, rates from the verified rules. Slab-rate income is shown as amounts, not tax.</div>
+        <div id="tax-body"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card">
           <div class="card-title">Asset Allocation</div>
@@ -1301,7 +1307,7 @@ function nav(id, opts = {}) {
     if (location.hash !== target) history.pushState({ navId: id }, '', target);
   }
 
-  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); loadLoan(); loadSgb(); refreshGrafana('overview'); }
+  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); loadLoan(); loadSgb(); loadTax(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
@@ -1345,6 +1351,7 @@ function switchOwner(o) {
   loadDeadlines();
   loadLoan();
   loadSgb();
+  loadTax();
   ['overview', 'transactions', 'investments'].forEach(refreshGrafana);
   if (active === 'transactions') { _applyTxPageFilter(); loadAlerts(); }
   if (active === 'investments')  { loadHoldings(); loadPortfolioReturns(); }
@@ -3084,6 +3091,35 @@ async function loadSgb() {
   } catch (e) { card.style.display = 'none'; }
 }
 
+/* ── tax: gains, investment income, TDS thresholds, tax if sold today ── */
+async function loadTax() {
+  const card = $('tax-card');
+  if (!card) return;
+  try {
+    const d = await apiFetch('/api/tax/');
+    const owner = _currentOwner;
+    const ids = Object.keys(d.owners).filter(o => owner === 'family' || o === owner);
+    if (!ids.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    $('tax-sub').textContent = `· FY ${d.fy}`;
+    const rs = v => (v < 0 ? '−' : '') + '₹' + fmt(Math.abs(Math.round(v)));
+    const who = o => o === 'user' ? 'Self' : o === 'wife' ? 'Spouse' : _esc(o);
+    $('tax-body').innerHTML = ids.map(o => {
+      const v = d.owners[o], g = v.gains.find(x => x.fy === d.fy) || v.gains[0], i = v.income.find(x => x.fy === d.fy) || v.income[0], u = v.unrealised;
+      const e = g.equity, tds = i.tds_by_payer;
+      const prev = v.gains.filter(x => x.fy !== d.fy && x.sales > 0).slice(0, 3);
+      return `<div style="font-size:12px;margin-bottom:12px"><div style="font-weight:600;color:#e2e8f0;margin-bottom:3px">${who(o)} <span style="font-weight:400;color:#64748b">· ${v.regime} regime</span></div>
+        <div style="color:#94a3b8">Realised this year: short-term ${rs(e.stcg)}, long-term ${rs(e.ltcg)} (exemption used ${rs(e.ltcg_exemption_used)} of ${rs(e.ltcg_exemption)})${g.gold_silver_etf.ltcg || g.gold_silver_etf.stcg_at_slab ? `, gold/silver ETF ${rs(g.gold_silver_etf.ltcg + g.gold_silver_etf.stcg_at_slab)}` : ''} → estimated tax <b style="color:#e2e8f0">${rs(g.estimated_tax)}</b></div>
+        <div style="color:#94a3b8">Income this year (taxed at slab): savings interest ${rs(i.savings_interest)}${v.regime === 'old' && i.deduction_80tta != null ? ` (80TTA deducts ${rs(i.deduction_80tta)})` : ''} · deposit interest ${rs(i.deposit_interest_gross)}${i.tds_on_deposit_interest ? ` incl. ₹${fmt(Math.round(i.tds_on_deposit_interest))} TDS` : ''} · dividends ${rs(i.dividends_proven)}${i.dividends_unmatched ? ` (+${rs(i.dividends_unmatched)} not matched to a stock)` : ''} · SGB coupons ${rs(i.sgb_coupons)}</div>
+        ${tds.map(p => `<div style="color:${p.over_threshold ? '#fcd34d' : '#94a3b8'}">${_esc(p.payer)} deposit interest ${rs(p.gross_interest)} against the ${rs(p.threshold)} TDS threshold — ${p.crossed_by_tds ? 'the bank is deducting TDS already (some interest accrues without being credited)' : p.over_threshold ? 'crossed: TDS applies' : `${rs(p.headroom)} to go`}</div>`).join('')}
+        <div style="color:#94a3b8">If everything held were sold today: short-term ${rs(u.equity_short_term)}, long-term ${rs(u.equity_long_term)} (exemption left ${rs(u.exemption_left)}) → tax ${rs(u.estimated_tax_if_sold_today)}</div>
+        ${prev.length ? `<details style="color:#64748b;margin-top:3px"><summary style="cursor:pointer">Earlier years</summary>${prev.map(p => `<div>FY ${p.fy}: short-term ${rs(p.equity.stcg)}, long-term ${rs(p.equity.ltcg)}, estimated tax ${rs(p.estimated_tax)}${p.not_computed.length ? ` · ${p.not_computed.length} sale(s) not computed` : ''}</div>`).join('')}</details>` : ''}
+        ${v.sold_without_known_cost_count ? `<div style="color:#64748b;font-size:11px">${v.sold_without_known_cost_count} sale(s) of units bought before the trade history are left out (cost unknown).</div>` : ''}</div>`;
+    }).join('') + d.issues.filter(x => x.rows.some(r => ids.includes(r.owner))).map(x => `<div style="border:1px dashed #b45309;border-radius:8px;padding:8px 10px;font-size:12px;color:#fcd34d;margin-bottom:8px">${_esc(x.detail)}</div>`).join('') +
+      `<div style="font-size:11px;color:#64748b">${_esc(d.notes)}</div>`;
+  } catch (e) { card.style.display = 'none'; }
+}
+
 /* ── bank alerts: what happened since the last statement ────────── */
 async function loadAlerts() {
   const card = $('alerts-card');
@@ -3143,6 +3179,7 @@ if (location.hash && VALID_NAV_IDS.includes(location.hash.replace(/^#/, ''))) {
   loadDeadlines();
   loadLoan();
   loadSgb();
+  loadTax();
   refreshGrafana('overview');
 }
 setInterval(loadSysStatus, 30000);

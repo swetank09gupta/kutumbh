@@ -333,6 +333,22 @@ def sgb_coupons_reconcile(db: Session) -> dict:
                   "warn", problems=problems)
 
 
+def dividends_reconcile(db: Session) -> dict:
+    """Dividend-looking credits are proven by shares held x per-share amount. Warn about the ones that cannot be matched
+    (no ex-date history for the stock, shares bought before our trade history) or fit more than one stock."""
+    from app.ledger import dividends
+    r = dividends.scan(db)
+    problems = []
+    if r["unmatched"]:
+        problems.append(f"{len(r['unmatched'])} dividend-looking credit(s) (₹{sum(x['amount'] for x in r['unmatched']):,.0f}) match no stock and ex-date")
+    if r["ambiguous"]:
+        problems.append(f"{len(r['ambiguous'])} fit more than one stock")
+    if problems and r["symbols_without_history"]:
+        problems.append("no ex-date history for " + ", ".join(r["symbols_without_history"][:6]))
+    return _check("dividends_reconcile", not problems, "Every dividend credit is matched to a stock and ex-date" if not problems
+                  else "; ".join(problems) + " — see /api/tax/dividends", "warn", unmatched=r["unmatched"], ambiguous=r["ambiguous"])
+
+
 def automation_is_running(db: Session) -> dict:
     """The update is meant to run by itself every few hours. If it has stopped, or its last run failed, say so
     instead of letting every card quietly go stale."""
@@ -368,7 +384,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, automation_is_running, deadlines_have_a_basis, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, dividends_reconcile, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 
 

@@ -189,3 +189,44 @@ rules:
     note: long-standing; earlier dates not verified
     source: https://www.business-standard.com/amp/finance/personal-finance/gold-investors-get-387-returns-as-rbi-redeems-2017-18-sgb-series-126010200299_1.html
     verified_on: 2026-10-12
+
+  # Phase 4: tax lens
+  - id: cg.holding_months
+    value: 12
+    unit: months; listed shares, equity funds and listed ETFs are long-term when held for more than this
+    effective_from: 2024-07-23
+    note: "12 months for all listed securities since the Budget 2024 changes; equity shares and equity funds were already 12 months"
+    source: https://zerodha.com/z-connect/business-updates/what-changes-for-investors-after-budget-2024
+    verified_on: 2026-10-12
+
+  - id: cg.listed_other.ltcg_rate
+    value: 12.5
+    unit: percent, no exemption (listed gold/silver ETFs and other listed units that are not equity-oriented; s.112)
+    effective_from: 2024-07-23
+    note: earlier rule (36 months, 20% with indexation) is not modelled; such sales are reported, not computed
+    source: https://files.hdfcfund.com/s3fs-public/Others/2024-08/Gold%20and%20Silver%20simplified%20taxation%20Leaflet%20(August%202024).pdf
+    verified_on: 2026-10-12
+
+  - id: tds.194.dividend_threshold
+    value: 10000
+    unit: INR of dividend per company per year (resident individual), TDS above it
+    effective_from: 2025-04-01
+    note: was 5000 until FY 2024-25
+    source: https://taxguru.in/income-tax/budget-2025-dividend-tax-deduction-threshold-rs-10000.html
+    verified_on: 2026-10-12
+
+  - id: tds.194.dividend_rate
+    value: 10
+    unit: percent
+    effective_from: 2026-10-12
+    note: long-standing; earlier dates not verified
+    source: https://taxguru.in/income-tax/budget-2025-dividend-tax-deduction-threshold-rs-10000.html
+    verified_on: 2026-10-12
+
+  - id: income_tax.80tta_cap
+    value: 10000
+    unit: INR of savings-account interest per year (individuals and HUF, not senior citizens; old regime only)
+    effective_from: 2012-04-01
+    note: applies from AY 2013-14 (income of FY 2012-13)
+    source: https://www.incometaxindia.gov.in/w/section-80tta
+    verified_on: 2026-10-12

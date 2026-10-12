@@ -292,6 +292,12 @@ The last scheduled update is older than 3 intervals, or failed (the warning says
 ### "sgb coupons reconcile" warning
 `/api/sgb` says which: coupons due since a date were not found (credited to an account whose statements we do not read, or the bank narration changed), a held bond has no matching coupon, or coupons arrive for a bond no statement lists. For the last, add the bond in Manual Assets (type SGB, name containing the series, grams) and the warning clears. A new bank narration is fine: matching is by amount and date, the text only narrows the search.
 
+### "dividends reconcile" warning
+`/api/tax/dividends` lists the credits that match no stock and ex-date: usually shares bought before the trade history (their count at the ex-date is unknown) or a stock whose ex-date history Yahoo no longer serves (renamed or delisted). They stay counted as dividends at slab in the tax view, marked "not matched to a stock".
+
+### The tax figures look off
+Gains use gross trade prices (brokerage and stamp duty are not netted, STT is not included) and no corporate actions: a split or bonus makes FIFO lots wrong for that stock. Sales of units bought before the trade history are listed and left out. Deposit interest counts what was credited plus TDS notices; interest that accrues in a cumulative deposit without being credited is not seen (the card says so when the bank is already deducting TDS).
+
 ### A trade or holding appears twice after a rescan
 The scheduler re-reads the last 7 days every run, so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
 

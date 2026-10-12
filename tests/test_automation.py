@@ -128,6 +128,7 @@ class OneSharedPipeline(unittest.TestCase):
         db = mock.Mock()
         with mock.patch("app.ingestion.alert_fetcher.ingest_alerts", side_effect=RuntimeError("imap down")), \
              mock.patch("app.ingestion.loan_fetcher.ingest_loan_letters", return_value={"new": 1}) as loans, \
+             mock.patch("app.ledger.dividends.refresh_history", return_value={"fetched": 0}), \
              mock.patch("app.knowledge.live.refresh", return_value={"rbi.repo_rate": "unchanged"}) as rule_refresh:
             out = pipeline.ingest_evidence(db, 7)
         self.assertEqual(out["alerts"], {"error": "imap down"})

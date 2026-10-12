@@ -141,6 +141,9 @@ def retag(db: Session, use_llm: bool = True, llm_limit: int = 60) -> dict:
     from app.ledger import sgb_evidence
     out["sgb_tagged"] = sgb_evidence.tag(db)          # SGB coupons and subscriptions proven by arithmetic on the statements
     db.flush()
+    from app.ledger import dividends
+    out["dividends_tagged"] = dividends.tag(db)       # dividends proven by shares held x per-share amount (cached history)
+    db.flush()
     memory = {m.payee_key: m for m in db.query(PayeeMemory).all()}
     out.update(_apply_rules_and_memory(db, memory))
     if use_llm:

@@ -24,8 +24,8 @@ Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · ev
 ## Phase 3 — SGB completeness — DONE 12 Oct 2026
 *Built* (`/api/sgb`, Gold bonds card, ADR-0031): tranche registry (fixed the wife's ISIN, a different series), coupons matched to the paisa and counted (14 for you, 10 for the wife), cost = what the bank shows was paid (your Series III: ₹5,359 a gram, the online price), next coupons on the deadlines card, check `sgb_coupons_reconcile`. The wife's 25 g 2022-23 Series I bond (held outside the demat, confirmed) is a Manual Asset valued like the nearest-maturity held SGB; its purchase is in missing statements, so cost/date are assumed.
 
-## Phase 4 — tax lens (rule-driven, no new data)
-**Regime per person: you = old, wife = new** (12 Oct 2026). 80C/24(b)/ELSS advice applies to you only; the wife's view uses new-regime slabs and shows no 80C or 24(b) deductions. Realised gains per FY (FIFO, STCG/LTCG by holding period, ₹1.25L LTCG headroom) · unrealised tax per holding · FD/MOD/savings interest per person vs the TDS threshold, 15G/15H eligibility, an interest-income summary for the ITR · all rates from the registry.
+## Phase 4 — tax lens (rule-driven, no new data) — DONE 12 Oct 2026
+*Built* (`/api/tax`, Tax card, ADR-0032; regimes: you old, wife new): dividends proven by arithmetic and counted in returns (32 credits matched, 6 listed as unmatched); realised gains per FY with set-off, exemption and rates by sale date; savings/deposit interest, dividends and SGB coupons per FY; deposit interest per bank vs the TDS threshold; 80TTA (old regime); tax if everything were sold today. Slab tax is not computed (total income is not in the system).
 
 ## Phase 5 — EPF (deferred)
 Skipped for now (12 Oct 2026): no automated source exists, and a manual entry is not wanted. Revisit only if an automated feed appears.
@@ -46,4 +46,5 @@ Skipped for now (12 Oct 2026): no automated source exists, and a manual entry is
 4. SGB early-exit comparison: not wanted.
 
 ## Inbox (requests waiting for triage)
-- Equity dividends (e.g. ONGC, Vedanta credits) are categorised "other" and are not in returns: same arithmetic idea as SGB coupons, needs the dividend per share.
+- Five ₹100,000 debits in the wife's Axis account (Jul 2020, Feb–Apr 2021, Oct 2025) are labelled interest income and counted as expenses in the cashflow; they look like transfers to her own deposits. Confirm, then label them as transfers.
+- Six dividend-looking credits are unmatched (Vedanta 2020, SBI 2021, ONGC Dec 2022, a ₹700 final dividend, LIC, Power Grid): shares from before the trade history or no ex-date history.

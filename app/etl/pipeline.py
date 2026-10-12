@@ -27,10 +27,12 @@ def ingest_evidence(db: Session, since_days: int = 7) -> dict:
     from app.ingestion.alert_fetcher import ingest_alerts
     from app.ingestion.loan_fetcher import ingest_loan_letters
     from app.knowledge import live
+    from app.ledger import dividends
 
     steps = (("alerts", lambda: ingest_alerts(db, since_days=max(since_days, 7))),
              ("loan_letters", lambda: ingest_loan_letters(db, since_days=max(since_days, 7))),
-             ("rules", lambda: live.refresh(db)))
+             ("rules", lambda: live.refresh(db)),
+             ("dividend_history", lambda: dividends.refresh_history(db)))
     out: dict = {}
     for name, fn in steps:
         try:

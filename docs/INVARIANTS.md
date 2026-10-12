@@ -48,6 +48,9 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | SGB coupons are matched by arithmetic (amount to the paisa and calendar date); ISIN-tagged only for held bonds | `tests/test_sgb.py`, `test_sgb_evidence_db` (mutation-checked) |
 | SGB units cost what the bank shows was paid, else the nominal price (flagged); unknown tranches are never guessed | `test_sgb`, `test_ledger_rules` |
 | A Manual Asset SGB is identified by its name, valued once (idempotent note), and its coupons are return flows on both pages | `test_sgb_evidence_db` (hand-held cases) |
+| A dividend credit must equal shares held before the ex-date × the per-share amount (to the paisa, or ×0.9 after TDS); a purchase on the ex-date is not entitled; ambiguity is reported | `test_dividends_tax_db` |
+| Capital gains: FIFO, long-term after more than 12 months, rates and exemption by sale date, set-off rules, unknown cost never costed | `tests/test_tax_gains.py` (hand-calculated) |
+| A tax threshold or cap is looked up for the financial year in question; with no verified value for that year no check is made | `test_dividends_tax_db` |
 | Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |
 | Each purchase takes its own bank debit even when two debits have the same amount | `tests/test_derive_db.py` |
 | A PPF is worth its statement balance (interest is credited only on 31 March); its return is measured between 31-March balances and earns about the notified rate | `test_invariants_db::test_a_ppf_is_worth…`, `test_a_ppf_measured…`, `tests/test_deposit_flows.py`, `tests/test_deposits.py` |

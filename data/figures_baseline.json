@@ -22,7 +22,7 @@
  "family.nw.ppf_value": 2456584.76,
  "family.nw.total_liabilities": 10512225.41,
  "family.value_all": 9051616.99,
- "family.xirr_pct": 10.64,
+ "family.xirr_pct": 10.74,
  "goal.Child Higher Education.corpus": 947216,
  "goal.Child Higher Education.sip_needed": 126298,
  "goal.Child Marriage.corpus": 1469020,
@@ -34,7 +34,7 @@
  "goal.Wife's Retirement.corpus": 2205465,
  "goal.Wife's Retirement.sip_needed": 24162,
  "goal.Your Retirement.corpus": 1490706,
- "goal.Your Retirement.sip_needed": 153666,
+ "goal.Your Retirement.sip_needed": 148958,
  "inflation_pct": 4.7,
  "loan.principal": 10512225.41,
  "user.class.bonds.value": 746325.0,
@@ -58,7 +58,7 @@
  "user.nw.ppf_value": 519453.76,
  "user.nw.total_liabilities": 10512225.41,
  "user.value_all": 5300032.76,
- "user.xirr_pct": 8.86,
+ "user.xirr_pct": 9.01,
  "wife.class.bonds.value": 388603.0,
  "wife.class.bonds.xirr_pct": 35.47,
  "wife.class.equity.value": 22941.6,
@@ -82,5 +82,5 @@
  "wife.nw.ppf_value": 1937131.0,
  "wife.nw.total_liabilities": 0.0,
  "wife.value_all": 3751584.23,
- "wife.xirr_pct": 13.53
+ "wife.xirr_pct": 13.54
 }
