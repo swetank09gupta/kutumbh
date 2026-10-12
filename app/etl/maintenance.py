@@ -293,6 +293,25 @@ def _txn_retag(db: Session) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
+def _ppf_from_transfers(db: Session) -> dict:
+    from app.engine.ppf_from_transfers import sync_ppf_from_transfers
+    return sync_ppf_from_transfers(db)
+
+
+def _ppf_rates(db: Session) -> dict:
+    """PPF pays the Government's notified rate, not a number someone typed: refresh it from the NSI table."""
+    from app.engine.small_savings import ppf_current_rate
+    from app.models.schemas import ManualAsset
+    rate = Decimal(str(ppf_current_rate()))
+    n = 0
+    for a in db.query(ManualAsset).filter(ManualAsset.asset_type == "ppf").all():
+        if a.interest_rate != rate:
+            a.interest_rate = rate
+            n += 1
+    db.commit()
+    return {"rate": float(rate), "updated": n}
+
+
 def _loan_outstanding(db: Session) -> dict:
     from app.engine.loan import apply_loan_anchors
     return apply_loan_anchors(db)
@@ -312,6 +331,8 @@ def run_all(db: Session) -> dict[str, Any]:
         ("txn_pair_transfers",      _txn_pair_transfers),
         ("refresh_mf_navs",         _refresh_mf_navs),
         ("purge_synthetic_redemptions", _purge_synthetic_redemptions),
+        ("ppf_from_transfers",      _ppf_from_transfers),
+        ("ppf_rates",               _ppf_rates),
         ("loan_outstanding",        _loan_outstanding),
         ("recategorize",            _recategorize),
         ("txn_retag",               _txn_retag),   # last: one authority decides every category

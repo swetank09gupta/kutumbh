@@ -66,6 +66,11 @@ _PPF_RATE_DEFAULT = Decimal("7.1")
 _COMPOUND_N = 4
 
 
+def _current_rate() -> float:
+    from app.engine.small_savings import ppf_current_rate
+    return ppf_current_rate()
+
+
 def _ppf_contribution_txns_for(
     db: Session, owner_id: str,
 ) -> list[tuple[date, Decimal, str, str]]:
@@ -102,20 +107,13 @@ def _compound_to_today(
     today: date,
 ) -> Decimal:
     """
-    Compute the present-day balance of a contribution stream, compounding each
-    contribution from its deposit date to today at `annual_rate_pct` percent
-    (quarterly compounding, PPF convention).
+    Today's balance of a contribution stream by PPF's own rule and the officially notified rate history
+    (app.engine.small_savings): lowest-balance-between-5th-and-month-end interest, credited every 31 March.
+    Interest earned since the last 31 March (completed months) is included as accrued.
     """
-    if annual_rate_pct <= 0:
-        return sum((amt for _, amt in contribs), Decimal(0))
-
-    rate = float(annual_rate_pct) / 100.0
-    n = _COMPOUND_N
-    total = 0.0
-    for d, amt in contribs:
-        years = max(0.0, (today - d).days / 365.25)
-        total += float(amt) * ((1.0 + rate / n) ** (n * years))
-    return Decimal(f"{total:.2f}")
+    from app.engine.small_savings import ppf_balance
+    credited, accrued = ppf_balance(contribs, today)
+    return credited + accrued
 
 
 def sync_ppf_from_transfers(
@@ -181,7 +179,7 @@ def sync_ppf_from_transfers(
             if asset is None:
                 asset = ManualAsset(
                     owner_id=oid, asset_type="ppf", institution=inst,
-                    name=name, interest_rate=_PPF_RATE_DEFAULT,
+                    name=name, interest_rate=Decimal(str(_current_rate())),
                     goal_tag="retirement",
                 )
                 db.add(asset)

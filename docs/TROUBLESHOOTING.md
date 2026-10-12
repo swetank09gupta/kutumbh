@@ -158,6 +158,8 @@ Some document types that arrive as PDF email attachments are **not** transaction
 | HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_FINAL`, `IT_PROV`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, and interest/tax certificates | Silently skipped (`DEBUG` log) |
 | Any filename containing `TDS.CERTIFICATE` | Bank TDS / interest certificate (Axis, HDFC, SBI) | Silently skipped |
 | "on N% of the value — ₹X has no purchase history yet" | Units in the demat with no trade, no unit line and no matching bank debit | Import the Console tradebook CSV for that account (Reports → Tradebook, Mutual funds); derived trades are replaced automatically |
+| Deposit row shows "x% FD rate" instead of a measured XIRR | Fewer than ~80% of its monthly "INT TRF FRM" credits are in the bank statements, or the principal changed | Import the missing statements; the measured return appears on the next sync |
+| PPF rate looks stale | The NSI page was unreachable; last known table is used | Check `data/cache/ppf_rates.json`; it refreshes weekly |
 | Return shows plain gain, not a rate | Money held under a year on average | Intended (SEBI/AMFI convention) |
 | `alerts_have_statement_rows` warns | A bank alert falls inside a statement's period but has no statement row | Open `/api/health/alerts` → `unmatched`; the statement parser dropped that line, or the statement page is missing |
 | Alert never shows up | Its wording is not one of the templates in `PARSERS.md` | Add a pattern to `bank_alert.py` with a test |

@@ -29,6 +29,8 @@ The Investments page showed "—" for equity ("opened and closed within days"), 
 
 **Home loan:** the lender's part-prepayment letters (`loan_anchors`, `app/engine/loan.py`) give the principal outstanding; EMIs since then reduce it by `EMI − principal×rate/12` (reproduced the lender's next figure to the rupee). It updates the liability row only when newer than what the row says, and net-worth history uses the balance of each date.
 
+**PPF and deposits** (`app/engine/small_savings.py`, `portfolio_xirr.py`): the PPF rate is read from the Government's own table (National Savings Institute, full history since 1968; cached a week) and applied by PPF's own rule — interest on the lowest balance between the 5th and month-end, credited each 31 March. The bank's intermediate certificate is bundled (`config/certs/nsi-chain.pem`) because that site does not send it. A fixed deposit's return is *measured* from the interest it actually paid into savings (the deposit's account number is in the "INT TRF FRM … TO …" narration) when nearly every monthly credit is on file; otherwise it is shown as a balance at the rate printed on the deposit.
+
 ## Consequences
 
 - Family coverage went from 50% to 98%; the remaining gap is a few units of one fund bought before any evidence we hold. A Console MF tradebook CSV would close it and replaces derived trades automatically.

@@ -16,6 +16,7 @@ the current value of a held position is a terminal inflow today.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -142,6 +143,24 @@ def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
     return "mutual_fund" if isin.startswith("INF") else "bonds" if isin.startswith("IN0") else "equity"
 
 
+_FD_INT = re.compile(r"INT\s*TRF\s*FRM\s*(\d{6,})\s*TO", re.I)
+
+
+def _fd_interest_credits(db: Session, owner_ids: list[str]) -> dict[tuple[str, str], list[tuple[date, float]]]:
+    """Interest each SBI deposit actually paid into savings, found by the deposit's account number in the
+    narration ("INT TRF FRM 43960134737 TO 30778223316"): {(owner, last4 of the deposit): [(date, amount)]}."""
+    out: dict[tuple[str, str], list[tuple[date, float]]] = defaultdict(list)
+    q = (db.query(Transaction.date, Transaction.amount, Transaction.raw_description, Account.owner_id)
+         .join(Account, Account.id == Transaction.account_id)
+         .filter(Account.owner_id.in_(owner_ids), Account.account_type == "bank",
+                 Transaction.transaction_type == "credit", Transaction.raw_description.ilike("%INT TRF FRM%")))
+    for d, amt, desc, owner in q.all():
+        m = _FD_INT.search(desc or "")
+        if m and amt and amt > 0:
+            out[(owner, m.group(1)[-4:])].append((d, float(amt)))
+    return out
+
+
 def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[list[Position], list[dict]]:
     """Every position of these owners with its cash flows, plus what was skipped and why."""
     skipped: list[dict] = []
@@ -216,6 +235,7 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                                   covered=ok, closed=True))
 
     # Manual investments: FD, PPF, RD, NPS, gold ...
+    fd_interest = _fd_interest_credits(db, owner_ids)
     for asset in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(owner_ids)).all():
         if asset.asset_type not in _INVESTING_ASSET_TYPES:
             continue
@@ -224,12 +244,28 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                             "reason": "matured before today"})
             continue
         if asset.asset_type in ("fd", "rd"):
-            # A deposit pays its stated rate; interest is credited or swept to savings and renewals change
-            # the principal, so "invested vs current" is not a return. Valued at its balance, like net worth.
-            positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
-                                      cls=asset.asset_type, current=float(asset.current_value or 0), covered=False,
-                                      deposit=True, rate=float(asset.interest_rate) if asset.interest_rate else None,
-                                      maturity=asset.maturity_date))
+            rate = float(asset.interest_rate) if asset.interest_rate else None
+            current = float(asset.current_value or 0)
+            tail = re.search(r"(\d{4})\s*$", asset.name or "")
+            credits = fd_interest.get((asset.owner_id, tail.group(1)), []) if tail else []
+            invested = float(asset.invested_amount or 0)
+            paid = [(d, a) for d, a in credits if asset.start_date and d >= asset.start_date]
+            months = ((today - asset.start_date).days / 30.4) if asset.start_date else 0
+            # Interest is paid monthly: a deposit counts as measurable only when (nearly) every month's
+            # credit is on file, otherwise the missing credits would read as a low return.
+            if (paid and invested > 0 and abs(current - invested) <= 1.0 and months >= 6
+                    and len(paid) >= 0.8 * (months - 1)):
+                # Measured, not stated: principal in on the start date, every interest credit the deposit
+                # actually paid into savings, and the principal still held.
+                positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
+                                          cls=asset.asset_type, current=current,
+                                          cfs=[(asset.start_date, -invested)] + paid, rate=rate,
+                                          maturity=asset.maturity_date))
+            else:
+                # No measurable history (renewed, part-withdrawn, or no interest credit found): a balance at its rate.
+                positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
+                                          cls=asset.asset_type, current=current, covered=False, deposit=True,
+                                          rate=rate, maturity=asset.maturity_date))
             continue
         out = _manual_asset_cashflows(db, asset, today)
         if out is None:
@@ -318,7 +354,7 @@ def summarise(positions: list[Position], today: date) -> dict:
         parts.append(f"return covers {coverage * 100:.0f}% of ₹{all_current:,.0f} — ₹{gap:,.0f} has no purchase history yet"
                      if cov else f"₹{all_current:,.0f} held, no purchase history yet")
     if balances > 0 and positions:
-        parts.append(f"plus ₹{balances:,.0f} held as a balance with no return derived (total ₹{all_current + balances:,.0f})")
+        parts.append(f"plus ₹{balances:,.0f} held as a balance, return not measurable (total ₹{all_current + balances:,.0f})")
     if churn:
         parts.append("money was held under a year on average — shown as plain gain, not annualised")
     elif r is None and invested > 0:
@@ -359,8 +395,10 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
                 "class": cls, "count": len(ps), "invested": None, "current": value, "current_all": value,
                 "proceeds": 0.0, "gain": None, "gain_pct": None, "years": None, "xirr_pct": None, "cagr_pct": None,
                 "coverage_pct": None, "uncovered_current": 0.0, "cost_coverage_pct": None, "excluded_from_total": True,
-                "note": "earns its stated rate; no return is derived from the principal",
-                "exclusion_reason": "earns its stated rate; no return is derived from the principal"})
+                "note": ("earns the Government-notified PPF rate; contributions are not dated, so no return is measured"
+                         if cls == "ppf" else
+                         "balance at the deposit's own rate; no interest credits found to measure a return"),
+                "exclusion_reason": None})
             continue
         row = summarise(ps, today)
         by_class.append({

@@ -1797,7 +1797,7 @@ function _manualHoldingRows() {
     const pnl = m.gain, color = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8';
     const pct = (pnl != null && m.invested) ? pnl / m.invested * 100 : null;
     const rate = m.xirr_pct != null ? `<span style="color:${m.xirr_pct >= 0 ? '#4ade80' : '#f87171'}">${m.xirr_pct.toFixed(1)}% XIRR</span>`
-               : (m.rate ? `<span style="color:#94a3b8">${m.rate.toFixed(1)}% stated</span>` : '—');
+               : (m.rate ? `<span style="color:#94a3b8" title="${m.type === 'ppf' ? 'Government-notified PPF rate (NSI)' : 'Rate printed on the deposit; no interest credits found to measure it'}">${m.rate.toFixed(1)}% ${m.type === 'ppf' ? 'govt rate' : 'FD rate'}</span>` : '—');
     return `<tr>
       <td><div style="font-weight:500">${_esc(m.name)}</div>
           <div style="font-size:11px;color:#475569">${who(m.owner)}${m.maturity ? ' · matures ' + fmtDate(m.maturity) : ''}</div></td>
