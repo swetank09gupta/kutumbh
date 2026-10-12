@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.knowledge import rules
+from app.ledger.sgb import tranche
 
 HORIZON_DAYS = 365
 LOOKBACK_DAYS = 30          # a deposit that matured this recently and is still listed is worth a look
@@ -168,23 +169,22 @@ def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DA
                                f"are free to redeem from {first.strftime('%d %b %Y')} (instalments unlock one by one through the month).",
                                rule_ids=("elss.lock_in_years",), evidence="allotment dates from Coin / contract notes"))
 
-    # SGB maturity (held tranches only)
-    from app.engine.holdings_view import latest_holdings
-    from app.ledger.sgb import issue_date
-    tenor = int(rules.value("sgb.tenor_years", today))
-    for h in latest_holdings(db, owner_ids=owners):
-        if not h.isin or "sgb" not in (h.instrument_name or "").lower():
-            continue
-        issued = issue_date(h.isin, h.instrument_name or "")
-        if issued is None:
-            continue
-        mat = add_years(issued, tenor)
-        if today <= mat <= limit_day:
-            items.append(_item(mat, today, "sgb_maturity", h.owner_id, f"{h.instrument_name} matures",
-                               f"{float(h.units):g} units are redeemed at the IBJA average price of the three business days before; "
-                               "interest is paid half-yearly until then.", rule_ids=("sgb.tenor_years",),
-                               evidence=f"issued {issued.isoformat()}"))
-
+    # SGB: next coupon and maturity of every tranche a depository statement shows (dates from the tranche registry)
+    from app.ledger import sgb_evidence
+    tenor_rule = rules.rule("sgb.tenor_years", today)
+    for (owner, isin), units in sorted(sgb_evidence.depository_units(db, owners).items()):
+        t = tranche(isin)
+        nxt = next((d for d in sgb_evidence.coupon_dates(t, t.maturity_date) if d > today), None)
+        if nxt and nxt <= limit_day:
+            items.append(_item(nxt, today, "sgb_coupon", owner, f"{t.series}: coupon due",
+                               f"{float(units):g} g x ₹{float(t.nominal):,.0f} x 1.25% = {_money(t.coupon(units))}, credited to the bank "
+                               "account linked to the demat within a few days.",
+                               rule_ids=("sgb.coupon_rate",), evidence=f"{t.series} issued {t.issue_date.isoformat()}"))
+        if today <= t.maturity_date <= limit_day:
+            items.append(_item(t.maturity_date, today, "sgb_maturity", owner, f"{t.series} matures",
+                               f"{float(units):g} g are redeemed at the IBJA average price of the three business days before; "
+                               "interest is paid half-yearly until then.", rule_ids=(tenor_rule.id,),
+                               evidence=f"issued {t.issue_date.isoformat()} ({t.series})"))
     # Home loan: a repo change reaches the loan at its next reset
     repo = rules.rule("rbi.repo_rate", today)
     anchor = (db.query(LoanAnchor).order_by(LoanAnchor.as_on.desc()).first())

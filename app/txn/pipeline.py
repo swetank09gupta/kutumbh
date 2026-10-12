@@ -138,6 +138,9 @@ def suggest_labels(db: Session, limit: int = 24) -> dict:
 def retag(db: Session, use_llm: bool = True, llm_limit: int = 60) -> dict:
     out: dict = {"trades_tagged": tag_trades(db)}
     db.flush()
+    from app.ledger import sgb_evidence
+    out["sgb_tagged"] = sgb_evidence.tag(db)          # SGB coupons and subscriptions proven by arithmetic on the statements
+    db.flush()
     memory = {m.payee_key: m for m in db.query(PayeeMemory).all()}
     out.update(_apply_rules_and_memory(db, memory))
     if use_llm:

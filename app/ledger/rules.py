@@ -336,6 +336,7 @@ def compute_isin_state(
     movements: list[Movement],
     balances: list[tuple[date, Decimal]],
     alerts: Optional[list[Movement]] = None,
+    paid: Optional[tuple[date, Decimal, Decimal]] = None,
 ) -> IsinState:
     """
     trades     effective (de-duplicated) trades for this ISIN
@@ -344,6 +345,8 @@ def compute_isin_state(
                Those after the last statement that no pending trade accounts for are
                added to the position (cost unknown) — the statement is the only other
                source of units that arrive without a contract note/Coin mail.
+    paid       (date, price per unit, units) of an SGB subscription found on the bank statement: the first `units`
+               untraced units cost what was paid, on the day it was paid (not the nominal price).
     balances   month-end statement balances (as-on date, qty), any order. The
                caller supplies a balance for *every* statement date, 0 where the
                ISIN was absent, so a fully-sold position closes properly.
@@ -443,15 +446,34 @@ def compute_isin_state(
             pos.flags.append("ledger_exceeds_statement")
         consume(-residual)          # drop the oldest excess units; statement quantity wins
 
-    # Units with no trade whose tranche terms are published (SGBs) cost the issue price from the issue date.
+    # Units with no trade whose tranche terms are published (SGBs): what the bank statement shows was paid for the
+    # subscription, else the nominal issue price from the issue date (online applicants paid Rs.50 a gram less).
     from app.ledger.sgb import issue_terms
     terms = issue_terms(isin)
-    if terms:
+    if terms or paid:
+        left_paid = paid[2] if paid else ZERO
+        rebuilt: list[list] = []
         for l in lots:
-            if l[1] is None:
-                l[1], l[2] = terms[1], terms[0]
+            if l[1] is not None:
+                rebuilt.append(l)
+                continue
+            if left_paid > 0:
+                use = min(l[0], left_paid)
+                rebuilt.append([use, paid[1], paid[0]])
+                left_paid -= use
+                if "subscription_cost" not in pos.flags:
+                    pos.flags.append("subscription_cost")
+                if l[0] > use:
+                    l = [l[0] - use, None, None]
+                else:
+                    continue
+            if terms:
+                rebuilt.append([l[0], terms[1], terms[0]])
                 if "issue_price_cost" not in pos.flags:
                     pos.flags.append("issue_price_cost")
+            else:
+                rebuilt.append(l)
+        lots[:] = rebuilt
 
     pos.known_qty = sum((l[0] for l in lots if l[1] is not None), ZERO)
     pos.unknown_qty = sum((l[0] for l in lots if l[1] is None), ZERO)

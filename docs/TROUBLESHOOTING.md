@@ -289,6 +289,9 @@ The last scheduled update is older than 3 intervals, or failed (the warning says
 ### "loan reconciles with lender" warning
 `/api/loan` shows which: the newest HDFC letter differs from the roll-forward (a letter arrived that the EMIs since the last one do not explain, or an EMI month is missing from the data), the EMIs left disagree with the schedule, or an EMI debit due more than 4 days ago was not seen (check the HDFC alert / statement). Older intervals that cannot be reproduced stay listed there and do not warn.
 
+### "sgb coupons reconcile" warning
+`/api/sgb` says which: coupons due since a date were not found (credited to an account whose statements we do not read, or the bank narration changed), a held bond has no matching coupon, or coupons arrive for a bond no statement lists. For the last, add the bond in Manual Assets (type SGB, name containing the series, grams) and the warning clears. A new bank narration is fine: matching is by amount and date, the text only narrows the search.
+
 ### A trade or holding appears twice after a rescan
 The scheduler re-reads the last 7 days every run, so storage must be idempotent. Coin orders are identified by owner, folio, date, side, units and amount (not ISIN); the maintenance step `dedupe_coin_trades` removes older copies. A new duplicate means another identity that includes something a later fix can change: add its test to `tests/test_coin_duplicates_db.py`.
 

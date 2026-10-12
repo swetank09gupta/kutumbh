@@ -105,12 +105,13 @@ class Engine(unittest.TestCase):
         trade(date(2024, 1, 25), "B", 10, 1500)                 # 25 Jan 2027  (same month: one line)
         trade(date(2024, 3, 3), "B", 10, 1500, isin="INF9PLAIN001", name="ACME BLUECHIP FUND")   # not ELSS
         trade(date(2026, 6, 1), "S", 10, 1200)                  # sells the oldest (free) lot
-        # SGB held by the wife (2031 tranche) and by the user (2029)
+        # SGB held by the wife (2023-24 Series I, matures Jun 2031) and by the user (2021-22 Series VII, Nov 2029)
         for owner, isin, nm in (("wife", "IN0020230069", "SGB 2031"), ("user", "IN0020210178", "SGB 2021-22 SERIES VII")):
             acc = m.Account(owner_id=owner, institution="Zerodha", account_type="stocks", account_ref=f"s{owner}")
             db.add(acc); db.flush()
             db.add(m.Holding(account_id=acc.id, snapshot_date=TODAY, isin=isin, instrument_name=nm, holding_type="bonds",
                              current_value=D(150000), units=D(25), source_file="ledger:rollforward"))
+            db.add(m.StatementBalance(owner_id=owner, family="cdsl", as_on=date(2026, 9, 30), isin=isin, qty=D(25)))
         db.add(m.LoanAnchor(owner_id="user", lender="HDFC", loan_no="1", as_on=date(2026, 10, 1), prepaid=D(0),
                             principal_after=D(10000000), emi=D(170000), rate=D("7.1"), natural_key="a1"))
         db.commit()
@@ -156,8 +157,15 @@ class Engine(unittest.TestCase):
     def test_sgb_shows_maturity_not_early_exit(self):
         self.assertEqual(self.items("sgb_maturity"), [])             # 2029+ is outside a year
         out = self.items("sgb_maturity", horizon_days=1830)
-        self.assertEqual({(i["owner"], i["date"]) for i in out}, {("user", "2029-11-02"), ("wife", "2031-09-14")})
+        self.assertEqual({(i["owner"], i["date"]) for i in out}, {("user", "2029-11-02"), ("wife", "2031-06-27")})
         self.assertFalse([i for i in self.build(horizon_days=1830)["items"] if "exit" in i["title"].lower() or "redeem early" in i["detail"].lower()])
+
+    def test_sgb_coupons_are_dated_from_the_issue_date_with_the_expected_amount(self):
+        out = {(i["owner"], i["date"]): i for i in self.items("sgb_coupon")}
+        self.assertEqual(set(out), {("user", "2026-11-02"), ("wife", "2026-12-27")})        # next coupon of each tranche
+        self.assertIn("₹1,488", out[("user", "2026-11-02")]["detail"])                      # 25 g x 4,761 x 1.25%
+        self.assertIn("₹1,852", out[("wife", "2026-12-27")]["detail"])                      # 25 g x 5,926 x 1.25%
+        self.assertEqual(out[("wife", "2026-12-27")]["rules"], ["sgb.coupon_rate"])
 
     def test_repo_change_is_flagged_against_the_loan_letter(self):
         (i,) = self.items("loan_repo_change")

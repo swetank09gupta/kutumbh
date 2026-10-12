@@ -34,3 +34,4 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0028](0028-deadlines-calendar.md) | A deadlines calendar where every date cites a rule or its evidence | Accepted |
 | [0029](0029-automatic-updates.md) | Everything that can update by itself does, through one pipeline | Accepted |
 | [0030](0030-home-loan-reconciliation.md) | The home loan is reconciled against every lender letter, and the forecast follows the repo | Accepted |
+| [0031](0031-sgb-evidence.md) | Gold bonds are proven from the bank statements: tranche facts, coupons, what was paid | Accepted |

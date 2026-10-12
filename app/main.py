@@ -271,6 +271,7 @@ from app.api.routes.ledger       import router as ledger_router
 from app.api.routes.health       import router as health_router
 from app.api.routes.deadlines    import router as deadlines_router
 from app.api.routes.loan         import router as loan_router
+from app.api.routes.sgb          import router as sgb_router
 
 app.include_router(sync_router)
 app.include_router(accounts_router)
@@ -283,6 +284,7 @@ app.include_router(ledger_router)
 app.include_router(health_router)
 app.include_router(deadlines_router)
 app.include_router(loan_router)
+app.include_router(sgb_router)
 
 # ── SPA static files (must be mounted AFTER API routes) ──────────────────────
 _static_dir = Path(__file__).parent / "static"

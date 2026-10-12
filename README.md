@@ -329,6 +329,7 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/transactions/cashflow` · `/summary` · `/expense-breakdown` | GET | Income / expense / prepayment / invested per month — one shared definition (ADR-0024) |
 | `/api/transactions/review` · `/review/label` · `/review/suggest` | GET/POST | Unlabelled payees; label one once (applied to every payment); optional local-AI suggestions |
 | `/api/ledger/summary` · `/api/ledger/issues` | GET | Open reconciliation findings (missing trade, duplicate, transfer …) by kind / severity |
+| `/api/sgb/` | GET | Gold bonds: coupons matched to the statements, cost paid, missing coupons, bonds only the coupons reveal |
 | `/api/loan/` | GET | Home loan: balance, payoff, interest saved, repo-linked rate forecast, letter reconciliation, 24(b)/80C use |
 | `/api/deadlines/` | GET | Coming-up dates (PPF, deposits, ELSS, SGB maturity, repo watch), each with its rule or evidence |
 | `/api/ledger/reconcile` · `/api/ledger/rollforward` | POST | Re-run the checks / rebuild today's holdings (also runs after every sync) |

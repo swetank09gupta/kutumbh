@@ -312,6 +312,27 @@ def loan_reconciles(db: Session) -> dict:
                   else "; ".join(problems) + " — see /api/loan", "warn", problems=problems)
 
 
+def sgb_coupons_reconcile(db: Session) -> dict:
+    """SGB coupons are units x nominal x 1.25% every six months. Warn when a coupon stream stopped, when coupons arrive for
+    a bond no statement lists (an asset missing from net worth), or when a held bond's coupons cannot be matched at all."""
+    from app.api.routes.sgb import summary
+    res = summary(db)
+    problems = []
+    for s in res["streams"]:
+        if s["missing_after_last"]:
+            problems.append(f"{s['owner']} {s['series']}: {len(s['missing_after_last'])} coupon(s) due since {s['missing_after_last'][0]} not found")
+        if s["held"] and not s["coupons"]:
+            problems.append(f"{s['owner']} {s['series']}: held but no coupon matches the expected ₹{s['coupon_each']:,.2f}")
+    for s in res["found_not_held"]:
+        problems.append(f"{s['owner']}: {s['units']:g} g of {s['series']} pay coupons (₹{s['coupon_each']:,.2f} each, {len(s['coupons'])} seen) "
+                        f"but are in no statement or Manual Asset (about ₹{s['estimated_value'] or 0:,.0f})")
+    if res["ambiguous"]:
+        problems.append(f"{len(res['ambiguous'])} credit(s) could be coupons of more than one bond")
+    return _check("sgb_coupons_reconcile", not problems,
+                  "Every SGB coupon is matched to a held bond and none is missing" if not problems else "; ".join(problems) + " — see /api/sgb",
+                  "warn", problems=problems)
+
+
 def automation_is_running(db: Session) -> dict:
     """The update is meant to run by itself every few hours. If it has stopped, or its last run failed, say so
     instead of letting every card quietly go stale."""
@@ -347,7 +368,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
     data_freshness, unreviewed_payees, alerts_match_statements,
-    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, automation_is_running, deadlines_have_a_basis, product_invariants,
+    deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 
 

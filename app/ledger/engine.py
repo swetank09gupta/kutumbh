@@ -147,11 +147,14 @@ def compute_owner(db: Session, owner_id: str) -> OwnerLedger:
         by_isin_a[a.isin].append(a)
 
     held_ever = {i for m in qty_by_date.values() for i in m}
+    from app.ledger import sgb_evidence
+    sgb_paid = sgb_evidence.paid_terms(db, owner_id)          # what the bank shows was paid for each SGB subscription
     states: dict[str, rules.IsinState] = {}
     for isin in set(by_isin_t) | set(by_isin_m) | set(by_isin_a) | held_ever:
         balances = [(d, qty_by_date[d].get(isin, ZERO)) for d in dates]
         states[isin] = rules.compute_isin_state(
-            isin, by_isin_t.get(isin, []), by_isin_m.get(isin, []), balances, by_isin_a.get(isin, []))
+            isin, by_isin_t.get(isin, []), by_isin_m.get(isin, []), balances, by_isin_a.get(isin, []),
+            paid=sgb_paid.get(isin))
     return OwnerLedger(owner_id, anchor_date, states, meta, effective, superseded,
                        conflicts, unresolved, movements, links, dates)
 

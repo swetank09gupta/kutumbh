@@ -379,6 +379,12 @@
         <div id="loan-body"></div>
       </div>
 
+      <div class="card" id="sgb-card" style="margin-bottom:16px;display:none">
+        <div class="card-title" style="margin:0 0 2px">Gold bonds (SGB) <span id="sgb-sub" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">Coupons are matched to the bank statements by arithmetic: units × issue price × 1.25% every six months. Nothing is assumed.</div>
+        <div id="sgb-body"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card">
           <div class="card-title">Asset Allocation</div>
@@ -1295,7 +1301,7 @@ function nav(id, opts = {}) {
     if (location.hash !== target) history.pushState({ navId: id }, '', target);
   }
 
-  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); loadLoan(); refreshGrafana('overview'); }
+  if (id === 'overview')     { loadNetworth(); loadCashflow(); loadDeadlines(); loadLoan(); loadSgb(); refreshGrafana('overview'); }
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
@@ -1338,6 +1344,7 @@ function switchOwner(o) {
   loadCashflow();
   loadDeadlines();
   loadLoan();
+  loadSgb();
   ['overview', 'transactions', 'investments'].forEach(refreshGrafana);
   if (active === 'transactions') { _applyTxPageFilter(); loadAlerts(); }
   if (active === 'investments')  { loadHoldings(); loadPortfolioReturns(); }
@@ -3050,6 +3057,33 @@ async function loadLoan() {
   } catch (e) { card.style.display = 'none'; }
 }
 
+/* ── gold bonds: coupons matched to the statements, cost paid, bonds only the coupons reveal ── */
+async function loadSgb() {
+  const card = $('sgb-card');
+  if (!card) return;
+  try {
+    const d = await apiFetch('/api/sgb/');
+    const owner = _currentOwner;
+    const mine = r => owner === 'family' || r.owner === owner;
+    const rows = d.streams.filter(r => r.held && mine(r));
+    const found = d.found_not_held.filter(mine);
+    if (!rows.length && !found.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const who = o => owner === 'family' ? `<span style="color:#64748b">${o === 'user' ? 'Self' : o === 'wife' ? 'Spouse' : _esc(o)} · </span>` : '';
+    const lakh = v => '₹' + (v / 100000).toFixed(2) + ' L';
+    const tot = rows.reduce((n, r) => n + r.received_total, 0) + found.reduce((n, r) => n + r.received_total, 0);
+    $('sgb-sub').textContent = `· coupons received ₹${fmt(tot)}`;
+    $('sgb-body').innerHTML = (rows.length ? `<table style="width:100%;font-size:12px"><tbody>${rows.map(r => `<tr>
+        <td style="padding:3px 10px 3px 0">${who(r.owner)}${_esc(r.series)} · ${r.units} g</td>
+        <td style="color:#94a3b8">cost ₹${fmt(r.cost.total)} <span style="color:#64748b">— ${_esc(r.cost.source)}</span></td>
+        <td style="color:#94a3b8">${r.coupons.length} coupons · ₹${fmt(r.received_total)}</td>
+        <td style="color:#94a3b8;white-space:nowrap">next ₹${fmt(r.next_coupon_amount)} on ${fmtDate(r.next_coupon)}</td></tr>
+        ${r.missing_after_last.length ? `<tr><td colspan="4" style="color:#fca5a5;font-size:11px">Not found in the statements: coupon(s) due ${r.missing_after_last.map(fmtDate).join(', ')}</td></tr>` : ''}`).join('')}</tbody></table>` : '') +
+      found.map(r => `<div style="margin-top:8px;border:1px dashed #b45309;border-radius:8px;padding:8px 10px;font-size:12px;color:#fcd34d">${who(r.owner)}<b>${r.units} g of ${_esc(r.series)}</b> pay ₹${fmt(r.coupon_each)} every six months (${r.coupons.length} seen, ₹${fmt(r.received_total)}) but no statement or Manual Asset lists the bond${r.estimated_value ? ` — about ${lakh(r.estimated_value)} that net worth does not count` : ''}.
+        <span style="color:#94a3b8">Add it in Manual Assets (type SGB, name “SGB ${_esc(r.series)}”, ${r.units} g) to count it; until then its coupons are income only.</span></div>`).join('');
+  } catch (e) { card.style.display = 'none'; }
+}
+
 /* ── bank alerts: what happened since the last statement ────────── */
 async function loadAlerts() {
   const card = $('alerts-card');
@@ -3108,6 +3142,7 @@ if (location.hash && VALID_NAV_IDS.includes(location.hash.replace(/^#/, ''))) {
   loadCashflow();
   loadDeadlines();
   loadLoan();
+  loadSgb();
   refreshGrafana('overview');
 }
 setInterval(loadSysStatus, 30000);

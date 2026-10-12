@@ -1,0 +1,38 @@
+# Sovereign Gold Bond tranches the family holds or has coupons for. Public facts, each read at RBI-linked sources.
+#   nominal  = RBI issue price per gram; the half-yearly coupon is units x nominal x 1.25%
+#   online   = price paid by those who applied online with digital payment (nominal - 50)
+#   issue / maturity: coupons fall every 6 months from the issue date; maturity is 8 years after.
+# A tranche is added only when a holding or a coupon stream needs it (verify the ISIN, price and issue date first).
+tranches:
+  - isin: IN0020210178
+    series: 2021-22 Series VII
+    issue_date: 2021-11-02
+    maturity_date: 2029-11-02
+    nominal: 4761
+    online: 4711
+    source: https://website.rbi.org.in/web/rbi/-/press-releases/sovereign-gold-bond-scheme-2021-22-series-vii-issue-price-52453
+    verified_on: 2026-10-12
+  - isin: IN0020220045
+    series: 2022-23 Series I
+    issue_date: 2022-06-28
+    maturity_date: 2030-06-28
+    nominal: 5091
+    online: 5041
+    source: https://website.rbi.org.in/web/rbi/-/press-releases/sovereign-gold-bond-scheme-2022-23-series-i-issue-price-53887
+    verified_on: 2026-10-12
+  - isin: IN0020220110
+    series: 2022-23 Series III
+    issue_date: 2022-12-27
+    maturity_date: 2030-12-27
+    nominal: 5409
+    online: 5359
+    source: https://website.rbi.org.in/web/rbi/-/press-releases/sovereign-gold-bond-scheme-2022-23-series-iii-issue-price-54881
+    verified_on: 2026-10-12
+  - isin: IN0020230069
+    series: 2023-24 Series I
+    issue_date: 2023-06-27
+    maturity_date: 2031-06-27
+    nominal: 5926
+    online: 5876
+    source: https://website.rbi.org.in/web/rbi/-/press-releases/sovereign-gold-bond-scheme-2023-24-series-i-issue-price-55876
+    verified_on: 2026-10-12
