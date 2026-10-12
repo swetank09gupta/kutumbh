@@ -3074,10 +3074,10 @@ async function loadSgb() {
     const tot = rows.reduce((n, r) => n + r.received_total, 0) + found.reduce((n, r) => n + r.received_total, 0);
     $('sgb-sub').textContent = `· coupons received ₹${fmt(tot)}`;
     $('sgb-body').innerHTML = (rows.length ? `<table style="width:100%;font-size:12px"><tbody>${rows.map(r => `<tr>
-        <td style="padding:3px 10px 3px 0">${who(r.owner)}${_esc(r.series)} · ${r.units} g</td>
+        <td style="padding:3px 10px 3px 0">${who(r.owner)}${_esc(r.series)} · ${r.units} g${r.held_by_hand ? ' <span style="color:#64748b">(held outside the demat)</span>' : ''}</td>
         <td style="color:#94a3b8">cost ₹${fmt(r.cost.total)} <span style="color:#64748b">— ${_esc(r.cost.source)}</span></td>
         <td style="color:#94a3b8">${r.coupons.length} coupons · ₹${fmt(r.received_total)}</td>
-        <td style="color:#94a3b8;white-space:nowrap">next ₹${fmt(r.next_coupon_amount)} on ${fmtDate(r.next_coupon)}</td></tr>
+        <td style="color:#94a3b8;white-space:nowrap">next ₹${fmt(r.next_coupon_amount)} on ${fmtDate(r.next_coupon)} · matures ${fmtDate(r.maturity)}</td></tr>
         ${r.missing_after_last.length ? `<tr><td colspan="4" style="color:#fca5a5;font-size:11px">Not found in the statements: coupon(s) due ${r.missing_after_last.map(fmtDate).join(', ')}</td></tr>` : ''}`).join('')}</tbody></table>` : '') +
       found.map(r => `<div style="margin-top:8px;border:1px dashed #b45309;border-radius:8px;padding:8px 10px;font-size:12px;color:#fcd34d">${who(r.owner)}<b>${r.units} g of ${_esc(r.series)}</b> pay ₹${fmt(r.coupon_each)} every six months (${r.coupons.length} seen, ₹${fmt(r.received_total)}) but no statement or Manual Asset lists the bond${r.estimated_value ? ` — about ${lakh(r.estimated_value)} that net worth does not count` : ''}.
         <span style="color:#94a3b8">Add it in Manual Assets (type SGB, name “SGB ${_esc(r.series)}”, ${r.units} g) to count it; until then its coupons are income only.</span></div>`).join('');

@@ -175,10 +175,13 @@ def refresh_metal_prices(db: Annotated[Session, Depends(get_db)]):
 
     updated = 0
     details = []
+    from app.ledger.sgb_evidence import manual_tranche
     for asset in metal_assets:
         qty = float(asset.quantity or 0)
         if qty <= 0:
             continue
+        if asset.asset_type == "sgb" and manual_tranche(asset):
+            continue                      # a known tranche is valued at SGB market prices (maintenance), not at gold spot
         purity = asset.metal_purity or ("22K" if asset.asset_type == "gold" else "24K")
         new_val = price_for_asset(asset.asset_type, qty, purity)
         if new_val > 0:
@@ -262,6 +265,12 @@ def _compute_returns(a: ManualAsset) -> dict:
         result["cagr_pct"] = cagr(invested, current, years)
         # XIRR = same as lump-sum CAGR for metals (single buy)
         cfs = [(a.start_date, -invested), (today, current)]
+        if a.asset_type == "sgb":                       # coupons count: the same flows as the Investments page
+            from sqlalchemy.orm import object_session
+            from app.engine.portfolio_xirr import _manual_asset_cashflows
+            shared = _manual_asset_cashflows(object_session(a), a, today)
+            if shared:
+                cfs = shared[0]
         result["xirr_pct"] = xirr(cfs)
 
     # ── Other (real_estate, other) ────────────────────────────────────────────

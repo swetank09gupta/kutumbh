@@ -169,10 +169,10 @@ def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DA
                                f"are free to redeem from {first.strftime('%d %b %Y')} (instalments unlock one by one through the month).",
                                rule_ids=("elss.lock_in_years",), evidence="allotment dates from Coin / contract notes"))
 
-    # SGB: next coupon and maturity of every tranche a depository statement shows (dates from the tranche registry)
+    # SGB: next coupon and maturity of every tranche held, in the demat or by hand (dates from the tranche registry)
     from app.ledger import sgb_evidence
     tenor_rule = rules.rule("sgb.tenor_years", today)
-    for (owner, isin), units in sorted(sgb_evidence.depository_units(db, owners).items()):
+    for (owner, isin), units in sorted(sgb_evidence.held_units(db, owners).items()):
         t = tranche(isin)
         nxt = next((d for d in sgb_evidence.coupon_dates(t, t.maturity_date) if d > today), None)
         if nxt and nxt <= limit_day:

@@ -20,3 +20,10 @@ SGB cost came from a hard-coded tranche table and units were assumed to cost the
 
 ## Consequences
 Only three figures moved (bonds XIRR: yours up from the lower cost and the coupons, the wife's down from the corrected cost and an earlier issue date). Coupons moved from "transfer" to income (a few thousand rupees a year). Whether the wife holds the 2022-23 Series I bond is for her to confirm: it is not added to net worth automatically. Tests: `tests/test_sgb.py`, `tests/test_sgb_evidence_db.py` (three mutations checked).
+
+## Addendum: a bond held by hand (12 Oct 2026)
+The owner confirmed the wife holds the 2022-23 Series I bond outside the demat (RBI/bank), so it is in no statement except its coupons. It is a Manual Asset (type SGB, 25 g, issue date and nominal price assumed and labelled). Because such a bond has no statement price:
+- its value is the statement price of the held SGB with the **nearest maturity**, set by the pipeline (`hand_held_sgb_value`) and noted on the asset; the gold-spot refresh skips known tranches (spot is ~14% below SGB market prices);
+- its coupons are return flows (Investments page and Manual Assets page share `_manual_asset_cashflows`) and its coupon and maturity dates are on the deadlines card;
+- a Manual Asset is identified by its **name** (or an ISIN); notes are read only if the name names no tranche, because a note may mention another series.
+Purchase and redemption: the purchase is not in any statement we hold (her SBI statements for Jun 2022, Dec 2022, Jun 2023 and Dec 2023 are missing; those are also the coupon dates not seen), so cost and date stay at the nominal price and issue date; redemption is at maturity, 28 Jun 2030, at the IBJA price.

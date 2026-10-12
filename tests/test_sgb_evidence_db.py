@@ -110,6 +110,82 @@ class SgbWorld(unittest.TestCase):
         self.assertEqual(res["found_not_held"], [])
         self.assertEqual(res["held_by_hand"], [{"owner": "wife", "isin": I_22, "units": 25.0}])
 
+    # ── a bond held by hand: identified, valued, counted ──
+    def _by_hand(self, owner="wife", notes="", qty=25, name="SGB 2022-23 Series I", invested=127275):
+        a = self.m.ManualAsset(owner_id=owner, asset_type="sgb", name=name, institution="RBI", quantity=D(qty), current_value=D(1),
+                               invested_amount=D(invested), start_date=date(2022, 6, 28), maturity_date=date(2030, 6, 28), notes=notes)
+        self.db.add(a); self.db.commit(); return a
+
+    def _market(self):
+        """Two SGBs a depository values at their market prices, as the statements do."""
+        for owner, isin, per_g in (("user", III_22, 15083), ("wife", I_23, 15544)):
+            acc = self.m.Account(owner_id=owner, institution="Zerodha", account_type="stocks", account_ref="z" + owner)
+            self.db.add(acc); self.db.flush()
+            self.db.add(self.m.Holding(account_id=acc.id, snapshot_date=TODAY, isin=isin, instrument_name="SGB", holding_type="bonds",
+                                       units=D(25), current_value=D(25 * per_g), source_file="ledger:rollforward"))
+        self.db.commit()
+
+    def test_a_note_that_names_another_series_does_not_make_a_second_bond(self):          # the shipped bug
+        self._by_hand(notes="Value estimated at the statement price of 2022-23 Series III (₹15,083/g)")
+        self.assertEqual(ev.manual_units(self.db, ["wife"]), {("wife", I_22): D(25)})
+
+    def test_the_isin_in_a_note_identifies_a_bond_whose_name_does_not(self):
+        self._by_hand(name="Gold bond at the bank", notes=f"ISIN {III_22}")
+        self.assertEqual(list(ev.manual_units(self.db, ["wife"])), [("wife", III_22)])
+
+    def test_a_hand_held_bond_is_valued_like_the_held_sgb_with_the_nearest_maturity(self):
+        self._market()
+        a = self._by_hand()
+        out = ev.value_hand_held(self.db); self.db.commit(); self.db.refresh(a)
+        self.assertEqual(a.current_value, D(25 * 15083))                    # Jun 2030 is nearer Dec 2030 than Jun 2031
+        self.assertEqual(out[0]["priced_like"], "2022-23 Series III")
+        self.assertIn("Value estimated at the statement price", a.notes)
+        ev.value_hand_held(self.db)                                           # idempotent: the note is not appended twice
+        self.assertEqual(a.notes.count("Value estimated at"), 1)
+
+    def test_nothing_to_compare_with_means_the_value_is_left_alone(self):
+        a = self._by_hand()
+        self.assertEqual(ev.value_hand_held(self.db), [])
+        self.assertEqual(a.current_value, D(1))
+
+    def test_the_gold_spot_refresh_leaves_a_known_tranche_alone(self):
+        import inspect
+        from app.api.routes import manual
+        self.assertIn("manual_tranche(asset)", inspect.getsource(manual.refresh_metal_prices))
+
+    def test_coupons_of_a_hand_held_bond_are_return_flows_and_its_cost_is_the_outflow(self):
+        from app.engine.portfolio_xirr import _manual_asset_cashflows
+        self.coupons("wife", I_22, desc="NEFT*RBIS0MBPA04*U1*Sovereign Gold B", shift=2); self.coverage("wife")
+        a = self._by_hand(); a.current_value = D(377075); self.db.commit()
+        cfs, invested, _cur = _manual_asset_cashflows(self.db, a, TODAY)
+        self.assertEqual(cfs[0], (date(2022, 6, 28), -127275.0))
+        coupons = [c for c in cfs[1:-1]]
+        self.assertEqual(len(coupons), 8)
+        self.assertTrue(all(amt > 1590 for _d, amt in coupons))
+        self.assertEqual(cfs[-1], (TODAY, 377075.0))
+
+    def test_the_manual_assets_page_and_the_investments_page_share_those_flows(self):
+        import inspect
+        from app.api.routes import manual
+        self.assertIn("_manual_asset_cashflows(object_session(a), a, today)", inspect.getsource(manual._compute_returns))
+
+    def test_deadlines_list_the_coupon_and_the_redemption_of_a_hand_held_bond(self):
+        from app.engine import deadlines
+        self._by_hand()
+        out = deadlines.build(self.db, today=TODAY, horizon_days=1830)["items"]
+        mine = [i for i in out if i["kind"] in ("sgb_coupon", "sgb_maturity") and i["owner"] == "wife"]
+        self.assertEqual({(i["kind"], i["date"]) for i in mine}, {("sgb_coupon", "2026-12-28"), ("sgb_maturity", "2030-06-28")})
+
+    def test_the_api_reports_where_the_hand_held_cost_comes_from(self):
+        from app.api.routes.sgb import summary
+        self.coupons("wife", I_22, desc="NEFT*RBIS0MBPA04*U1*Sovereign Gold B", shift=2); self.coverage("wife")
+        self._by_hand()
+        (s,) = [x for x in summary(self.db, TODAY)["streams"] if x["isin"] == I_22]
+        self.assertTrue(s["held"] and s["held_by_hand"])
+        self.assertIn("Manual Asset", s["cost"]["source"])
+        self.assertEqual(s["cost"]["total"], 127275.0)
+        self.assertEqual(s["maturity"], "2030-06-28")
+
     def test_series_names_are_not_confused_with_longer_ones(self):
         self.db.add(self.m.ManualAsset(owner_id="wife", asset_type="sgb", name="SGB 2022-23 Series III", quantity=D(10), current_value=D(1)))
         self.db.commit()

@@ -87,6 +87,12 @@ def _manual_asset_cashflows(
 
     current = asset.current_value or ZERO
 
+    # A gold bond held by hand pays coupons into the bank: they are returns, like any other flow of the position.
+    if asset.asset_type == "sgb":
+        from app.ledger import sgb_evidence
+        start = asset.start_date or date.min
+        cfs += [(d, float(a)) for d, a in sgb_evidence.manual_coupon_flows(db, asset) if d >= start]
+
     # ── FD / RD interest accrual ──────────────────────────────────────────────
     # The SBI parser stores current_value = principal (no interest growth) for
     # term deposits. Compound the principal at the FD's stated rate from

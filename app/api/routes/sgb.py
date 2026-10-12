@@ -37,6 +37,17 @@ def summary(db: Session, today: date | None = None) -> dict:
                           "date": tranche(s["isin"]).issue_date.isoformat(), "per_gram": s["nominal"],
                           "total": s["nominal"] * s["units"],
                           "note": "online applicants paid ₹50 a gram less"})
+    from app.models.schemas import ManualAsset
+    for a in db.query(ManualAsset).filter(ManualAsset.asset_type == "sgb", ManualAsset.owner_id.in_(owners)):
+        t = sgb_evidence.manual_tranche(a)
+        for s in res["streams"]:
+            if t and s["owner"] == a.owner_id and s["isin"] == t.isin and s["held_by_hand"]:
+                s["cost"] = {"source": "Manual Asset: nominal issue price assumed, the purchase is in no statement we hold",
+                             "date": a.start_date.isoformat() if a.start_date else t.issue_date.isoformat(),
+                             "per_gram": float(a.invested_amount or 0) / s["units"] if s["units"] else None,
+                             "total": float(a.invested_amount or 0),
+                             "note": "online applicants paid ₹50 a gram less"}
+                s["value"] = float(a.current_value or 0)
     for s in res["found_not_held"]:
         s["estimated_value"] = round(per_gram * s["units"], 2) if per_gram else None
         s["note"] = ("coupons of exactly units x nominal x 1.25% arrive for a bond no statement lists; "

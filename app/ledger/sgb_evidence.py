@@ -70,16 +70,82 @@ def depository_units(db: Session, owner_ids: list[str]) -> dict[tuple[str, str],
     return out
 
 
+def _match_tranches(name: str, notes: str) -> list[Tranche]:
+    """Tranches named by an ISIN or a series. The name decides; the notes are read only when the name names none (a note
+    may mention other series, for instance the one a value was compared with)."""
+    for text in (name or "", notes or ""):
+        hit = [t for t in tranches().values()
+               if t.isin in text or re.search(re.escape(t.series) + r"(?![IVXivx])", text, re.I)]
+        if hit:
+            return hit
+    return []
+
+
 def manual_units(db: Session, owner_ids: list[str]) -> dict[tuple[str, str], Decimal]:
-    """{(owner, isin): grams} for SGBs typed into Manual Assets whose name or notes give the ISIN or the series
-    (for example "SGB 2022-23 Series I"): a bond held outside the demat the statements cover."""
+    """{(owner, isin): grams} for SGBs typed into Manual Assets: a bond held outside the demat the statements cover."""
     from app.models.schemas import ManualAsset
     out: dict[tuple[str, str], Decimal] = {}
     for a in db.query(ManualAsset).filter(ManualAsset.asset_type == "sgb", ManualAsset.owner_id.in_(owner_ids)):
-        text = f"{a.name or ''} {a.notes or ''}"
-        for t in tranches().values():
-            if t.isin in text or re.search(re.escape(t.series) + r"(?![IVX])", text, re.I):
-                out[(a.owner_id, t.isin)] = out.get((a.owner_id, t.isin), D(0)) + D(str(a.quantity or 0))
+        for t in _match_tranches(a.name, a.notes)[:1]:
+            out[(a.owner_id, t.isin)] = out.get((a.owner_id, t.isin), D(0)) + D(str(a.quantity or 0))
+    return out
+
+
+def held_units(db: Session, owner_ids: list[str]) -> dict[tuple[str, str], Decimal]:
+    """Every SGB the family holds: the depository's units, plus bonds typed into Manual Assets (the depository wins)."""
+    return {**manual_units(db, owner_ids), **depository_units(db, owner_ids)}
+
+
+def manual_tranche(asset) -> Optional[Tranche]:
+    """The tranche a Manual Asset SGB is."""
+    hit = _match_tranches(asset.name, asset.notes)
+    return hit[0] if hit else None
+
+
+def manual_coupon_flows(db: Session, asset) -> list[tuple[date, Decimal]]:
+    """Coupons the bank statements show for a bond held by hand: (credit date, amount), for the returns model."""
+    t = manual_tranche(asset)
+    if t is None or asset.asset_type != "sgb":
+        return []
+    out = []
+    for s in scan(db, [asset.owner_id])["streams"]:
+        if s["owner"] == asset.owner_id and s["isin"] == t.isin:
+            out += [(date.fromisoformat(c["date"]), D(str(c["amount"]))) for c in s["coupons"]]
+    return sorted(out)
+
+
+def per_gram_prices(db: Session) -> dict[str, tuple[Decimal, str]]:
+    """{isin: (price per gram, date)} of each SGB a depository statement values: the market price of that tranche."""
+    from app.engine.holdings_view import latest_holdings
+    out = {}
+    for h in latest_holdings(db):
+        if h.isin in tranches() and h.units and D(str(h.units)) > 0 and h.current_value:
+            out[h.isin] = (D(str(h.current_value)) / D(str(h.units)), h.isin)
+    return out
+
+
+def value_hand_held(db: Session) -> list[dict]:
+    """Value each SGB held by hand at the statement price of the held SGB whose maturity is nearest (a bond of the same
+    kind, valued by the same market), and say so in its notes. No held SGB to compare with: the value is left as it is."""
+    from app.models.schemas import ManualAsset
+    prices = per_gram_prices(db)
+    out = []
+    if not prices:
+        return out
+    for a in db.query(ManualAsset).filter(ManualAsset.asset_type == "sgb").all():
+        t = manual_tranche(a)
+        if t is None or not a.quantity or D(str(a.quantity)) <= 0:
+            continue
+        ref_isin = min(prices, key=lambda i: abs((tranche(i).maturity_date - t.maturity_date).days))
+        per_g = prices[ref_isin][0]
+        value = (D(str(a.quantity)) * per_g).quantize(D("0.01"))
+        note = (f"Value estimated at the statement price of {tranche(ref_isin).series} (₹{per_g:,.0f}/g), the held SGB with the "
+                f"nearest maturity; no statement lists this bond.")
+        base = re.split(r"\s*Value estimated at", a.notes or "")[0].strip()
+        if a.current_value != value or a.notes != f"{base} {note}".strip():
+            a.current_value, a.notes = value, f"{base} {note}".strip()
+        out.append({"asset": a.name, "owner": a.owner_id, "value": float(value), "priced_like": tranche(ref_isin).series})
+    db.flush()
     return out
 
 
@@ -143,6 +209,8 @@ def scan(db: Session, owner_ids: list[str], today: date | None = None) -> dict:
         nxt = next((d for d in coupon_dates(tr, tr.maturity_date) if d > today), None)
         row = {"owner": owner, "isin": isin, "series": tr.series, "units": units, "held": is_held,
                "holding_units": float(holding) if holding is not None else None,
+               "held_by_hand": (owner, isin) not in depository and is_held,
+               "maturity": tr.maturity_date.isoformat(),
                "nominal": float(tr.nominal), "online_price": float(tr.online),
                "coupon_each": float(tr.coupon(D(units))),
                "coupons": [{"date": c["date"].isoformat(), "due": c["due"].isoformat(), "amount": float(c["amount"]),

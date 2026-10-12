@@ -330,6 +330,13 @@ def _dedupe_coin_trades(db: Session) -> dict:
     return {"removed": n}
 
 
+def _value_hand_held_sgb(db: Session) -> dict:
+    from app.ledger import sgb_evidence
+    done = sgb_evidence.value_hand_held(db)
+    db.commit()
+    return {"valued": len(done)}
+
+
 def run_all(db: Session) -> dict[str, Any]:
     """Run every post-sync maintenance step. Each is wrapped in try/except so
     one failure doesn't sink the others. Returns counts for surfacing in the
@@ -349,6 +356,7 @@ def run_all(db: Session) -> dict[str, Any]:
         ("ppf_rates",               _ppf_rates),
         ("loan_outstanding",        _loan_outstanding),
         ("recategorize",            _recategorize),
+        ("hand_held_sgb_value",     _value_hand_held_sgb),
         ("txn_retag",               _txn_retag),   # last: one authority decides every category
     ]
     for name, fn in steps:
