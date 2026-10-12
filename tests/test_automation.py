@@ -84,6 +84,33 @@ class Overlay(unittest.TestCase):
         self.assertEqual(before - after, {"rbi.repo_rate"})
 
 
+class SelfUpdatingRulesMustKeepUpdating(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(_reset)
+        _reset()
+
+    def test_a_silent_failure_is_reported_within_days_not_at_the_next_quarter(self):
+        fresh = {"rbi.repo_rate": live.MAX_AGE_DAYS}
+        day = date(2026, 11, 20)                                        # same quarter: the by-hand rules are still fine
+        self.assertEqual(rules.stale(day), [])                          # the old logic sees nothing wrong
+        stuck = rules.stale(day, fresh_within=fresh)
+        self.assertEqual([r["id"] for r in stuck], ["rbi.repo_rate"])
+        self.assertIn("updates itself", stuck[0]["why"])
+
+    def test_a_recent_read_clears_it(self):
+        rules.set_observations([("rbi.repo_rate", "5.50", date(2026, 11, 19), date(2026, 11, 19), live.RBI_HOME)])
+        self.assertEqual(rules.stale(date(2026, 11, 20), fresh_within={"rbi.repo_rate": live.MAX_AGE_DAYS}), [])
+
+    def test_the_consistency_check_names_the_stuck_rule(self):
+        from app import consistency
+        with mock.patch("app.knowledge.rules.stale", return_value=[
+                {"id": "rbi.repo_rate", "why": "updates itself but has not been read for 9 days"}]):
+            c = consistency.rules_are_current(None)
+        self.assertFalse(c["ok"])
+        self.assertIn("should update itself", c["detail"])
+        self.assertIn("rbi.repo_rate", c["detail"])
+
+
 class OneSharedPipeline(unittest.TestCase):
     def test_rebuild_runs_in_dependency_order(self):
         from app.etl import pipeline

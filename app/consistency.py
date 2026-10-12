@@ -274,12 +274,18 @@ def deposits_match_alerts(db: Session) -> dict:
 def rules_are_current(db: Session) -> dict:
     """The public-rules registry (app/knowledge/rules.yml) is read by hand: warn when a rule in force is over
     120 days old or predates this quarter, so a changed rate/threshold is not silently relied on."""
-    from app.knowledge import rules
-    old = rules.stale()
+    from app.knowledge import live, rules
+    old = rules.stale(fresh_within={rid: live.MAX_AGE_DAYS for rid in live.FETCHERS})
+    stuck = [r["id"] for r in old if r["why"].startswith("updates itself")]
+    by_hand = [r["id"] for r in old if r["id"] not in stuck]
+    parts = []
+    if stuck:
+        parts.append(f"{', '.join(stuck)} should update itself but has not been read for days (page unreachable or changed?)")
+    if by_hand:
+        parts.append(f"{len(by_hand)} rule(s) need re-reading at their source ({', '.join(by_hand[:4])}{'…' if len(by_hand) > 4 else ''})")
     return _check("public_rules_are_current", not old,
-                  "Every public rule was verified this quarter" if not old else
-                  f"{len(old)} rule(s) need re-reading at their source ({', '.join(r['id'] for r in old[:4])}"
-                  f"{'…' if len(old) > 4 else ''}) — see docs/INSTRUMENTS.md", "warn", stale=old)
+                  "Every public rule was verified this quarter and the self-updating ones read within days" if not old
+                  else "; ".join(parts) + " — see docs/INSTRUMENTS.md", "warn", stale=old)
 
 
 def loan_reconciles(db: Session) -> dict:

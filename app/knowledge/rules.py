@@ -101,15 +101,24 @@ def _last_quarter_start(today: date) -> date:
     return date(today.year, 3 * ((today.month - 1) // 3) + 1, 1)
 
 
-def stale(today: date | None = None) -> list[dict]:
+def stale(today: date | None = None, fresh_within: dict[str, int] | None = None) -> list[dict]:
     """Rules in force today that need re-reading at their source: last verified over STALE_AFTER_DAYS ago, or
-    verified before the most recent quarter start (PPF/small-savings and most rates are re-notified then)."""
+    verified before the most recent quarter start (PPF/small-savings and most rates are re-notified then).
+    `fresh_within` = {rule id: days} for rules that update themselves (app.knowledge.live): those must have been read
+    again within that many days, so a page that quietly stopped working is noticed within days, not at the next quarter."""
     today = today or date.today()
     quarter = _last_quarter_start(today)
+    fresh_within = fresh_within or {}
     out = []
     for rule_id in sorted(load()):
         r = rule(rule_id, today)
         age = (today - r.verified_on).days
-        if age > STALE_AFTER_DAYS or r.verified_on < quarter:
-            out.append({"id": r.id, "verified_on": r.verified_on.isoformat(), "age_days": age, "source": r.source})
+        limit = fresh_within.get(rule_id)
+        if limit is not None:
+            if age > limit:
+                out.append({"id": r.id, "verified_on": r.verified_on.isoformat(), "age_days": age, "source": r.source,
+                            "why": f"updates itself but has not been read for {age} days"})
+        elif age > STALE_AFTER_DAYS or r.verified_on < quarter:
+            out.append({"id": r.id, "verified_on": r.verified_on.isoformat(), "age_days": age, "source": r.source,
+                        "why": "re-verify by hand at its source"})
     return out

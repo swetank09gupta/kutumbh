@@ -47,6 +47,7 @@ def fetch_repo() -> Decimal | None:
 
 # rule id → (fetcher, the page it reads)
 FETCHERS = {"rbi.repo_rate": (fetch_repo, RBI_HOME)}
+MAX_AGE_DAYS = 3          # a self-updating rule not read again within this many days is reported (the daily job missed 3 runs)
 
 
 def load_observations(db: Session) -> int:
