@@ -1800,7 +1800,7 @@ function _manualHoldingRows() {
                : (m.rate ? `<span style="color:#94a3b8" title="${m.type === 'ppf' ? 'Government-notified PPF rate (NSI)' : 'Rate printed on the deposit; no interest credits found to measure it'}">${m.rate.toFixed(1)}% ${m.type === 'ppf' ? 'govt rate' : 'FD rate'}</span>` : '—');
     return `<tr>
       <td><div style="font-weight:500">${_esc(m.name)}</div>
-          <div style="font-size:11px;color:#475569">${who(m.owner)}${m.maturity ? ' · matures ' + fmtDate(m.maturity) : ''}</div></td>
+          <div style="font-size:11px;color:#475569">${who(m.owner)}${m.maturity ? ' · matures ' + fmtDate(m.maturity) : ''}</div>${m.why ? `<div style="font-size:10px;color:#92400e">balance only — ${_esc(m.why)}</div>` : ''}</td>
       <td><span class="badge" style="background:#052e2b;color:#5eead4">${_esc(m.type)}</span></td>
       <td><span style="color:#64748b;font-size:11px">${_esc(m.goal_tag || '—')}</span></td>
       <td style="text-align:right;font-family:monospace">—</td>
@@ -1928,7 +1928,7 @@ function _renderReturnsStrip() {
   // Active class data — either total (when 'all') or the matching by_class entry
   let chips = '';
   if (_classFilter === 'all') {
-    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, t.gain_pct, t.note, t.value_all);
+    chips += _xirrChip('Total XIRR', t.xirr_pct, t.invested, t.current, t.gain, t.gain_pct, t.note, t.value_all, t.xirr_incl_balances_pct != null ? `${t.xirr_incl_balances_pct > 0 ? '+' : ''}${t.xirr_incl_balances_pct.toFixed(1)}% if PPF and deposits are counted at the rate they contractually earn` : null);
     for (const c of bc) {
       const lbl = (_CLASS_LABELS[c.class] || c.class) + ' XIRR';
       chips += _xirrChip(lbl, c.xirr_pct, c.invested, c.current, c.gain, c.gain_pct, c.note, c.current_all);
@@ -2037,7 +2037,7 @@ function setClassFilter(cls) {
   $('holdings-tbody').innerHTML = _renderHoldingsTable(_holdingsCache, _closedCache, $('show-closed-chk')?.checked);
 }
 
-function _xirrChip(label, xirr_v, invested, current, gain, total_return, note, value) {
+function _xirrChip(label, xirr_v, invested, current, gain, total_return, note, value, extra) {
   // Primary: XIRR; when no annual rate exists show the plain gain % and say so
   const display_v   = xirr_v   != null ? xirr_v   : total_return;
   const display_lbl = xirr_v   != null ? 'XIRR'   : (total_return != null ? 'gain, no annual rate' : null);
@@ -2054,7 +2054,8 @@ function _xirrChip(label, xirr_v, invested, current, gain, total_return, note, v
     detail += `<div style="font-size:11px;color:#64748b;margin-top:4px">${gain>=0?'+':'−'}₹${fmt(Math.abs(gain))} P&L · ₹${fmt(current)} value</div>`;
   }
   if (gain == null && invested == null && current > 0 && !value) detail = `<div style="font-size:11px;color:#64748b;margin-top:4px">₹${fmt(current)} value</div>`;
-  if (note) detail += `<div style="font-size:10px;color:#92400e;margin-top:4px;max-width:210px">${_esc(note)}</div>`;
+  if (extra) detail += `<div style="font-size:11px;color:#a5b4fc;margin-top:6px;max-width:230px">${_esc(extra)}</div>`;
+  if (note) detail += `<div style="font-size:10px;color:#92400e;margin-top:4px;max-width:230px">${_esc(note)}</div>`;
   return `<div style="background:#0f1923;border:1px solid #1e2738;border-radius:10px;padding:10px 16px;min-width:160px">
     <div style="font-size:11px;color:#64748b;margin-bottom:4px">${label}</div>
     <div style="font-size:20px;font-weight:700;color:${color}">${val}</div>
@@ -2400,7 +2401,7 @@ async function loadManualAssets() {
         ? `<button class="btn btn-ghost btn-sm" onclick="openContribModal('${a.id}','${a.name.replace(/'/g,"\\'")}','${a.asset_type}')" style="padding:5px 8px;margin-right:4px" title="Log a contribution">+₹</button>`
         : '';
       return `<tr>
-        <td style="font-weight:500">${a.name}</td>
+        <td style="font-weight:500">${a.name}${a.closed ? '<div style="font-size:10px;color:#92400e;font-weight:400">closed — the latest statement no longer lists it, so it is not counted</div>' : ''}</td>
         <td><span class="badge" style="background:#1e2738;color:#94a3b8">${ASSET_TYPE_LABELS[a.asset_type]||a.asset_type}</span>${liveDot}</td>
         <td style="color:#64748b;text-transform:capitalize">${a.owner_id}</td>
         <td style="color:#64748b">${a.institution||'—'}</td>

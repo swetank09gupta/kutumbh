@@ -487,6 +487,8 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
 
     # ── Upsert active assets ──────────────────────────────────────────────────
     from datetime import date as _date
+    from app.etl.deposit_history import record_snapshots
+    record_snapshots(db, owner_id, result.manual_assets)          # the history, whether or not this is the newest statement
     for pa in result.manual_assets:
         # Skip FDs/RDs that have already matured — old statements would resurrect them
         if pa.asset_type in ("fd", "rd") and pa.maturity_date and pa.maturity_date < _date.today():

@@ -19,7 +19,7 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -132,6 +132,7 @@ class Position:
     rate: Optional[float] = None      # stated interest rate, manual investments
     maturity: Optional[date] = None
     contract: bool = False            # rate implied by the statement's maturity value (not typed, not printed)
+    why: Optional[str] = None         # why no return could be measured
 
 
 def _asset_class(isin: str, holding_type: Optional[str] = None) -> str:
@@ -155,6 +156,21 @@ def _fd_interest_credits(db: Session, owner_ids: list[str]) -> dict[tuple[str, s
         m = _FD_INT.search(desc or "")
         if m and amt and amt > 0:
             out[(owner, m.group(1)[-4:])].append((d, float(amt)))
+    return out
+
+
+_FD_BREAK = re.compile(r"SWEEP\s*TRF\s*CREDT|SWEEP\s*FROM|SWEEP\s*DEPOSIT|\bTDR\b|PREMAT|MATUR", re.I)
+
+
+def _fd_breaks(db: Session, owner_ids: list[str]) -> dict[str, list[tuple[date, Decimal]]]:
+    """Money that came back into savings from a deposit (sweep / TDR credits), to date a part-withdrawal."""
+    out: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
+    q = (db.query(Transaction.date, Transaction.amount, Transaction.raw_description, Account.owner_id)
+         .join(Account, Account.id == Transaction.account_id)
+         .filter(Account.owner_id.in_(owner_ids), Account.account_type == "bank", Transaction.transaction_type == "credit"))
+    for d, amt, desc, owner in q.all():
+        if amt and amt > 0 and _FD_BREAK.search(desc or ""):
+            out[owner].append((d, Decimal(amt)))
     return out
 
 
@@ -233,7 +249,10 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                                   covered=ok, closed=True))
 
     # Manual investments: FD, PPF, RD, NPS, gold ...
+    from app.engine.deposits import deposit_history, is_live
+    hist, newest = deposit_history(db)
     fd_interest = _fd_interest_credits(db, owner_ids)
+    fd_breaks = _fd_breaks(db, owner_ids)
     for asset in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(owner_ids)).all():
         if asset.asset_type not in _INVESTING_ASSET_TYPES:
             continue
@@ -242,31 +261,55 @@ def build_positions(db: Session, owner_ids: list[str], today: date) -> tuple[lis
                             "reason": "matured before today"})
             continue
         if asset.asset_type in ("fd", "rd"):
+            from app.engine.deposit_flows import fd_flows
             from app.engine.deposits import accrued_value, contract_rate_pct
+            if not is_live(asset, hist, newest):
+                skipped.append({"kind": "manual_asset", "name": asset.name,
+                                "reason": "closed: the newest statement no longer lists it"})
+                continue
             contract = contract_rate_pct(asset)               # from the statement's own maturity value, if cumulative
             rate = contract if contract is not None else (float(asset.interest_rate) if asset.interest_rate else None)
             current = float(accrued_value(asset, today))       # the same value net worth uses
+            snaps = hist.get((asset.owner_id, asset.name), [])
+            flows = [(d, float(a)) for d, a in fd_flows(snaps, asset.start_date, fd_breaks.get(asset.owner_id, []))] if snaps else []
             tail = re.search(r"(\d{4})\s*$", asset.name or "")
             credits = fd_interest.get((asset.owner_id, tail.group(1)), []) if tail else []
-            invested = float(asset.invested_amount or 0)
-            paid = [(d, a) for d, a in credits if asset.start_date and d >= asset.start_date]
-            months = ((today - asset.start_date).days / 30.4) if asset.start_date else 0
-            # Interest is paid monthly: a deposit counts as measurable only when (nearly) every month's
-            # credit is on file, otherwise the missing credits would read as a low return.
-            if (contract is None and paid and invested > 0 and abs(float(asset.current_value or 0) - invested) <= 1.0 and months >= 6
-                    and len(paid) >= 0.8 * (months - 1)):
-                # Measured, not stated: principal in on the start date, every interest credit the deposit
-                # actually paid into savings, and the principal still held.
+            first = min((d for d, _ in flows), default=None)
+            months = ((today - first).days / 30.4) if first else 0
+            paid = [(d, a) for d, a in credits if first and d > first]
+            if flows and contract is not None:
+                # Cumulative deposit: its own statements give the opening, every part-withdrawal and top-up; the
+                # interest stays inside it and is part of what it is worth today.
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
-                                          cls=asset.asset_type, current=current,
-                                          cfs=[(asset.start_date, -invested)] + paid, rate=rate,
+                                          cls=asset.asset_type, current=current, cfs=flows, rate=rate,
+                                          maturity=asset.maturity_date, contract=True))
+            elif flows and months >= 6 and len(paid) >= 0.8 * (months - 1):
+                # Interest is paid out monthly: the same flows plus every interest credit it paid into savings.
+                positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
+                                          cls=asset.asset_type, current=current, cfs=flows + paid, rate=rate,
                                           maturity=asset.maturity_date))
             else:
-                # No measurable history (renewed, part-withdrawn, or no interest credit found): a balance at its rate.
+                why = ("no statement history for it" if not flows else
+                       "history under six months" if months < 6 else
+                       f"its interest is paid out monthly but only {len(paid)} of about {max(0, int(months - 1))} credits are on file")
                 positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
                                           cls=asset.asset_type, current=current, covered=False, deposit=True,
-                                          rate=rate, maturity=asset.maturity_date, contract=contract is not None))
+                                          rate=rate, maturity=asset.maturity_date, contract=contract is not None,
+                                          why=why))
             continue
+        if asset.asset_type == "ppf" and not db.query(ManualAssetContribution).filter_by(asset_id=asset.id).first():
+            from app.engine.deposit_flows import ppf_flows
+            from app.engine.ppf_from_transfers import _ppf_contribution_txns_for
+            snaps = [(d, p) for d, p, _a in hist.get((asset.owner_id, asset.name), [])]
+            bank = [(d, a) for d, a, _desc, _inst in _ppf_contribution_txns_for(db, asset.owner_id)]
+            put_in, _notes = ppf_flows(snaps, bank)
+            if put_in:
+                positions.append(Position(owner=asset.owner_id, isin=None, name=asset.name or asset.asset_type,
+                                          cls="ppf", current=float(asset.current_value or 0),
+                                          cfs=[(d, -float(a)) for d, a in put_in], goal_tag=asset.goal_tag,
+                                          rate=float(asset.interest_rate) if asset.interest_rate else None,
+                                          maturity=asset.maturity_date))
+                continue
         out = _manual_asset_cashflows(db, asset, today)
         if out is None:
             if asset.asset_type in ("ppf", "nps", "gold", "silver", "sgb"):
@@ -410,12 +453,31 @@ def compute_owner_returns(db: Session, owner_id: str, today: Optional[date] = No
     total = summarise([p for p in positions if not p.deposit], today)
     total["value_all"] = round(sum(p.current for p in positions), 2)          # everything held, balances included
     _describe_total(total, by_class)
+    total["xirr_incl_balances_pct"] = _xirr_with_balances(positions, today)
     return {
         "owner_id": owner_id, "as_of": today.isoformat(), "total": total, "by_class": by_class,
         "instruments": _instruments(positions, today), "by_goal": _goals(positions, today),
         "manual_assets": _manual_rows(positions, today),
         "skipped": skipped,
     }
+
+
+def _xirr_with_balances(positions: list[Position], today: date) -> Optional[float]:
+    """
+    The return of EVERYTHING held, counting the PPF / deposit balances whose own history is not on file at the
+    rate they contractually earn (PPF: the Government-notified rate; deposit: the rate on its statement, or the one
+    its maturity value implies). Each such balance enters as a year of growth at that rate. It is shown beside the
+    measured return, never instead of it: it assumes a contract, it does not measure.
+    """
+    flows: list[tuple[date, float]] = []
+    for p in positions:
+        if p.deposit:
+            if p.current > 0 and p.rate:
+                flows += [(today - timedelta(days=365), -p.current / (1 + p.rate / 100)), (today, p.current)]
+        elif p.covered:
+            flows += list(p.cfs) + ([(today, p.current)] if p.current > 0 else [])
+    invested = sum(-a for _, a in flows if a < 0)
+    return xirr(flows) if invested > 0 else None
 
 
 def _describe_total(total: dict, by_class: list[dict]) -> None:
@@ -475,11 +537,13 @@ def _manual_rows(positions: list[Position], today: date) -> list[dict]:
         if p.holding is not None or p.closed or p.isin is not None or p.current <= 0:
             continue
         r = None if (p.deposit or not p.covered or not p.cfs) else xirr(p.cfs + [(today, p.current)])
+        if r is not None and _avg_holding_days(p.cfs, today) < _MIN_ANNUALISE_DAYS:
+            r = None                                    # held under a year on average: plain gain, as everywhere
         invested = sum(-a for _, a in p.cfs if a < 0) or None
         out.append({"name": p.name, "owner": p.owner, "type": p.cls, "current": round(p.current, 2),
                     "rate": p.rate, "maturity": p.maturity.isoformat() if p.maturity else None,
                     "invested": invested, "gain": round(p.current - invested, 2) if (invested and p.covered and not p.deposit) else None,
-                    "xirr_pct": r, "goal_tag": p.goal_tag, "contract": p.contract})
+                    "xirr_pct": r, "goal_tag": p.goal_tag, "contract": p.contract, "why": p.why})
     out.sort(key=lambda x: x["current"], reverse=True)
     return out
 

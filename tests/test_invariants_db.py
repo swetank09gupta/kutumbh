@@ -103,6 +103,8 @@ class Invariants(unittest.TestCase):
         asset("wife", "fd", "SBI FD ...2222", 50000, invested_amount=D(80000), start_date=today - timedelta(days=500),
               maturity_date=today + timedelta(days=200), interest_rate=D("6.25"))
         asset("wife", "fd", "SBI FD ...3333", 30000, maturity_date=today - timedelta(days=10))               # matured
+        asset("wife", "fd", "SBI FD ...5555", 20000, invested_amount=D(20000), start_date=today - timedelta(days=300),
+              maturity_date=today + timedelta(days=60), interest_rate=D("6.25"))                              # closed since
         # a cumulative deposit: the statement amount plus the interest in its maturity value, accrued to today
         asset("wife", "fd", "SBI FD ...4444", 100000, invested_amount=D(100000), start_date=today - timedelta(days=200),
               maturity_date=today + timedelta(days=165), interest_rate=D("6.25"),
@@ -114,6 +116,7 @@ class Invariants(unittest.TestCase):
         # savings-account interest credits that measure FD ...1111 (monthly, nearly complete)
         for k in range(1, 13):
             txn(hdfc, today - timedelta(days=30 * k), 520, "credit", None, "INT TRF FRM 40000001111 TO 30778223316")
+        cls._deposit_history(today)
         db.add(m.LoanAnchor(owner_id="user", lender="HDFC", loan_no="1", as_on=date(2026, 5, 3), prepaid=D(0),
                             principal_after=D(12803080), emi=D(170000), rate=D("7.1"), natural_key="t1"))
         db.commit()
@@ -121,6 +124,42 @@ class Invariants(unittest.TestCase):
         from app.engine.networth import snapshot_all
         apply_loan_anchors(db)
         snapshot_all(db)
+
+    @classmethod
+    def _deposit_history(cls, today):
+        """The monthly statements' reading of each deposit / PPF: what lets us measure them and see closures."""
+        m, db = cls.m, cls.db
+
+        def month_ends(n):
+            out, y, mo = [], today.year, today.month
+            for _ in range(n):
+                mo -= 1
+                if mo == 0:
+                    y, mo = y - 1, 12
+                nxt = date(y + (mo == 12), mo % 12 + 1, 1)
+                out.append(nxt - timedelta(days=1))
+            return sorted(out)
+
+        def snap(owner, name, typ, d, principal, accrued=None, mat=None):
+            db.add(m.DepositSnapshot(owner_id=owner, name=name, asset_type=typ, as_on=d, principal=D(principal),
+                                     accrued=D(accrued) if accrued is not None else None,
+                                     maturity_value=D(mat) if mat else None))
+        months = month_ends(14)
+        for d in months:                                                  # pays its interest out; opened 400 days ago
+            snap("user", "SBI FD ...1111", "fd", d, 100000, 450, 100000)
+        for k, d in enumerate(months[-7:]):                                # cumulative, opened ~200 days ago
+            snap("wife", "SBI FD ...4444", "fd", d, 100000, 450 * (k + 1), 106400)
+        for d in months:                                                  # still listed in the newest table
+            snap("wife", "SBI FD ...2222", "fd", d, 50000, 100, 53000)
+        for d in months[:6]:                                              # last seen 8 months ago: closed since
+            snap("wife", "SBI FD ...5555", "fd", d, 20000, 50, 21000)
+        bal = 1500000                                                     # PPF: a deposit of 50,000 on the 3rd month
+        for k, d in enumerate(month_ends(30)):
+            if k == 3:
+                bal += 50000
+            if d.month == 3:
+                bal += int(bal * 0.071)
+            snap("wife", "SBI PPF", "ppf", d, bal)
 
     def run_all(self):
         from app.invariants import INVARIANTS
@@ -137,6 +176,7 @@ class Invariants(unittest.TestCase):
         names = {m["name"] for m in fam["manual_assets"]}
         self.assertIn("SBI PPF", names)                                  # PPF with no dated contributions is listed
         self.assertNotIn("SBI FD ...3333", names)                        # matured deposits are not
+        self.assertNotIn("SBI FD ...5555", names)                        # a deposit the newest statement dropped is closed
         by = {c["class"]: c for c in fam["by_class"]}
         self.assertAlmostEqual(by["ppf"]["current_all"], 2_440_000, delta=1)
         self.assertLess(by["mutual_fund"]["coverage_pct"], 100)          # the no-history fund is named, not hidden
@@ -148,7 +188,8 @@ class Invariants(unittest.TestCase):
         t = compute_owner_returns(self.db, "family")["total"]
         self.assertAlmostEqual(t["coverage_pct"], t["current"] / t["value_all"] * 100, delta=0.1)   # share of EVERYTHING held
         self.assertLess(t["coverage_pct"], 100)
-        self.assertIn("PPF", t["note"])                                   # the 19L-style PPF balance is named...
+        self.assertNotIn("PPF", t["note"])                                # the PPF is measured from its statement balances
+        self.assertIn("fixed deposits", t["note"])                        # a deposit with no usable history is named...
         self.assertIn("no purchase history", t["note"])                   # ...and so is the fund with no history
 
     def test_a_bank_sip_debit_counts_as_a_purchase(self):
@@ -156,6 +197,22 @@ class Invariants(unittest.TestCase):
         inst = {i["isin"]: i for i in compute_owner_returns(self.db, "user")["instruments"]}
         self.assertEqual(inst["INF001A01011"]["invested"], 50000.0)
         self.assertIsNotNone(inst["INF001A01011"]["xirr_pct"])
+
+    def test_a_closed_deposit_is_worth_nothing_anywhere(self):
+        from app.api.routes.manual import _value_today
+        from app.consistency import _latest_nw
+        from app.engine.deposits import deposit_history
+        from app.models.schemas import ManualAsset
+        a = self.db.query(ManualAsset).filter_by(name="SBI FD ...5555").one()
+        self.assertEqual(_value_today(a, deposit_history(self.db)), 0.0)
+        # the wife's deposits in net worth: 2222 + 4444 (accrued) + nothing for 5555
+        self.assertLess(float(_latest_nw(self.db)["wife"].fd_value), 50000 + 107000)
+
+    def test_ppf_contributions_are_rebuilt_from_the_balance_series(self):
+        from app.engine.portfolio_xirr import compute_owner_returns
+        row = next(m for m in compute_owner_returns(self.db, "wife")["manual_assets"] if m["name"] == "SBI PPF")
+        self.assertIsNone(row["why"])                                        # measured, not a bare balance
+        self.assertIsNotNone(row["invested"])
 
     def test_a_cumulative_deposit_is_worth_its_accrued_value_on_every_page(self):
         from app.api.routes.manual import _value_today

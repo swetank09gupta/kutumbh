@@ -35,6 +35,7 @@ A reading-order summary of the trade-offs. For full context per decision, see `d
 | 29 | Inflation | One automatic app-wide rate: 10-year average India CPI (World Bank); optional override | Per-goal rates; latest one-year print | A long goal needs the long-run rate. See [ADR-0019](adr/0019-goal-projection-model.md). |
 | 30 | PPF | Government-notified rate (NSI table) and PPF's own interest rule | A typed-in 7.1% and quarterly compounding | Public, official, changes. See [ADR-0026](adr/0026-returns-from-evidence.md). |
 | 31 | Home loan balance | The lender's prepayment letters, rolled forward by EMIs; a newer figure you type always wins | A hand-kept number | See [ADR-0026](adr/0026-returns-from-evidence.md). |
+| 33 | Deposits and PPF | History comes from the monthly statements (principal, interest accrued, maturity value, PPF balance series), kept in `deposit_snapshots`; a deposit absent from the newest statement is closed | Current-state rows overwritten each month; typed rates | See [ADR-0026](adr/0026-returns-from-evidence.md). |
 | 32 | Change discipline | Cross-page invariants (`app/invariants.py`) run as a live guard and in tests with mutation checks; UI↔API contract test; figures baseline; pre-push hook | Per-fix unit tests only | Fixes kept breaking other pages. See [INVARIANTS.md](INVARIANTS.md). |
 
 Each row above is expanded in its own ADR under `docs/adr/`.

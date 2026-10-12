@@ -87,9 +87,10 @@ def _price_it(isin: str, line: rules.Movement, bank: list[Transaction], used: se
             if not (day - timedelta(days=6) <= t.date <= day + timedelta(days=2)):
                 continue
             if abs(Decimal(t.amount) - cash) <= cash * Decimal("0.006") + 1:
-                err = abs(Decimal(t.amount) - cash)
-                if best is None or err < best[0]:
-                    best = (err, day, hit[1], Decimal(t.amount), t)
+                # same amount twice (two monthly SIP debits of 10,000): the one nearest the NAV day is this line's
+                key = (round(float(abs(Decimal(t.amount) - cash) / cash), 3), abs((t.date - day).days))
+                if best is None or key < best[0]:
+                    best = (key, day, hit[1], Decimal(t.amount), t)
     if best:
         _, day, nav, amt, t = best
         used.add(t.id)
@@ -166,6 +167,9 @@ def derive_for_owner(db: Session, owner_id: str) -> int:
             natural_key=f"dv|{owner_id}|{isin}|{settle}|{qty}|{side}", txn_fingerprint=fp))
         made += 1
 
+    line_jobs: list[tuple[str, str, rules.Movement]] = []              # unit credit/debit we know the date of
+    rest_jobs: list[tuple[str, str, Decimal, date, date, bool]] = []   # units the statements show with no line at all
+
     for isin, st in sorted(led.states.items()):
         if not isin.startswith("INF"):
             continue
@@ -185,31 +189,31 @@ def derive_for_owner(db: Session, owner_id: str) -> int:
         skip = rules.boundary_indices(st.intervals)
         for i, iv in enumerate(st.intervals):
             if not iv.reconciled and i not in skip:
-                gaps.append((iv.start + timedelta(days=0), iv.end, iv.residual))
+                gaps.append((iv.start, iv.end, iv.residual))
 
         for lo, hi, need in gaps:
             inside = [m for m in orphans if (m.move_date <= hi and (m.move_date > lo or hi == d0))]
             part = sum((m.signed for m in inside), rules.ZERO)
             use = inside if (need > 0 and part > 0 and part <= need + tol) or (need < 0 and part < 0 and part >= need - tol) else []
+            line_jobs += [(isin, name, m) for m in use]
             remainder = need - sum((m.signed for m in use), rules.ZERO)
-            for line in sorted(use, key=lambda m: m.move_date):
-                priced = _price_it(isin, line, bank, used)
-                if priced:
-                    add(isin, name, "B" if line.qty_in > 0 else "S", line.qty, line.move_date, priced)
-                else:
-                    remainder += line.signed
             if abs(remainder) > tol:
-                found = _find_by_bank(isin, abs(remainder).quantize(Decimal("0.001")), max(lo, hi - timedelta(days=45)) if hi != d0
-                                      else lo, hi, bank, used, remainder > 0)
-                if found:
-                    add(isin, name, "B" if remainder > 0 else "S", abs(remainder).quantize(Decimal("0.001")),
-                        found["date"], found)
-
+                rest_jobs.append((isin, name, remainder, max(lo, hi - timedelta(days=45)) if hi != d0 else lo, hi, remainder > 0))
         # after the last statement: CDSL alerts that no pending trade accounts for
-        for line in sorted(st.alert_only, key=lambda m: m.move_date):
-            priced = _price_it(isin, line, bank, used)
-            if priced:
-                add(isin, name, "B" if line.qty_in > 0 else "S", line.qty, line.move_date, priced)
+        line_jobs += [(isin, name, m) for m in st.alert_only]
+
+    # Units with no line have only their amount as evidence (units x that day's NAV == a bank debit), so they
+    # choose first; a line then takes the debit nearest its own date. (Otherwise a line could take the debit
+    # that is the only possible match for an earlier purchase.)
+    for isin, name, remainder, lo, hi, is_buy in rest_jobs:
+        units = abs(remainder).quantize(Decimal("0.001"))
+        found = _find_by_bank(isin, units, lo, hi, bank, used, is_buy)
+        if found:
+            add(isin, name, "B" if is_buy else "S", units, found["date"], found)
+    for isin, name, line in sorted(line_jobs, key=lambda j: j[2].move_date):
+        priced = _price_it(isin, line, bank, used)
+        if priced:
+            add(isin, name, "B" if line.qty_in > 0 else "S", line.qty, line.move_date, priced)
     db.flush()
     return made
 

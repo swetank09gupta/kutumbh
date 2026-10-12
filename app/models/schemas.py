@@ -493,6 +493,27 @@ class AppSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class DepositSnapshot(Base):
+    """
+    What one monthly bank statement said about one deposit or PPF account: principal, interest accrued,
+    maturity value. The series is the account's history — PPF contributions are its balance steps, a part-withdrawn
+    deposit shows as a drop in principal — which the statements print but the current-state tables cannot keep.
+    """
+    __tablename__ = "deposit_snapshots"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id       = Column(String(20), nullable=False)
+    name           = Column(String(100), nullable=False)       # "SBI FD ...7113", "SBI PPF"
+    asset_type     = Column(String(10), nullable=False)        # fd | ppf
+    as_on          = Column(Date, nullable=False)
+    principal      = Column(Numeric(15, 2), nullable=False)
+    accrued        = Column(Numeric(15, 2))
+    maturity_value = Column(Numeric(15, 2))
+    open_date      = Column(Date)
+
+    __table_args__ = (UniqueConstraint("owner_id", "name", "as_on", name="uq_deposit_snapshot"),)
+
+
 class PayeeMemory(Base):
     """
     What a payee (UPI/IMPS counterparty) is, learned once and applied everywhere.

@@ -70,3 +70,29 @@ def contract_rate_pct(asset) -> Optional[float]:
         return None
     years = (end - start).days / 365.25
     return round(((float(maturity_value(asset)) / float(base_value(asset))) ** (1 / years) - 1) * 100, 2)
+
+
+# ── history from the monthly statements (models.DepositSnapshot) ─────────────
+def deposit_history(db) -> tuple[dict, dict]:
+    """({(owner, name): [(as_on, principal, accrued)]}, {owner: date of the newest FD table seen})."""
+    from collections import defaultdict
+    from app.models.schemas import DepositSnapshot
+    series: dict = defaultdict(list)
+    newest: dict = {}
+    for r in db.query(DepositSnapshot).order_by(DepositSnapshot.as_on).all():
+        series[(r.owner_id, r.name)].append((r.as_on, r.principal, r.accrued))
+        if r.asset_type == "fd":
+            newest[r.owner_id] = max(newest.get(r.owner_id, r.as_on), r.as_on)
+    return series, newest
+
+
+def is_live(asset, series: dict, newest: dict) -> bool:
+    """A deposit the newest statement no longer lists was closed (or broken): it is not worth anything today.
+    Deposits we never saw in a statement (entered by hand) are taken as live."""
+    if getattr(asset, "asset_type", None) != "fd":
+        return True
+    seen = series.get((asset.owner_id, asset.name))
+    table = newest.get(asset.owner_id)
+    if not seen or table is None:
+        return True
+    return max(d for d, _p, _a in seen) >= table

@@ -31,12 +31,16 @@ def _returns(db: Session, owner: str) -> dict:
 # INV-01  Nothing vanishes: every manual investment that is held is a row on the Investments page.
 def inv01_every_manual_investment_is_listed(db: Session) -> list[str]:
     from app.engine.portfolio_xirr import _INVESTING_ASSET_TYPES
+    from app.engine.deposits import deposit_history, is_live
     from app.models.schemas import ManualAsset
     out = []
     today = date.today()
+    hist = deposit_history(db)
     for o in _owners(db):
         listed = {m["name"] for m in _returns(db, o)["manual_assets"]}
         for a in db.query(ManualAsset).filter(ManualAsset.owner_id == o).all():
+            if not is_live(a, *hist):
+                continue                                  # closed: the newest statement no longer lists it
             if a.asset_type not in _INVESTING_ASSET_TYPES or a.asset_type == "real_estate":
                 continue
             if (a.current_value or 0) <= 0 or (a.asset_type in ("fd", "rd") and a.maturity_date and a.maturity_date < today):
@@ -161,16 +165,18 @@ def inv08_payloads_are_finite(db: Session) -> list[str]:
 def inv09_manual_assets_match_net_worth(db: Session) -> list[str]:
     from app.api.routes.manual import _value_today
     from app.consistency import _latest_nw
+    from app.engine.deposits import deposit_history
     from app.models.schemas import ManualAsset
     nw = _latest_nw(db)
+    hist = deposit_history(db)
     out = []
     today = date.today()
     for o in _owners(db):
         if o not in nw:
             continue
         rows = db.query(ManualAsset).filter(ManualAsset.owner_id == o).all()
-        fd = sum(_value_today(a) for a in rows if a.asset_type in ("fd", "rd") and not (a.maturity_date and a.maturity_date < today))
-        ppf = sum(_value_today(a) for a in rows if a.asset_type == "ppf")
+        fd = sum(_value_today(a, hist) for a in rows if a.asset_type in ("fd", "rd") and not (a.maturity_date and a.maturity_date < today))
+        ppf = sum(_value_today(a, hist) for a in rows if a.asset_type == "ppf")
         for label, mine, theirs in (("deposits", fd, float(nw[o].fd_value or 0)), ("PPF", ppf, float(nw[o].ppf_value or 0))):
             if abs(mine - theirs) > TOL:
                 out.append(f"{o}: {label} are ₹{mine:,.0f} on Manual Assets but ₹{theirs:,.0f} in net worth")

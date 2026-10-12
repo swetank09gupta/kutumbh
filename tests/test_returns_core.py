@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from app.engine.portfolio_xirr import Position, summarise
+from app.engine.portfolio_xirr import Position, _xirr_with_balances, summarise
 
 TODAY = date(2026, 10, 12)
 
@@ -66,6 +66,21 @@ class Deposits(unittest.TestCase):
         r = summarise([d], TODAY)
         self.assertIsNone(r['xirr_pct'])
         self.assertEqual((r['invested'], r['current_all']), (0, 260000.0))
+
+
+class WithBalances(unittest.TestCase):
+    def test_a_balance_at_its_contract_rate_pulls_the_whole_return_toward_that_rate(self):
+        market = P("m", 150.0, [(date(2025, 10, 12), -100.0)])                       # +50% in a year
+        ppf = Position(owner="u", isin=None, name="PPF", cls="ppf", current=1000.0, covered=False, deposit=True, rate=7.1)
+        measured = summarise([market], TODAY)["xirr_pct"]
+        whole = _xirr_with_balances([market, ppf], TODAY)
+        self.assertGreater(measured, 45)
+        self.assertTrue(7.0 < whole < 15.0, whole)          # dominated by the 1,000 earning 7.1%
+
+    def test_a_balance_without_a_rate_is_left_out_not_guessed(self):
+        market = P("m", 150.0, [(date(2025, 10, 12), -100.0)])
+        nameless = Position(owner="u", isin=None, name="X", cls="fd", current=1000.0, covered=False, deposit=True, rate=None)
+        self.assertEqual(_xirr_with_balances([market, nameless], TODAY), summarise([market], TODAY)["xirr_pct"])
 
 
 if __name__ == "__main__":

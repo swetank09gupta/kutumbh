@@ -68,7 +68,9 @@ def list_assets(
                 ManualAsset.maturity_date >= date.today(),
             )
         )
-    return [_asset_dict(a) for a in q.all()]
+    from app.engine.deposits import deposit_history
+    hist = deposit_history(db)
+    return [_asset_dict(a, hist) for a in q.all()]
 
 
 @router.post("/assets")
@@ -270,8 +272,11 @@ def _compute_returns(a: ManualAsset) -> dict:
     return result
 
 
-def _value_today(a: ManualAsset) -> float:
-    from app.engine.deposits import accrued_value
+def _value_today(a: ManualAsset, hist=None) -> float:
+    """What it is worth today: deposits grown to today, and 0 for a deposit the newest statement no longer lists."""
+    from app.engine.deposits import accrued_value, is_live
+    if hist is not None and not is_live(a, *hist):
+        return 0.0
     return float(accrued_value(a, date.today()))
 
 
@@ -280,7 +285,7 @@ def _contract_rate(a: ManualAsset):
     return contract_rate_pct(a)
 
 
-def _asset_dict(a: ManualAsset) -> dict:
+def _asset_dict(a: ManualAsset, hist=None) -> dict:
     returns = _compute_returns(a)
     return {
         "id":               str(a.id),
@@ -289,7 +294,8 @@ def _asset_dict(a: ManualAsset) -> dict:
         "institution":      a.institution,
         "name":             a.name,
         "current_value":    float(a.current_value or 0),           # as stored (what an edit changes)
-        "value_today":      _value_today(a),                       # what it is worth today (deposits: + accrued interest)
+        "value_today":      _value_today(a, hist),                 # what it is worth today (deposits: + accrued interest)
+        "closed":           bool(hist is not None and not __import__("app.engine.deposits", fromlist=["x"]).is_live(a, *hist)),
         "contract_rate_pct": _contract_rate(a),
         "invested_amount":  float(a.invested_amount or 0),
         "interest_rate":    float(a.interest_rate or 0),

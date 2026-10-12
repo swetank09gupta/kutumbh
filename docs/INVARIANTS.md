@@ -35,6 +35,10 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | Derived trades price from NAV, confirmed by a bank debit, one debit confirms one line | `tests/test_derive.py` |
 | A figure you typed later is never overwritten by an older lender letter | `test_invariants_db::test_a_figure_you_typed_later…` |
 | A cumulative deposit is worth its statement amount plus the interest in its maturity value, accrued; the same on net worth, Investments and Manual Assets | `tests/test_deposits.py`, `test_invariants_db::test_a_cumulative_deposit…`, INV-03, INV-09 |
+| A deposit the newest statement no longer lists is closed: not in net worth, Manual Assets or Investments | `test_invariants_db::test_a_closed_deposit_is_worth_nothing_anywhere`, INV-01/09 |
+| PPF contributions are rebuilt from the statements' balance series; interest-credit steps are not contributions | `tests/test_deposit_flows.py`, `test_invariants_db::test_ppf_contributions_are_rebuilt…` |
+| Deposit part-withdrawals, top-ups and interest added to the principal are told apart | `tests/test_deposit_flows.py` |
+| Each purchase takes its own bank debit even when two debits have the same amount | `tests/test_derive_db.py` |
 | Loan roll-forward reproduces the lender's next figure | `tests/test_loan.py` |
 | Inflation: one automatic app-wide rate (10-year CPI average); an override can be set and cleared; goals ignore their own rate | `tests/test_settings.py`, `tests/test_inflation.py` |
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |

@@ -123,6 +123,8 @@ class SbiParser(BaseParser):
     _AS_ON_RE = re.compile(r'As on (\d{2}-\d{2}-\d{2,4})', re.I)
     # PPF balance in the account summary header
     _PPF_RE   = re.compile(r'PPF\s+INR\s+\d+\s+\d+\s+([\d,]+\.\d+)', re.I)
+    # PPF row of the "PPF AND SUKANYA ACCOUNTS" table:  PPF XXXXXXX6174 31-10-14 1937131.00 7.10 0.00 01-04-30 Yes
+    _PPF_ROW_RE = re.compile(r'PPF\s+X+(\w{4})\s+(\d{2}-\d{2}-\d{2})\s+([\d,]+\.\d+)\s+([\d.]+)', re.I)
     # PPF account detail section
     _PPF_ACCT_RE = re.compile(
         r'PPF\s+ACCOUNT\s+.*?(\d{2}-\d{2}-\d{2,4})\s+([\d,]+\.\d+)',
@@ -220,6 +222,7 @@ class SbiParser(BaseParser):
                             maturity_date=mat_date,
                             maturity_amount=mat_amount,
                             accrued_interest=accrued_llm,
+                            via_llm=True,
                             statement_date=stmt_date,
                         ))
                     except Exception as exc:
@@ -265,8 +268,20 @@ class SbiParser(BaseParser):
                 closed_refs.append(m.group(1))
 
         # ── PPF balance ───────────────────────────────────────────────────────
-        ppf_match = self._PPF_RE.search(full_text)
-        if ppf_match:
+        ppf_row = self._PPF_ROW_RE.search(full_text)
+        ppf_match = ppf_row or self._PPF_RE.search(full_text)
+        if ppf_row:
+            try:
+                ppf_val = Decimal(ppf_row.group(3).replace(",", ""))
+                if ppf_val > 0:
+                    manual_assets.append(ParsedManualAsset(
+                        asset_type="ppf", institution="SBI", name="SBI PPF", current_value=ppf_val,
+                        account_ref="ppf", interest_rate=Decimal(ppf_row.group(4)),
+                        start_date=self._parse_date(ppf_row.group(2), ["%d-%m-%y", "%d-%m-%Y"]),
+                        statement_date=stmt_date))
+            except Exception:
+                pass
+        elif ppf_match:
             try:
                 ppf_val = Decimal(ppf_match.group(1).replace(",", ""))
                 if ppf_val > 0:
@@ -297,6 +312,7 @@ class SbiParser(BaseParser):
                             current_value=ppf_val,
                             account_ref="ppf",
                             interest_rate=Decimal("7.1"),
+                            via_llm=True,
                             statement_date=stmt_date,
                         ))
                 except Exception as exc:

@@ -31,5 +31,20 @@ class SbiFd(unittest.TestCase):
         self.assertEqual((old.accrued_interest, new.accrued_interest), (D("763.43"), D("491.29")))
 
 
+PPF_TEXT = """As on 31-08-26
+OTHER INVESTMENTS
+PPF AND SUKANYA ACCOUNTS CURRENCY: INR
+PPF XXXXXXX6174 31-10-14 1937131.00 7.10 0.00 01-04-30 Yes
+"""
+
+
+class SbiPpf(unittest.TestCase):
+    def test_the_ppf_row_is_read_without_an_llm(self):
+        assets, *_ = SbiParser()._extract_fd_ppf(PPF_TEXT, "wife")
+        (p,) = [a for a in assets if a.asset_type == "ppf"]
+        self.assertEqual((p.current_value, p.interest_rate, p.start_date, p.statement_date),
+                         (D("1937131.00"), D("7.10"), date(2014, 10, 31), date(2026, 8, 31)))
+
+
 if __name__ == "__main__":
     unittest.main()
