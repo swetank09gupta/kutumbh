@@ -1,0 +1,55 @@
+# How each instrument works — the public rulebook
+
+What is public is the *rules*; only the *money* is yours. This page collects the rules from official or primary sources **before** code is written against them. Every number carries an effective date and a source; "Verified" means read on 12 Oct 2026. If a code change touches an instrument, read its section first, and update it (with the source) in the same commit.
+
+Legend: ✅ the system already follows it · ◐ partly · ✗ not handled · 🔍 secondary source, confirm against the primary text before relying on it.
+
+---
+
+## PPF (Public Provident Fund)
+**Rules.** Deposit ₹500–₹1,50,000 per financial year (FY). Matures after 15 complete FYs from the end of the FY of opening; extendable in 5-year blocks, with or without deposits. Loan from the 3rd to the 6th FY; partial withdrawal from the 7th FY. Interest rate is **notified quarterly** by the Ministry of Finance: **7.1%** since 1 Apr 2020, unchanged for Oct–Dec 2026. Interest = rate/12 on the **lowest balance between the 5th and the end of each month** (a deposit after the 5th earns from next month), **credited once, on 31 March**. Interest and maturity are tax-free (EEE). — [NSI: PPF](https://www.nsiindia.gov.in/InternalPage.aspx?Id_Pk=55), [NSI rate history](https://www.nsiindia.gov.in/InternalPage.aspx?Id_Pk=178), [Business Today: the 5th rule](https://www.businesstoday.in/amp/personal-finance/investment/story/ppf-investment-rule-fy27-how-depositing-funds-before-the-5th-every-month-can-maximise-your-returns-524034-2026-04-04), [Oct–Dec 2026 rates](https://www.angelone.in/news/personal-finance/finance-minister-announces-small-savings-interest-rates-for-october-december-2026-quarter).
+**System.** ✅ value = statement balance; ✅ rate table read from NSI; ✅ return measured between 31-March balances and reconciled year by year (`/api/health/ppf`). ✗ ₹1.5L/FY cap check, 15-year maturity / extension / 7th-year-withdrawal calendar, "pay before the 5th" planner.
+
+## Fixed deposits, SBI Multi Option Deposit (MOD), RD
+**Rules.** FD interest compounds quarterly; the statement prints principal, **interest accrued**, **maturity value**. MOD: the savings balance above **₹50,000** (raised from ₹35,000 in Sep 2025) is swept into FDs in units of **₹1,000** at the prevailing FD rate; a withdrawal breaks the deposits in units, the broken part gets the rate for the period it ran (penalty), the rest keeps earning; breaks come back to savings. SBI RD: quarterly compounding, late fee ₹1.50 per ₹100 per month, premature-closure penalty 0.5% (<₹5L) / 1%. — [SBI MOD](https://sbi.bank.in/web/personal-banking/investments-deposits/deposits/mod), [Business Standard: sweep threshold](https://www.business-standard.com/amp/finance/personal-finance/sbi-hikes-auto-sweep-threshold-to-rs-50-000-what-it-means-for-customers-125091200834_1.html), [SBI RD](https://groww.in/recurring-deposit/sbi-rd-interest-rates).
+**Tax.** Interest is taxed at slab. **TDS 10%** (20% without PAN) under s.194A once a payer's interest in the year crosses **₹50,000 (₹1,00,000 for seniors) from 1 Apr 2025** (was ₹40,000/₹50,000); **Form 15G/15H** stops TDS if total income is below the taxable limit. 🔍 aggregation: banks apply it across branches on core banking. — [ClearTax](https://cleartax.in/s/tds-on-fd-interest), [Business Standard](https://www.business-standard.com/finance/personal-finance/senior-citizens-how-the-rs-1-lakh-tds-threshold-affects-your-fd-earnings-125021101166_1.html).
+**System.** ✅ value = principal + accrued, grown to maturity value; ✅ per-deposit history from statements; closed = absent from newest statement; ✅ monthly interest credits + TDS add-back; ✅ MOD sweep flows. ✗ annual interest vs TDS threshold per owner (TDS forecast, 15G/15H eligibility), RD rules (no RD held), maturity calendar.
+
+## Mutual funds
+**Rules.** Orders received with funds by **3 pm** get that day's NAV, later the next business day; NAV is prospective (declared end of day). **Stamp duty 0.005%** on purchases (incl. every SIP instalment) is taken from the amount; units = (amount − duty)/NAV, to 3 decimals. **ELSS: 3-year lock-in per instalment.** Exit load per scheme. Capital gains by FIFO per folio: **equity funds** STCG 20% (≤12 months), LTCG 12.5% above ₹1.25L/FY (>12 months); **debt funds bought after 1 Apr 2023** taxed at slab, no indexation. — [AMFI cut-off](https://amfiindia.com/investor-corner/knowledge-center/cut-off-timings.html), [AMFI NAV](https://amfiindia.com/investor-corner/knowledge-center/net-asset-value.html), [stamp duty](https://www.bajajamc.com/knowledge-centre/stamp-duty-on-mutual-funds), [Canara Robeco tax reckoner FY25-26](https://www.canararobeco.com/wp-content/uploads/2025/06/CRMF_TAX-RECKONER_FY-2025-26.pdf).
+**System.** ✅ NAV history (mfapi.in/AMFI), units/dates from the depository, trades derived from demat line × NAV × bank debit; ✅ FIFO cost (matches Zerodha Console). ◐ stamp duty is inside the bank debit but not shown. ✗ realised/unrealised tax per FY, ₹1.25L LTCG headroom, ELSS unlock dates.
+
+## Equities (Zerodha delivery)
+**Rules.** Brokerage ₹0; **STT 0.1%** on buy and sell; stamp duty **0.015%** on buy; NSE 0.00322% / BSE 0.00375% exchange charge; SEBI ₹10/crore; GST 18% on brokerage + exchange + SEBI; **DP charge ₹13.5 + GST per scrip per sell day**. Settlement T+1. Cost for tax = price + brokerage/transfer charges (STT is not deductible). Gains: STCG 20% ≤12 months, LTCG 12.5% above ₹1.25L (shared with equity funds). — [Zerodha charges](https://zerodha.com/charges).
+**System.** ✅ contract notes/tradebook, T+1, FIFO, reconciliation against month-end demat balances (25/25 positions match Console). ◐ corporate actions reported not applied. ✗ tax view.
+
+## Sovereign Gold Bonds (SGB)
+**Rules.** 8-year tenor; **2.5% a year on the issue price, paid half-yearly** (taxable as income); **exit allowed from the 5th year on a coupon date** — request ≥10 days before; redemption price = simple average of IBJA 999-gold closing price for the 3 business days before. RBI publishes a premature-redemption calendar every half year. **Tax (changed):** since **1 Apr 2026** the capital-gains exemption holds only for an **original subscriber who holds to maturity**; a premature redemption is taxable (LTCG 12.5% after 12 months); secondary-market buyers never get it. 🔍 confirm against the Finance Act 2026 / CBDT FAQ. — [RBI/SGB terms](https://www.business-standard.com/amp/finance/personal-finance/gold-investors-get-387-returns-as-rbi-redeems-2017-18-sgb-series-126010200299_1.html), [calendar Oct 2026–Mar 2027](https://upstox.com/news/personal-finance/latest-updates/sovereign-gold-bond-sgb-premature-redemption-calendar-for-october-2026-march-2027-released-check-all-exit-dates/article-199069/), [NISM on Budget 2026](https://www.nism.ac.in/blog/how-budget-2026-changes-sovereign-gold-bond-sgb-taxation).
+**Your tranches.** 2021-22 Series VII (issued 2 Nov 2021): **exit window requests 1–23 Oct 2026, redemption 2 Nov 2026**. 2022-23 Series III: first exit Dec 2027. 2023-24 Series II (wife): Sep 2028.
+**System.** ✅ cost at the RBI issue price from the issue date. ✗ coupon interest is not in the SGB return (the wife's ₹1,590.94 half-yearly NEFT credits exist; your two tranches show none — to reconcile), exit-window calendar, tax effect of an early exit.
+
+## Home loan (HDFC, floating)
+**Rules.** Monthly-reducing balance: EMI = P·r·(1+r)ⁿ/((1+r)ⁿ−1), r = annual rate/12. HDFC Ltd's legacy loans were converted to the **repo-linked external benchmark (EBLR) + a fixed spread** after the merger, so the rate moves when the RBI changes the repo rate (the lender's reset date applies). On a reset the lender offers EMI or tenure adjustment. **From 1 Jan 2026 no prepayment/foreclosure charge on floating-rate loans to individuals.** The RBI **raised the repo rate 25 bp to 5.50% on 7 Oct 2026** (first hike since Feb 2023). Tax (old regime only): interest ₹2,00,000/yr (self-occupied) under s.24(b), principal ₹1,50,000 under s.80C, shared by co-owner share; none in the new regime. — [RBI prepayment directions](https://www.angelone.in/news/personal-finance/rbi-new-rule-no-prepayment-penalty-on-floating-loans-from-jan-1-2026), [HDFC merger/EBLR](https://emicalculator.net/hdfc-merger-will-your-home-loan-interest-change/), [repo hike](https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/), [s.24(b)](https://upstox.com/tax/what-is-section-24-meaning-how-to-calculate-it).
+**Evidence in your letters.** ROI 8.35% → 7.85% → 7.35% → 7.10% matches the 125 bp of repo cuts one-for-one: the loan passes the repo through. Expect **≈7.35%** after the next reset.
+**System.** ✅ outstanding principal from the lender's letters, rolled forward by EMIs (monthly-rest formula reproduces the lender's figures); history by date. ✗ ROI/EMI forecast from the repo, payoff date from EMIs left, interest saved by prepayments, EMI-vs-schedule reconciliation, 24(b)/80C usage.
+
+## EPF
+**Rules.** Interest declared yearly by the EPFO trustees and notified by the Government: **8.25% for FY 2025-26** (third year running). Computed on the **monthly running balance**, credited at the end of the FY. Interest on the employee's own contribution above **₹2,50,000/yr** is taxable. Statements need the member's UAN login (OTP/captcha); trust-managed funds have their own portals; no e-mail statements exist. — [PIB: 239th CBT](https://www.pib.gov.in/PressReleasePage.aspx?PRID=2234502&reg=3&lang=1), [ClearTax](https://cleartax.in/s/epf-interest-rate).
+**System.** ✗ not held. **Not automatable** from public data; see the roadmap for the one low-effort option.
+
+## Market-level public data we use
+| Data | Source | Used for | Status |
+|---|---|---|---|
+| PPF / small-savings rate history | NSI table | PPF interest, rate display | ✅ weekly cache, bundled intermediate certificate |
+| Fund NAV, scheme codes | AMFI NAVAll + mfapi.in | valuation, derived trades | ✅ |
+| CPI | World Bank (10-yr average) | goal inflation | ✅ |
+| Equity prices | Yahoo Finance | valuation | ✅ |
+| Repo rate | RBI policy statements | home-loan reset forecast | ✗ |
+| EPF rate | EPFO / PIB | EPF projection | ✗ |
+| SGB exit calendar, gold price | RBI, IBJA | SGB deadlines, redemption value | ✗ |
+| Tax rates & thresholds | Income-tax Act / Finance Acts | tax lens, TDS forecast | ✗ (this page only) |
+
+## What is *not* public
+Your balances, deposit dates, unlabelled transfers, property value (the flat is entered by hand), EPF passbook. The system never guesses these: it reads statements, alerts and lender letters, or says what is missing.
+
+Rates and thresholds change; each is effective-dated. Re-verify this page at least quarterly (PPF/small savings on 1 Jan / 1 Apr / 1 Jul / 1 Oct, repo after each RBI MPC meeting, tax rates after each Budget).
