@@ -9,22 +9,22 @@ Live feeds stay where one exists (NSI PPF table, AMFI/mfapi, World Bank); the re
 *Acceptance:* a test per rule (source and dates present, effective ranges do not overlap, lookup by date returns the right value); the existing PPF/TDS/CPI code reads the registry; `check.sh --live` shows no figure moved.
 
 ## Phase 1 — a rules-and-deadlines calendar (most useful, time-sensitive)
-One list, each item tied to a rule id: SGB exit windows (RBI calendar) and what an early exit costs in tax · PPF: next 5th-of-month, ₹1.5L headroom for the FY, maturity/extension, 7th-year withdrawal · FD/MOD maturities · ELSS unlock dates (3 years per instalment) · loan reset after a repo change · TDS threshold about to be crossed.
+One list, each item tied to a rule id: SGB exit windows (RBI calendar, shown as dates only, no early-exit comparison) · PPF: next 5th-of-month, ₹1.5L headroom for the FY, maturity/extension, 7th-year withdrawal · FD/MOD maturities · ELSS unlock dates (3 years per instalment) · loan reset after a repo change · TDS threshold about to be crossed.
 *Acceptance:* API + a card; every item cites its rule; fixture tests for each rule; an invariant that no item is shown without a registry rule.
-**Time-sensitive today:** your SGB 2021-22 Series VII (25 g) can be redeemed early on 2 Nov 2026; requests close **23 Oct 2026**. Since 1 Apr 2026 an early exit is taxable (≈ LTCG 12.5% on the gain, about ₹31k on today's price), while holding to Nov 2029 stays tax-free for an original subscriber and keeps the 2.5% coupon. It is your decision; the app should show this, not make it. 🔍 confirm the tax text before acting.
+**SGB early exit: not wanted.** You will hold to maturity, so no early-exit tax comparison is built (decided 12 Oct 2026). Exit windows stay as plain dates only.
 
 ## Phase 2 — home loan, fully reconciled
 Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · every EMI debit checked against the schedule (principal/interest split, EMIs-left count) · payoff date and **interest saved by each prepayment** · **rate forecast**: the loan has passed the repo through 1:1, so after the 7 Oct 2026 hike expect ≈ 7.35% at the next reset (shown as a forecast, replaced by the next letter) · old-regime 24(b)/80C use per co-borrower share.
 *Acceptance:* the schedule reproduces every letter's figures (already true to the rupee for the principal); a mismatch is a consistency warning; forecast labelled and tested against the 2024-26 history.
 
 ## Phase 3 — SGB completeness
-Coupons (the wife's ₹1,590.94 half-yearly NEFT credits from RBI; none found for your two tranches) enter the return; **reconcile each coupon to units × issue price × 1.25%** (the wife's is ₹244 lower than a 25 g holding implies: either the holding or the tranche price is off, to be found); redemption value from the IBJA price; tax effect of an early exit by the Budget 2026 rule.
+Coupons (the wife's ₹1,590.94 half-yearly NEFT credits from RBI; none found for your two tranches) enter the return; **reconcile each coupon to units × issue price × 1.25%** (the wife's is ₹244 lower than a 25 g holding implies: either the holding or the tranche price is off, to be found); redemption value from the IBJA price (at maturity only).
 
 ## Phase 4 — tax lens (rule-driven, no new data)
-Realised gains per FY (FIFO, STCG/LTCG by holding period, ₹1.25L LTCG headroom) · unrealised tax per holding · FD/MOD/savings interest per person vs the TDS threshold, 15G/15H eligibility, an interest-income summary for the ITR · all rates from the registry.
+**Regime per person: you = old, wife = new** (12 Oct 2026). 80C/24(b)/ELSS advice applies to you only; the wife's view uses new-regime slabs and shows no 80C or 24(b) deductions. Realised gains per FY (FIFO, STCG/LTCG by holding period, ₹1.25L LTCG headroom) · unrealised tax per holding · FD/MOD/savings interest per person vs the TDS threshold, 15G/15H eligibility, an interest-income summary for the ITR · all rates from the registry.
 
-## Phase 5 — EPF (only if you want it)
-No automated source exists (UAN login with OTP; trust portals; no e-mails). Option: enter the balance once a year, the app adds contributions and the declared rate (8.25%) and marks it **estimated**. Skipped unless you say so.
+## Phase 5 — EPF (deferred)
+Skipped for now (12 Oct 2026): no automated source exists, and a manual entry is not wanted. Revisit only if an automated feed appears.
 
 ## Phase 6 — known data gaps (housekeeping)
 881 payees to label · stale Union Bank / Axis statements · two newer FDs without enough history · the 19 unreadable HDFC PDFs · compose bugs (ollama-init, bootstrap race).
@@ -35,11 +35,11 @@ No automated source exists (UAN login with OTP; trust portals; no e-mails). Opti
 3. `scripts/check.sh --live` before; build; after. Every moved figure must be one the phase meant to move.
 4. DECISIONS / INVARIANTS / ADR / docs in the same commit; UI check for Family, Self, Spouse.
 
-## Questions for you
-1. Approve the order (0 → 1 → 2 → 3 → 4), or reorder.
-2. Tax regime: config says **old** for both of you — correct?
-3. EPF: skip, or the one-time-entry estimate?
-4. SGB Series VII: do you want the early-exit comparison shown before the 23 Oct window closes (Phase 1 would reach it first)?
+## Decisions (12 Oct 2026)
+1. Order 0 → 1 → 2 → 3 → 4 approved.
+2. Tax regime: you **old**, wife **new**.
+3. EPF: skipped for now.
+4. SGB early-exit comparison: not wanted.
 
 ## Inbox (requests waiting for triage)
 - _(empty)_
