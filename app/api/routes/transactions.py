@@ -109,8 +109,10 @@ def expense_breakdown(
         c["total"] = round(c["total"], 2)
         c["subcategories"].sort(key=lambda s: s["total"], reverse=True)
     d_min, d_max = db.execute(text(f"SELECT MIN(date), MAX(date) FROM v_cashflow WHERE {clause}"), params).one()
+    prov = db.execute(text(f"SELECT COALESCE(SUM(ABS(amount)),0), COUNT(*) FROM v_cashflow WHERE {clause} AND provisional"), params).one()
     return {
         "grand_total": round(grand_total, 2),
+        "provisional": {"amount": round(float(prov[0]), 2), "count": int(prov[1])},   # in the total: UPI payments from alerts, until the statement
         "date_min": str(d_min) if d_min else None,
         "date_max": str(d_max) if d_max else None,
         "categories": result,

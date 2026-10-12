@@ -38,6 +38,10 @@ Looked for an automatic feed: the mailboxes hold only EPFO account-security noti
 - **Two newer FDs (…4395, …5054)** are balance-only until they have enough interest credits; they resolve by themselves.
 - **Cost unknown on sales:** your LIC (IPO allotment) and Nykaa (bonus) units are now proven from the registrar's mails (ADR-0035). Still unknown: the wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta units, for which no contract note or mail exists.
 
+## Self-sustaining audit (12 Oct 2026, ADR-0037)
+Updates without a person: statements, alerts, loan letters/certificates, registrar notices (every 6 h, since the last good run); repo rate and 18 rule pages (daily); AMFI NAVs and Yahoo share prices (each rebuild, expiring after 6 h / the day); dividend history; derived trades. Each now has a check that goes to warn when it stops (`prices_are_live`, `rules_are_current`, `automation_is_running`, `bank_balances_chain`, ledger reconciliation).
+**Still not live:** SGB prices (monthly statement rate), the flat's value, EPF balance, FD/RD values (accrued from the statement's contract rate, not a feed), statements the banks never mail (SBI wife Aug 2025, SBI user Oct 2024), accounts that send no alerts (Union, Axis).
+
 ## How each phase is run
 1. Update the rule section in INSTRUMENTS.md (source, date) and the registry.
 2. Write the tests (including a mutation that fails without the change) and any invariant.

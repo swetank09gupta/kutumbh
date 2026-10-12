@@ -36,6 +36,7 @@ from app.models.schemas import Account, DematMovement, InstrumentTrade, Transact
 
 logger = logging.getLogger(__name__)
 SOURCE = "derived"
+MAX_LOOKBACK = timedelta(days=900)          # how far back before a statement the paying debit of unexplained units is searched
 _BANK_HINT = ("zerodha", "iccl", "indian clearin", "coin", "bsestar", "nse clearing", "bse ")
 
 
@@ -110,8 +111,8 @@ def _find_by_bank(isin: str, units: Decimal, lo: date, hi: date, bank: list[Tran
     """Which bank debit paid for exactly `units` of this fund on some NAV day in the window?"""
     best = None
     for t in bank:
-        if t.id in used or t.transaction_type != ("debit" if credit else "credit"):
-            continue
+        if t.id in used or t.transaction_type != ("debit" if credit else "credit") or (t.isin and t.isin != isin):
+            continue                                                # a debit already attributed to another security is not free
         if not (lo <= t.date <= hi) or not any(h in (t.raw_description or "").lower() for h in _BANK_HINT):
             continue
         for k in range(-1, 6):
@@ -198,7 +199,7 @@ def derive_for_owner(db: Session, owner_id: str) -> int:
             line_jobs += [(isin, name, m) for m in use]
             remainder = need - sum((m.signed for m in use), rules.ZERO)
             if abs(remainder) > tol:
-                rest_jobs.append((isin, name, remainder, max(lo, hi - timedelta(days=45)) if hi != d0 else lo, hi, remainder > 0))
+                rest_jobs.append((isin, name, remainder, max(lo, hi - MAX_LOOKBACK), hi, remainder > 0))
         # after the last statement: CDSL alerts that no pending trade accounts for
         line_jobs += [(isin, name, m) for m in st.alert_only]
 

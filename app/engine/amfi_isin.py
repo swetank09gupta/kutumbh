@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -26,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 _AMFI_URL = "https://www.amfiindia.com/spages/NAVAll.txt"
 _CACHE_FILE = Path("data/amfi_nav_cache.json")
-_CACHE_HOURS = 24
+_CACHE_HOURS = 6                      # AMFI publishes in the evening; the app runs for weeks, so memory and file both expire
+_RETRY_SECONDS = 600
+_LAST_FAILURE: Optional[float] = None
 
 # Tokens that don't help disambiguate one fund from another — stripped during
 # name normalization so "Mirae Asset ELSS Tax Saver Fund - Direct Growth" and
@@ -127,9 +130,13 @@ def _fetch_navall() -> list[dict]:
     """Returns list of {isin, scheme_name, scheme_code, nav} dicts from AMFI."""
     resp = httpx.get(_AMFI_URL, timeout=30, follow_redirects=True)
     resp.raise_for_status()
+    return _parse_navall(resp.text)
+
+
+def _parse_navall(text: str) -> list[dict]:
     out: list[dict] = []
     category = ""
-    for line in resp.text.splitlines():
+    for line in text.splitlines():
         parts = line.split(";")
         if len(parts) == 1 and re.match(r"(Open|Close|Interval)[A-Za-z ]*Schemes?\s*\(", line.strip(), re.I):
             category = re.sub(r"^[^(]*\(|\)\s*$", "", line.strip())        # "Equity Scheme - Large Cap Fund"
@@ -137,6 +144,11 @@ def _fetch_navall() -> list[dict]:
         if len(parts) < 5:
             continue
         code, isin_growth, isin_reinv, name, nav = parts[0], parts[1], parts[2], parts[3], parts[4]
+        if len(parts) >= 8 and re.match(r"^\s*[\d.]+\s*$", parts[6] or ""):
+            # since Oct 2026 AMFI prints Scheme Name;Plan;Option;Net Asset Value;Date (it was Scheme Name;NAV;...):
+            # keep the old long name ("... - Direct Plan - Growth Option") so fund-name matching still sees plan and option
+            name = " - ".join(x.strip() for x in (parts[3], parts[4], parts[5]) if x.strip())
+            nav = parts[6]
         # Header / blank / section heading rows
         if not code.strip().isdigit():
             continue
@@ -284,33 +296,42 @@ def lookup_isin(scheme_name: str) -> Optional[str]:
 
 def refresh() -> int:
     """Force-refresh the cache from AMFI. Returns number of schemes loaded."""
-    global _INDEX_CACHE, _NAV_CACHE
+    global _INDEX_CACHE, _NAV_CACHE, _NAV_LOADED
     entries = _fetch_navall()
     _save_cache(entries)
     _INDEX_CACHE = _build_index(entries)
     _NAV_CACHE   = {e["isin"]: e["nav"] for e in entries if e["nav"] > 0}
+    _NAV_LOADED  = time.monotonic()
     return len(entries)
 
 
 _NAV_CACHE: Optional[dict[str, float]] = None
+_NAV_LOADED = 0.0
 
 
 def _get_nav_map() -> dict[str, float]:
     """ISIN → today's NAV from cached AMFI data. Loads cache if needed."""
-    global _NAV_CACHE
-    if _NAV_CACHE is not None:
+    global _NAV_CACHE, _NAV_LOADED
+    if _NAV_CACHE is not None and time.monotonic() - _NAV_LOADED < _CACHE_HOURS * 3600:
         return _NAV_CACHE
     cached = _load_cache()
     if cached and cached.get("entries"):
         _NAV_CACHE = {e["isin"]: e.get("nav", 0.0)
                       for e in cached["entries"] if e.get("nav", 0.0) > 0}
+        _NAV_LOADED = time.monotonic()
         return _NAV_CACHE
-    # Force a fetch
+    # Force a fetch. A failed fetch is NOT remembered as "no NAVs": it is retried after _RETRY_SECONDS, so one network
+    # hiccup at start-up cannot blind valuations for the life of the process.
+    global _LAST_FAILURE
+    if _LAST_FAILURE is not None and time.monotonic() - _LAST_FAILURE < _RETRY_SECONDS:
+        return {}
     try:
         refresh()
+        _LAST_FAILURE = None
     except Exception as exc:
-        logger.warning("AMFI NAV fetch failed: %s", exc)
-        _NAV_CACHE = {}
+        logger.warning("AMFI NAV fetch failed (will retry in %d s): %s", _RETRY_SECONDS, exc)
+        _LAST_FAILURE = time.monotonic()
+        return {}
     return _NAV_CACHE or {}
 
 

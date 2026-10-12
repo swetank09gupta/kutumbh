@@ -458,6 +458,9 @@ class BankAlertRow(Base):
     status         = Column(String(10), nullable=False, default="new")   # new|matched|pending|unmatched|dup|outside|untracked
     matched_txn_id = Column(UUID(as_uuid=True))
     natural_key    = Column(String(300), nullable=False, unique=True)
+    category       = Column(String(30))                    # the categoriser's reading of the payee (pending alerts only)
+    subcategory    = Column(String(40))
+    provisional_expense = Column(Boolean, nullable=False, default=False)   # counted as spending until the statement arrives
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
 
 

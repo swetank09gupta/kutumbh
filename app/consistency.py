@@ -351,6 +351,42 @@ def dividends_reconcile(db: Session) -> dict:
                   else "; ".join(problems) + " — see /api/tax/dividends", "warn", unmatched=r["unmatched"], ambiguous=r["ambiguous"])
 
 
+def bank_balances_chain(db: Session) -> dict:
+    """Every bank account's printed running balance chains day to day (app/txn/continuity.py): a break is a lost,
+    merged or never-fetched transaction on that date, found by arithmetic on the statements alone."""
+    from app.txn.continuity import account_breaks
+    cutoff = date.today().replace(year=date.today().year - 2)           # older history is reported by the API, not warned on
+    rows = [{**a, "breaks": [b for b in a["breaks"] if b["date"] >= cutoff]} for a in account_breaks(db)]
+    bad = [a for a in rows if a["breaks"]]
+    n = sum(len(a["breaks"]) for a in bad)
+    return _check("bank_balances_chain", not bad,
+                  "Every bank account's balance chains day to day (last 2 years)" if not bad else
+                  f"{n} day(s) in {len(bad)} account(s) where the printed balance is not explained by the rows we hold: "
+                  + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}" for a in bad) + " — see /api/health/continuity",
+                  "warn", accounts=[{"account": a["account"], "owner": a["owner"],
+                                     "breaks": [{"date": str(b["date"]), "missing": float(b["missing"])} for b in a["breaks"]]} for a in bad])
+
+
+def prices_are_live(db: Session) -> dict:
+    """Every fund is valued at AMFI's latest NAV and every listed share at its market price; a holding that fell back to its last
+    trade or a statement rate says so here (the feed changed its format once and every fund fell back without a word)."""
+    from app.models.schemas import Account, Holding
+    latest = db.query(func.max(Holding.snapshot_date)).scalar()
+    if latest is None:
+        return _check("prices_are_live", True, "No holdings yet")
+    rows = (db.query(Holding, Account.owner_id).join(Account, Account.id == Holding.account_id)
+            .filter(Holding.snapshot_date == latest, Holding.current_value > 0).all())
+    stale = []
+    for h, owner in rows:
+        want = "amfi" if (h.isin or "").startswith("INF") else "yahoo" if (h.isin or "").startswith("INE") else None
+        if want and h.price_source and h.price_source != want:       # None = a statement row, not a ledger valuation
+            stale.append({"owner": owner, "name": (h.instrument_name or h.isin)[:40], "isin": h.isin, "valued_from": h.price_source, "wanted": want})
+    return _check("prices_are_live", not stale,
+                  "Every fund and share is valued at today's market price" if not stale else
+                  f"{len(stale)} holding(s) valued from an old trade/statement instead of the market: "
+                  + ", ".join(sorted({x['name'] for x in stale})[:4]), "warn", holdings=stale)
+
+
 def tax_slabs_are_current(db: Session) -> dict:
     """The slab tables are per financial year and change at a Budget: warn when the current year has no verified entry."""
     from app.engine import tax_slabs
@@ -393,7 +429,7 @@ CHECKS: list[Callable[[Session], dict]] = [
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,
-    data_freshness, unreviewed_payees, alerts_match_statements,
+    data_freshness, bank_balances_chain, prices_are_live, unreviewed_payees, alerts_match_statements,
     deposits_match_alerts, ppf_reconciles, rules_are_current, loan_reconciles, sgb_coupons_reconcile, dividends_reconcile, tax_slabs_are_current, automation_is_running, deadlines_have_a_basis, product_invariants,
 ]
 

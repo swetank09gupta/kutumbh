@@ -63,11 +63,15 @@ def transaction_fingerprint(
     transaction_type: str,
     description: str,
     reference_number: str | None = None,
+    ordinal: int = 1,
 ) -> str:
     """
     Stable fingerprint for a transaction.
     Uses reference_number when available (more precise),
     otherwise falls back to (date, amount, type, normalized-desc).
+
+    `ordinal` is the position among identical reference-less rows of one statement that the running balance
+    proves are separate transactions (two ₹1,016 sweep credits on one day); the first keeps the original key.
     """
     ref_norm  = _normalize_ref(reference_number)
     amt_norm  = _normalize_amount(amount)
@@ -76,8 +80,19 @@ def transaction_fingerprint(
     else:
         desc_slug = _normalize_desc(description)[:80]
         key = f"{account_id}|{txn_date}|{amt_norm}|{transaction_type}|{desc_slug}"
+    if ordinal > 1:
+        key += f"|#{ordinal}"
 
     return hashlib.sha256(key.encode()).hexdigest()
+
+
+def is_ordinal_fingerprint(stored: str, account_id: str, txn_date: date, amount: Decimal, transaction_type: str,
+                           description: str, reference_number: str | None, max_ordinal: int = 12) -> bool:
+    """True when `stored` is the fingerprint of the 2nd..nth identical row (so maintenance must not merge it away)."""
+    if _normalize_ref(reference_number):
+        return False
+    return any(transaction_fingerprint(account_id, txn_date, amount, transaction_type, description, None, k) == stored
+               for k in range(2, max_ordinal + 1))
 
 
 def equity_demat_fingerprint(

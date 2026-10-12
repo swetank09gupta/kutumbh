@@ -518,7 +518,7 @@
 
       <div class="card" id="alerts-card" style="margin-bottom:16px;display:none">
         <div class="card-title" style="margin:0 0 2px">Since the last statement <span id="alerts-count" style="font-size:11px;color:#64748b;font-weight:400"></span></div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From bank alert e-mails. Not in the spending / income totals until the statement arrives and they are matched to it; bank balances already include them.</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">From bank alert e-mails. UPI payments to a named payee are already counted in spending (marked provisional) until the statement arrives; transfers, sweeps, SIP debits and every credit wait for the statement. Bank balances already include all of them.</div>
         <div id="alerts-body"></div>
       </div>
 
@@ -1613,7 +1613,8 @@ function renderExpenseBreakdown(data) {
   ].map(p => `<div style="background:#1e2738;border:1px solid #2d3748;border-radius:8px;padding:8px 14px;min-width:130px">
     <div style="font-size:10px;color:#64748b;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px">${p.label}</div>
     <div style="font-size:15px;font-weight:600;color:${p.color}">${p.val}</div>
-  </div>`).join('');
+  </div>`).join('') + (data.provisional && data.provisional.count
+    ? `<div style="flex-basis:100%;font-size:11px;color:#94a3b8">Includes ₹${fmt(Math.round(data.provisional.amount))} from ${data.provisional.count} UPI payments seen in bank alerts, not yet in a statement. They leave this number when the statement arrives.</div>` : '');
 
   // donut — spending only
   const chartColors = spendCats.map(c => EXP_META[c.category]?.color || '#475569');

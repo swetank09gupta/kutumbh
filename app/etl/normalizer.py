@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.etl.categorizer import categorise
-from app.etl.dedup import equity_demat_fingerprint, transaction_fingerprint
+from app.etl.dedup import _normalize_ref, equity_demat_fingerprint, transaction_fingerprint
 from app.ingestion.parsers.base import ParseResult
 from app.models.schemas import (
     Account, Balance, ClosedHolding, Holding, ManualAsset, Owner, Transaction,
@@ -199,6 +199,7 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
     from app.ledger.aliases import canonical, load_aliases
     from app.ledger.store import TRADE_KINDS
     _aliases = load_aliases(db)
+    _balances_seen: dict[str, list] = {}           # base fingerprint → running balances of the identical rows met so far
     for pt in result.transactions:
         if pt.kind in TRADE_KINDS:                  # learned ISIN aliases fix trade rows only
             pt.isin = canonical(owner_id, pt.isin, _aliases)
@@ -236,9 +237,19 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
                 owner_id, pt.isin, pt.date, fp_qty, pt.transaction_type
             )
         else:
+            ordinal = 1
+            if pt.balance_after is not None and not _normalize_ref(pt.reference_number):
+                # identical reference-less rows (two ₹1,016 sweep credits the same day) are separate transactions
+                # exactly when the statement's running balance differs; the same balance means one row listed twice
+                base = transaction_fingerprint(account_id_str, pt.date, pt.amount, pt.transaction_type, desc, None)
+                seen = _balances_seen.setdefault(base, [])
+                bal = Decimal(str(pt.balance_after))
+                if bal not in seen:
+                    seen.append(bal)
+                ordinal = seen.index(bal) + 1
             fp = transaction_fingerprint(
                 account_id_str, pt.date, pt.amount, pt.transaction_type,
-                desc, pt.reference_number,
+                desc, pt.reference_number, ordinal,
             )
 
         cat = categorise(desc)

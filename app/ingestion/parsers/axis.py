@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -120,6 +122,18 @@ class AxisParser(BaseParser):
 
     # ── PDF ──────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _empty_statement(text: str):
+        """A statement with no transactions whose opening and closing balances agree (a dormant account): reconciled
+        by definition, nothing to store but the balance. (closing, period end) or None."""
+        o = re.search(r"Opening Balance\s+([\d,]+\.\d\d)", text)
+        c = re.search(r"Closing Balance\s+([\d,]+\.\d\d)", text)
+        sep = r"(?:\s|\(cid:\d+\))+"                       # pdfplumber prints a tab as "(cid:9)"
+        period = re.search(rf"for{sep}the{sep}period{sep}from{sep}\d{{2}}-\d{{2}}-\d{{4}}{sep}to{sep}(\d{{2}}-\d{{2}}-\d{{4}})", text)
+        if not (o and c and period and o.group(1) == c.group(1)) or re.search(r"^\d{2}-\d{2}-\d{4}\s", text, re.M):
+            return None
+        return Decimal(c.group(1).replace(",", "")), datetime.strptime(period.group(1), "%d-%m-%Y").date()
+
     def _parse_pdf(self, path: Path) -> ParseResult:
         """The statement's transaction table by column position (axis_layout), accepted only if it reconciles to the
         opening and closing balance the statement prints; otherwise nothing is stored (a wrong amount is worse than none)."""
@@ -130,6 +144,9 @@ class AxisParser(BaseParser):
             text = "\n".join((p.extract_text() or "") for p in pdf.pages)
         blocks = [b for b in layout.read_blocks(pages) if b.kind == "savings"]
         warnings: list[str] = []
+        if not blocks and (empty := self._empty_statement(text)):
+            return ParseResult(institution=self.institution, account_type=self.account_type, source_file=str(path),
+                               balance=ParsedBalance(balance=empty[0], snapshot_date=empty[1]), statement_date=empty[1])
         if not blocks or not all(b.reconciles for b in blocks):
             warnings.append(f"Axis {path.name}: the transaction table does not reconcile to the printed opening/closing "
                             "balance; no transactions stored from this file")

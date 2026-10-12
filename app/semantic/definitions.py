@@ -12,7 +12,7 @@ below instead of re-deriving its own filter. The rule (decided with the owner, O
   transfer     own-account moves, wallet top-ups, demat unit counts
   other_credit every remaining credit (deposits, gifts, unexplained): not income until you tag it
 
-Only bank accounts feed cash flow. Zerodha/Coin/CDSL rows are trade cashflows and unit counts.
+Only bank accounts feed cash flow, plus pending UPI payments from alert e-mails (`provisional`, expense only; app/txn/provisional.py) until the statement arrives. Zerodha/Coin/CDSL rows are trade cashflows and unit counts.
 """
 
 REFUND_CATEGORIES = ("food", "shopping", "transport", "utilities", "housing", "medical",
@@ -33,9 +33,15 @@ SELECT t.id, a.owner_id, t.date, (date_trunc('month', t.date))::date AS month,
          WHEN t.transaction_type = 'debit' THEN 'expense'
          WHEN t.category = 'income' OR t.category IN ({_REFUNDS}) THEN 'income'
          ELSE 'other_credit'
-       END AS flow
+       END AS flow,
+       FALSE AS provisional
 FROM transactions t JOIN accounts a ON a.id = t.account_id
-WHERE a.account_type = 'bank' AND a.is_active AND a.owner_id NOT LIKE '.%'""",
+WHERE a.account_type = 'bank' AND a.is_active AND a.owner_id NOT LIKE '.%'
+UNION ALL
+SELECT al.id, al.owner_id, al.txn_date, (date_trunc('month', al.txn_date))::date,
+       al.amount, 'debit', al.category, al.subcategory, COALESCE(al.payee, al.narration, ''), 'expense', TRUE
+FROM bank_alerts al
+WHERE al.status = 'pending' AND al.provisional_expense AND al.owner_id NOT LIKE '.%'""",
     """CREATE VIEW v_cashflow_monthly AS
 SELECT owner_id, month,
        COALESCE(SUM(amount) FILTER (WHERE flow = 'income'), 0)       AS income,

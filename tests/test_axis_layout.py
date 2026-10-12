@@ -234,3 +234,27 @@ class AxisDepositGrowthStartsAtTheOpenDate(unittest.TestCase):
         from app.engine.deposits import _anchor_date
         a = self.asset(accrued_interest=D(500), notes="Maturity value: ₹110,308.00")
         self.assertEqual(_anchor_date(a), date(2025, 12, 31))
+
+
+class DormantAccount(unittest.TestCase):
+    TEXT = ("Statement(cid:9)for(cid:9)Account(cid:9)No.(cid:9)50410XXXXX(cid:9)for(cid:9)the(cid:9)period(cid:9)from(cid:9)01-07-2025(cid:9)to(cid:9)31-07-2025\n"
+            "Date Transaction Details Chq No. Withdrawal Deposits Balance\nOpening Balance 0.00\nClosing Balance 0.00\nTotal 0.00 0.00\n")
+
+    def parse(self, text):
+        page = mock.Mock(); page.extract_words.return_value = []; page.extract_text.return_value = text
+        pdf = mock.MagicMock(); pdf.__enter__.return_value = pdf; pdf.pages = [page]
+        with mock.patch.object(AxisParser, "_open_pdf", return_value=pdf):
+            return AxisParser()._parse_pdf(Path("s.pdf"))
+
+    def test_a_statement_with_no_transactions_and_equal_balances_is_reconciled_not_a_warning(self):
+        r = self.parse(self.TEXT)
+        self.assertEqual((r.parse_warnings, r.transactions, r.balance.balance, r.balance.snapshot_date), ([], [], D(0), date(2025, 7, 31)))
+
+    def test_balances_that_differ_with_no_rows_still_do_not_pass(self):
+        r = self.parse(self.TEXT.replace("Closing Balance 0.00", "Closing Balance 500.00"))
+        self.assertTrue(r.parse_warnings)
+
+    def test_a_dated_row_means_it_is_not_an_empty_statement(self):
+        r = self.parse(self.TEXT.replace("Opening Balance 0.00", "Opening Balance 0.00\n05-07-2025 UPI 100.00 0.00 0.00"))
+        self.assertTrue(r.parse_warnings)
+

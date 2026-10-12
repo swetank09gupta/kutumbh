@@ -31,7 +31,7 @@ from app.engine.amfi_isin import (
     refresh as _amfi_refresh,
 )
 from app.etl.categorizer import categorise
-from app.etl.dedup import equity_demat_fingerprint, transaction_fingerprint
+from app.etl.dedup import equity_demat_fingerprint, is_ordinal_fingerprint, transaction_fingerprint
 from app.models.schemas import (
     Account, Balance, Holding, Transaction,
 )
@@ -60,6 +60,9 @@ def _dedup_transactions(db: Session) -> dict[str, int]:
                 acc.owner_id, r.isin, r.date, r.amount, r.transaction_type,
             )
         else:
+            if is_ordinal_fingerprint(r.fingerprint, str(r.account_id), r.date, r.amount, r.transaction_type,
+                                      r.description or "", r.reference_number):
+                continue                   # the 2nd..nth identical row of a statement, proven separate by its balance
             fp = transaction_fingerprint(
                 str(r.account_id), r.date, r.amount, r.transaction_type,
                 r.description or "", r.reference_number,

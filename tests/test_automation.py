@@ -186,13 +186,14 @@ class OneSharedPipeline(unittest.TestCase):
     def test_rebuild_runs_in_dependency_order(self):
         from app.etl import pipeline
         calls = []
-        with mock.patch("app.etl.maintenance.run_all", lambda db: calls.append("maintenance")), \
+        with mock.patch("app.txn.alert_recon.reconcile_alerts", lambda db: calls.append("alerts")), \
+             mock.patch("app.etl.maintenance.run_all", lambda db: calls.append("maintenance")), \
              mock.patch("app.ledger.refresh", lambda db: calls.append("ledger")), \
              mock.patch("app.engine.networth.snapshot_all", lambda db: calls.append("snapshot") or []), \
              mock.patch("app.engine.goals.refresh_goals", lambda db: calls.append("goals")), \
              mock.patch("app.consistency.run", lambda db: calls.append("consistency") or {}):
             pipeline.rebuild(object())
-        self.assertEqual(calls, ["maintenance", "ledger", "snapshot", "goals", "consistency"])
+        self.assertEqual(calls, ["alerts", "maintenance", "ledger", "snapshot", "goals", "consistency"])
 
     def test_one_failing_evidence_source_does_not_stop_the_others(self):
         from app.etl import pipeline

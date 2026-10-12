@@ -106,7 +106,7 @@ def income(db: Session, owner: Owner, today: date) -> list[dict]:
 def estimate(db: Session, owner: Owner, fy: str, income_row: dict, gains_row: dict | None, loan_claims: dict, today: date) -> dict | None:
     """An indicative tax for one person and year: the salary that was credited plus the investment income, less the regime's
     deductions, at that year's slabs, plus the special-rate tax on gains. A floor, not a return: the credited salary is after
-    the employer's TDS and PF, and a month with no statement has no salary in it (both are shown). None for a year with no
+    the employer's TDS (PF is not in it), and a month with no statement has no salary in it (both are shown). None for a year with no
     verified slab table."""
     from app.engine import tax_slabs
     regime = (owner.tax_regime or "old").lower()
@@ -140,7 +140,7 @@ def estimate(db: Session, owner: Owner, fy: str, income_row: dict, gains_row: di
             "slab_tax": float(t["tax_after_rebate"]), "rebate": float(t["rebate"]), "cess": float(t["cess"]),
             "special_rate_tax_on_gains": float(special), "indicative_total": float(total),
             "partial_year": partial_year,
-            "caveats": ["salary credited is after the employer's TDS and PF, so real income is higher: this is a floor"]
+            "caveats": ["salary credited is after the employer's TDS, so real income is higher: this is a floor"]
                        + ([f"only {months} month(s) of salary are in the statements"] if months < 12 and not partial_year else [])
                        + (["the year is not over: income so far only"] if partial_year else [])
                        + (["the home-loan claim uses the CURRENT regime and the recorded shares"] if regime == "old" else [])}

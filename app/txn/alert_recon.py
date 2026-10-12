@@ -24,6 +24,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.schemas import Account, BankAlertRow, Transaction
+from app.txn.provisional import classify, own_tokens
 
 
 def _tokens(ref: str | None) -> list[str]:
@@ -85,6 +86,7 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
                 taken.add(t.id)
                 hit[a.id] = t
 
+    tokens = own_tokens(db)
     stats = {"alerts": len(alerts), "matched": 0, "pending": 0, "unmatched": 0, "dup": 0, "outside": 0, "untracked": 0}
     # an account is tracked once any of its alerts matched a statement row (SBI alerts show the
     # real account number, statements only a masked reference), or its last 4 equal a stored ref
@@ -111,6 +113,10 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
         stats[status] += 1
         if apply:
             a.status, a.matched_txn_id = status, (txn.id if txn is not None else None)
+            if status == "pending":
+                a.category, a.subcategory, a.provisional_expense = classify(a.kind, a.direction, a.payee, a.vpa, a.narration, tokens)
+            else:
+                a.provisional_expense = False                  # the statement (or a copy of the alert) now carries it
     if apply:
         db.commit()
     return stats

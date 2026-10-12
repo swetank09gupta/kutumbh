@@ -9,7 +9,7 @@ Statements arrive 3–6 weeks late (HDFC stopped at 21 Sep, SBI at 31 Aug, when 
 
 ## Decision
 
-Alerts are parsed (`app/ingestion/parsers/bank_alert.py`) from IMAP into `bank_alerts` (natural key, idempotent) on every sync (`alert_fetcher.py`). They are **never added to `v_cashflow`**: a transaction would otherwise exist twice once the statement lands, and the single-definition rule of ADR-0024 would break. `app/txn/alert_recon.py` instead gives each alert one status:
+Alerts are parsed (`app/ingestion/parsers/bank_alert.py`) from IMAP into `bank_alerts` (natural key, idempotent) on every sync (`alert_fetcher.py`). **Revisited (ADR-0037):** pending UPI payments to a named payee now enter `v_cashflow` as provisional spending (a floor, flagged, gone once the statement matches). Everything else below still holds. Original text: they are **never added to `v_cashflow`**: a transaction would otherwise exist twice once the statement lands, and the single-definition rule of ADR-0024 would break. `app/txn/alert_recon.py` instead gives each alert one status:
 
 | status | meaning |
 |---|---|

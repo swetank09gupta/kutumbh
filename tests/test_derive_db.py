@@ -90,6 +90,27 @@ class DeriveWorld(unittest.TestCase):
         self.assertEqual(len(refs), 2)                                          # two different bank debits confirm them
         self.assertTrue(all(r.startswith("bank:") for r in refs))
 
+    def test_units_that_appeared_between_two_statements_years_apart_are_found_in_the_whole_interval(self):
+        """An older statement (2021, no units of this fund) turns the gap into an interval of 3.7 years: the paying
+        debit is 6 months before its end, not within the last 45 days. (Loading old history once hid 22.752 units.)"""
+        from app.ledger.derive import derive_for_owner
+        self.db.add(self.m.StatementBalance(owner_id="wife", family="zerodha", as_on=date(2021, 3, 31), isin="INF000000001",
+                                            qty=D("10"), name="OTHER FUND"))
+        self.db.commit()
+        with mock.patch("app.ledger.derive.nav_on_or_before", self._nav(self.NAV)):
+            derive_for_owner(self.db, "wife")
+        qty = sorted(t.quantity for t in self.db.query(self.m.InstrumentTrade).filter_by(source="derived", isin=ISIN))
+        self.assertEqual(qty, [D("22.566"), D("22.752")])
+
+    def test_a_debit_already_attributed_to_something_else_is_not_taken(self):
+        from app.ledger.derive import derive_for_owner
+        self.db.query(self.m.Transaction).filter(self.m.Transaction.date == date(2024, 6, 26)).update({"isin": "INF000000002"})
+        self.db.commit()
+        with mock.patch("app.ledger.derive.nav_on_or_before", self._nav(self.NAV)):
+            derive_for_owner(self.db, "wife")
+        qty = [t.quantity for t in self.db.query(self.m.InstrumentTrade).filter_by(source="derived", isin=ISIN)]
+        self.assertNotIn(D("22.752"), qty)
+
     def test_derivation_is_repeatable_and_leaves_no_orphans(self):
         from app.ledger.derive import derive_all
         with mock.patch("app.ledger.derive.nav_on_or_before", self._nav(self.NAV)):

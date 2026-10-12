@@ -74,6 +74,10 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | A bonus/IPO trade exists only when a demat credit of the same quantity proves it | `tests/test_registrar_notices.py` |
 | A dividend credit matches only shares our trades say were held (name+arithmetic only where none are recorded) | `tests/test_dividends_tax_db.py` |
 | Every active tax year has a slab entry; probed rules were re-confirmed recently | consistency checks `tax_slabs_are_current`, `rules_are_current` |
+| Identical reference-less bank rows are kept apart exactly when their running balances differ | `tests/test_identical_bank_rows_db.py` |
+| Each bank account's printed balance chains day to day | consistency check `bank_balances_chain`, `tests/test_continuity.py` |
+| Funds are valued at AMFI's NAV and shares at market; a fallback is reported | consistency check `prices_are_live`, `tests/test_amfi_navall.py` |
+| Provisional (alert) spending leaves the total when the statement carries it, and never includes transfers, sweeps, SIPs or credits | `tests/test_provisional_db.py` |
 
 ## Release routine for any change
 

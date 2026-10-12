@@ -41,6 +41,9 @@ def _migrate_db() -> None:
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag VARCHAR(30)",
         # XIRR / returns tracking additions
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS isin VARCHAR(12)",
+        "ALTER TABLE bank_alerts ADD COLUMN IF NOT EXISTS category VARCHAR(30)",
+        "ALTER TABLE bank_alerts ADD COLUMN IF NOT EXISTS subcategory VARCHAR(40)",
+        "ALTER TABLE bank_alerts ADD COLUMN IF NOT EXISTS provisional_expense BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS first_buy_date DATE",
         # Instrument ledger roll-forward provenance (docs/adr/0023-instrument-ledger.md)
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS cost_basis_quality VARCHAR(10)",

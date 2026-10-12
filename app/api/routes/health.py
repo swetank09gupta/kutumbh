@@ -24,6 +24,12 @@ def get_alerts(db: Annotated[Session, Depends(get_db)]):
     return alert_summary(db)
 
 
+@router.get("/continuity", summary="Does each bank account's printed balance chain day to day? Every break is a lost/merged/missing transaction")
+def get_continuity(db: Annotated[Session, Depends(get_db)]):
+    from app.txn.continuity import account_breaks
+    return [{**a, "breaks": [{"date": str(b["date"]), "missing": float(b["missing"])} for b in a["breaks"]]} for a in account_breaks(db)]
+
+
 @router.get("/ppf", summary="Year-by-year reconciliation of every PPF: opening + deposits + interest = closing")
 def get_ppf_reconciliation(db: Annotated[Session, Depends(get_db)]):
     from app.engine.deposit_flows import ppf_measure
