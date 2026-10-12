@@ -69,6 +69,8 @@ class ParsedManualAsset:
     accrued_interest: Optional[Decimal] = None   # "Interest Accrued" column: earned, not yet in the principal
     via_llm: bool = False                        # read by the LLM fallback, not a deterministic pattern
     statement_date:  Optional[date] = None   # to prevent older statements overwriting newer
+    principal_as_of: Optional[date] = None   # when current_value is the OPENING principal (Axis prints no accrued column):
+                                             # growth to maturity starts here, not at the statement date
 
 
 @dataclass
@@ -95,7 +97,7 @@ class BaseParser:
 
     # Bump when the ParseResult / Parsed* dataclasses change shape — invalidates
     # all cached pickles so we don't deserialize stale schemas.
-    _CACHE_SCHEMA = "v13"  # v13: 2018 contract-note layout (no exchange token); v12: Axis statements read by column position and reconciled; v11: SBI PPF row (open date, balance, ROI) read deterministically; v10: SBI FD interest accrued; v9: tradebook qty/price/kind; v8: Coin purchase-confirmation + redemption mails; v7: 2021 holdings layout; v6/v5: as-on dates; v4: demat movements = balance deltas; v3: contract-note text layouts; v2: ledger fields
+    _CACHE_SCHEMA = "v14"  # v14: ParsedManualAsset.principal_as_of (Axis FD); v13: 2018 contract-note layout (no exchange token); v12: Axis statements read by column position and reconciled; v11: SBI PPF row (open date, balance, ROI) read deterministically; v10: SBI FD interest accrued; v9: tradebook qty/price/kind; v8: Coin purchase-confirmation + redemption mails; v7: 2021 holdings layout; v6/v5: as-on dates; v4: demat movements = balance deltas; v3: contract-note text layouts; v2: ledger fields
 
     def __init__(self, pdf_password: str = ""):
         self.pdf_password = pdf_password

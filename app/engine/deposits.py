@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Optional
 
 _MATURITY = re.compile(r"Maturity value:\s*₹\s*([\d,]+(?:\.\d+)?)", re.I)
+_PRINCIPAL_AS_OF = re.compile(r"Principal as of (\d{4}-\d{2}-\d{2})")
 ZERO = Decimal(0)
 
 
@@ -30,6 +31,11 @@ def maturity_value(asset) -> Optional[Decimal]:
 
 
 def _anchor_date(asset) -> Optional[date]:
+    """The date base_value() is true on: the statement date, or the deposit's open date when the statement prints only
+    the opening principal (no accrued column), so growth to maturity starts where the principal is."""
+    m = _PRINCIPAL_AS_OF.search(getattr(asset, "notes", "") or "")
+    if m and not getattr(asset, "accrued_interest", None):
+        return date.fromisoformat(m.group(1))
     d = getattr(asset, "source_statement_date", None)
     if d:
         return d

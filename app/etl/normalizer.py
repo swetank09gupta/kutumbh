@@ -458,6 +458,14 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
             "ledger_trades": ledger_counts["trades"], "ledger_movements": ledger_counts["movements"]}
 
 
+def _deposit_notes(pa) -> str:
+    """"Maturity value: ₹X" (what deposits.maturity_value reads), plus the date the principal is as of when it is the opening one."""
+    note = f"Maturity value: ₹{pa.maturity_amount:,.2f}"
+    if getattr(pa, "principal_as_of", None):
+        note += f". Principal as of {pa.principal_as_of.isoformat()}."
+    return note
+
+
 def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> int:
     """
     Upsert ParsedManualAsset records into manual_assets table.
@@ -511,7 +519,9 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
         if existing and pa.statement_date and existing.source_statement_date:
             fills_accrued = existing.accrued_interest is None and pa.accrued_interest is not None \
                 and pa.statement_date == existing.source_statement_date
-            if pa.statement_date <= existing.source_statement_date and not fills_accrued:
+            fills_anchor = bool(getattr(pa, "principal_as_of", None)) and "Principal as of" not in (existing.notes or "") \
+                and pa.statement_date == existing.source_statement_date
+            if pa.statement_date <= existing.source_statement_date and not (fills_accrued or fills_anchor):
                 continue
 
         if existing:
@@ -524,7 +534,7 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
             if pa.maturity_date:
                 existing.maturity_date = pa.maturity_date
             if pa.maturity_amount:
-                existing.notes = f"Maturity value: ₹{pa.maturity_amount:,.2f}"
+                existing.notes = _deposit_notes(pa)
             existing.accrued_interest = pa.accrued_interest
             count += 1
         else:
@@ -539,7 +549,7 @@ def _persist_manual_assets(result: ParseResult, owner_id: str, db: Session) -> i
                 start_date=pa.start_date,
                 maturity_date=pa.maturity_date,
                 source_statement_date=pa.statement_date,
-                notes=f"Maturity value: ₹{pa.maturity_amount:,.2f}" if pa.maturity_amount else None,
+                notes=_deposit_notes(pa) if pa.maturity_amount else None,
                 accrued_interest=pa.accrued_interest,
             ))
             count += 1

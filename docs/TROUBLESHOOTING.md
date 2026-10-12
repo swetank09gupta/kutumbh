@@ -298,6 +298,9 @@ The last scheduled update is older than 3 intervals, or failed (the warning says
 ### The tax figures look off
 Gains use gross trade prices (brokerage and stamp duty are not netted, STT is not included) and no corporate actions: a split or bonus makes FIFO lots wrong for that stock. Sales of units bought before the trade history are listed and left out. Deposit interest counts what was credited plus TDS notices; interest that accrues in a cumulative deposit without being credited is not seen (the card says so when the bank is already deducting TDS).
 
+### A PDF will not open ("all passwords failed")
+`docker exec finance_app python -c "…"` is not needed: the router tries every owner's derived password for that bank. A file that still fails uses a rule we do not know (the 2020-21 Union Bank statements, payroll tax sheets). Tell the app the password by adding it as an extra candidate in `_all_pdf_passwords`, never in the repo; then delete nothing, the next sync reads the file.
+
 ### A sale shows "cost unknown" in the tax view
 First check the raw mail: a Coin mail that prints the same line twice is two orders (ADR-0034); a contract note that parses to no trades is a new layout (docs/PARSERS.md). Units from an IPO allotment, a bonus issue or a transfer-in have no contract note; they stay listed rather than costed.
 

@@ -199,3 +199,38 @@ class DepositLivenessIsPerBank(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AxisDepositGrowthStartsAtTheOpenDate(unittest.TestCase):
+    """The statement prints the opening principal and no accrued column: base_value() is true on the OPEN date, not the statement's."""
+    def asset(self, **kw):
+        base = dict(asset_type="fd", current_value=D(100000), accrued_interest=None, maturity_date=date(2027, 4, 4),
+                    source_statement_date=date(2025, 12, 31), notes="Maturity value: ₹110,308.00. Principal as of 2025-10-04.")
+        base.update(kw)
+        return mock.Mock(**base)
+
+    def test_the_note_carries_the_principal_date(self):
+        from app.etl.normalizer import _deposit_notes
+        pa = mock.Mock(maturity_amount=D("110308.00"), principal_as_of=date(2025, 10, 4))
+        self.assertEqual(_deposit_notes(pa), "Maturity value: ₹110,308.00. Principal as of 2025-10-04.")
+        self.assertEqual(_deposit_notes(mock.Mock(maturity_amount=D("110308.00"), principal_as_of=None)), "Maturity value: ₹110,308.00")
+
+    def test_the_maturity_value_is_still_read_from_the_longer_note(self):
+        from app.engine.deposits import maturity_value
+        self.assertEqual(maturity_value(self.asset()), D("110308.00"))
+
+    def test_value_follows_the_contract_curve_from_the_open_date(self):
+        from app.engine.deposits import accrued_value
+        v = accrued_value(self.asset(), date(2026, 10, 12))
+        expected = 100000 * (110308 / 100000) ** ((date(2026, 10, 12) - date(2025, 10, 4)).days / (date(2027, 4, 4) - date(2025, 10, 4)).days)
+        self.assertAlmostEqual(float(v), expected, delta=0.01)
+        self.assertGreater(float(v), 106800)                                      # not the ~106,300 the statement-date anchor gave
+
+    def test_the_implied_rate_is_the_deposits_real_one_not_8_percent(self):
+        from app.engine.deposits import contract_rate_pct
+        self.assertAlmostEqual(contract_rate_pct(self.asset()), 6.76, delta=0.05)
+
+    def test_an_sbi_style_asset_with_accrued_interest_keeps_the_statement_date_anchor(self):
+        from app.engine.deposits import _anchor_date
+        a = self.asset(accrued_interest=D(500), notes="Maturity value: ₹110,308.00")
+        self.assertEqual(_anchor_date(a), date(2025, 12, 31))

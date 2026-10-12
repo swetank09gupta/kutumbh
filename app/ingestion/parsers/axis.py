@@ -147,7 +147,7 @@ class AxisParser(BaseParser):
                 deposits.append(ParsedManualAsset(
                     asset_type="fd", institution="Axis", name=f"Axis FD ...{d.number_tail}", current_value=d.principal,
                     account_ref=d.number_tail, interest_rate=d.rate, start_date=d.start, maturity_date=d.maturity,
-                    maturity_amount=d.maturity_value, statement_date=stmt_end))
+                    maturity_amount=d.maturity_value, statement_date=stmt_end, principal_as_of=d.start))
         balance = ParsedBalance(balance=blocks[-1].closing, snapshot_date=stmt_end) if stmt_end else None
         return ParseResult(institution=self.institution, account_type=self.account_type, transactions=txns,
                            manual_assets=deposits, balance=balance, source_file=str(path), parse_warnings=warnings,

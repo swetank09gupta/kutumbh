@@ -13,3 +13,6 @@ The old rows were replaced from the raw statements (database backed up first): 4
 
 ## Consequences
 Found by the repair: a ₹100,000 Axis term deposit (6.6%, opened 4 Oct 2025, ₹110,308 at maturity) funded from the owner's SBI the same day, which was in no asset list. Net worth +₹1.06 L. The wife's FY2020-21 expenses fell by about ₹4 lakh of fake debits. Tests: `tests/test_axis_layout.py` (synthetic layouts with the real column geometry and the traps; mutation-checked).
+
+## Addendum: where a deposit's growth starts
+Axis prints the *opening* principal and no accrued column, while SBI's printed principal plus accrued interest is true on the statement date. Deposit growth was anchored at the statement date for both, which valued the Axis FD ~₹640 low and implied 8.12% instead of about 6.8%. The asset's notes now carry "Principal as of <open date>" (`ParsedManualAsset.principal_as_of`) and `deposits._anchor_date` starts growth there when no accrued interest is printed. Parse cache `v14`.

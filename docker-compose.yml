@@ -10,6 +10,7 @@ services:
       PGTZ: Asia/Kolkata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped            # the 6-hourly update lives in the app: it must come back after a reboot
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-financeuser} -d ${POSTGRES_DB:-financedb}"]
       interval: 10s
@@ -66,6 +67,7 @@ services:
       - ./config:/app/config
     ports:
       - "8000:8000"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
@@ -120,6 +122,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     ports:
       - "3000:3000"
+    restart: unless-stopped
 
 volumes:
   postgres_data:

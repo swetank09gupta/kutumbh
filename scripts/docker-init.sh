@@ -3,7 +3,8 @@
 # Exits immediately if the DB already has data (idempotent — safe to run repeatedly).
 #
 # Conditions to trigger restore + reprocess:
-#   1. owners table has < 2 rows (fresh DB — only 'family' pseudo-owner or empty)
+#   1. the DB holds no transactions (fresh). NOT "few owners": the app seeds the owners from
+#      config/accounts.yml at start-up, before it is healthy, so the owner count is never low.
 #   2. A config backup exists in /data/backup/
 #   3. Raw statement files exist in /data/raw/
 
@@ -15,12 +16,12 @@ PG_USER="${POSTGRES_USER:-financeuser}"
 PG_DB="${POSTGRES_DB:-financedb}"
 
 # ── Check if data already exists ─────────────────────────────────────────────
-OWNER_COUNT=$(psql -h "$PG_HOST" -U "$PG_USER" -d "$PG_DB" -t -A \
-  -c "SELECT COUNT(*) FROM owners WHERE id NOT LIKE '.%';" 2>/dev/null || echo "0")
-OWNER_COUNT=$(echo "$OWNER_COUNT" | tr -d '[:space:]')
+TXN_COUNT=$(psql -h "$PG_HOST" -U "$PG_USER" -d "$PG_DB" -t -A \
+  -c "SELECT COUNT(*) FROM transactions;" 2>/dev/null || echo "0")
+TXN_COUNT=$(echo "$TXN_COUNT" | tr -d '[:space:]')
 
-if [ "$OWNER_COUNT" -ge 2 ] 2>/dev/null; then
-  echo "[bootstrap] DB already has data ($OWNER_COUNT owners) — skipping restore."
+if [ "$TXN_COUNT" -ge 1 ] 2>/dev/null; then
+  echo "[bootstrap] DB already has data ($TXN_COUNT transactions) — skipping restore."
   exit 0
 fi
 

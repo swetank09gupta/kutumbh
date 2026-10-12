@@ -27,11 +27,16 @@ Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · ev
 ## Phase 4 — tax lens (rule-driven, no new data) — DONE 12 Oct 2026
 *Built* (`/api/tax`, Tax card, ADR-0032; regimes: you old, wife new): dividends proven by arithmetic and counted in returns (32 credits matched, 6 listed as unmatched); realised gains per FY with set-off, exemption and rates by sale date; savings/deposit interest, dividends and SGB coupons per FY; deposit interest per bank vs the TDS threshold; 80TTA (old regime); tax if everything were sold today. Slab tax is not computed (total income is not in the system).
 
-## Phase 5 — EPF (deferred)
-Skipped for now (12 Oct 2026): no automated source exists, and a manual entry is not wanted. Revisit only if an automated feed appears.
+## Phase 5 — EPF (checked 12 Oct 2026: stays deferred)
+Looked for an automatic feed: the mailboxes hold only EPFO account-security notices (password and contact changes) and your 2023 mails about transferring the old PF balance; no passbook, balance or payslip mail exists (payslips: none after 2017). The balance needs a UAN login with OTP and captcha, which is not something to automate. Revisit only if a feed appears.
 
-## Phase 6 — known data gaps (housekeeping)
-881 payees to label · stale Union Bank / Axis statements · two newer FDs without enough history · the 19 unreadable HDFC PDFs · compose bugs (ollama-init, bootstrap race).
+## Phase 6 — known data gaps (worked through 12 Oct 2026)
+- **Done:** Axis statements read properly (ADR-0033) and a missing Axis FD found; old contract notes and same-day orders (ADR-0034); restart policies and the bootstrap test fixed; Axis FD growth anchored correctly.
+- **Payees (333 groups, 621 small UPI payments, ₹2.1 L of debits over the years):** the local model answers "other" at 0.20 confidence, which is honest; these stay a human job in the Review list. They are already counted as expenses.
+- **Union Bank and Axis balances are stale** because no statement or alert mail has arrived since Nov/Dec 2025; nothing to fetch.
+- **Locked PDFs (cannot be opened with any derivable password):** 18 of your Union Bank statements from 2020-21 (`…_6026.pdf`; the newer ones open), 4 payroll tax sheets (`IT_PROV…`, `IT_FINAL…`), 3 of the wife's old SBI/Axis files. A password for the Union Bank rule of those years would unlock history that may hold your PPF's opening date.
+- **Two newer FDs (…4395, …5054)** are balance-only until they have enough interest credits; they resolve by themselves.
+- **Cost unknown on sales:** your LIC and Nykaa units (IPO allotment, bonus) and the wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta units: no contract note exists.
 
 ## How each phase is run
 1. Update the rule section in INSTRUMENTS.md (source, date) and the registry.
