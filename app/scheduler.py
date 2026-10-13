@@ -8,9 +8,11 @@ APScheduler background jobs.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import settings
@@ -149,6 +151,15 @@ def start_scheduler():
         name="Weekly goal SIP recalculation",
         replace_existing=True,
     )
+
+    # The jobs above only fire while the app is up: after a restart (laptop off overnight) the day's snapshot and rule refresh are
+    # skipped and the 6-hourly sync would wait a full interval. So catch up once, shortly after every start. Both are idempotent,
+    # and the sync's window is "since the last successful run" (ADR-0035); its rebuild also takes the net-worth snapshot.
+    now = datetime.now(_scheduler.timezone)
+    _scheduler.add_job(_live_rules_job, DateTrigger(run_date=now + timedelta(seconds=30)), id="startup_rules",
+                       name="Catch-up: public rules", replace_existing=True)
+    _scheduler.add_job(_sync_job, DateTrigger(run_date=now + timedelta(seconds=90)), id="startup_sync",
+                       name="Catch-up: email sync + ETL", replace_existing=True)
 
     _scheduler.start()
     logger.info(

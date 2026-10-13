@@ -14,3 +14,5 @@ Only statements were fetched on the 6-hourly schedule. Bank alert e-mails and HD
 
 ## Consequences
 New table `rule_observations`; scheduler gains `live_rules` (07:10). `tests/test_automation.py`, `tests/test_coin_duplicates_db.py` (the second fails without the fix). No figure moved; one duplicate trade (+₹10k) removed.
+
+**Revisited (Oct 2026):** the scheduler keeps no memory across restarts, so jobs due while the laptop was off (00:05 snapshot, 07:10 rules) were skipped and the 6-hourly sync waited a full interval after boot. The app now runs the rules refresh (+30 s) and the sync (+90 s, window = since the last good run) once after every start. A restart showed as net-worth vs Investments mismatches (daily deposit accrual) until the next rebuild.

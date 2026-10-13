@@ -156,6 +156,7 @@ Some document types that arrive as PDF email attachments are **not** transaction
 | Pattern | What it is | Behaviour |
 |---------|-----------|-----------|
 | HDFC filenames matching `FT3`, `FT4`, `FT5`, `CR*`, `IT_ARHL` | Fund-transfer receipts, credit-charge receipts, interest certificates | Silently skipped (`DEBUG` log) |
+| After a reboot `returns_match_holdings` / INV-03 fail until midnight | Deposit values accrue daily; the snapshot is from before the app was down | Fixed: the app catches up ~90 s after start. Manual: `POST /api/sync/` (or wait); no data is wrong |
 | "N holding(s) valued from an old trade/statement" (`prices_are_live`) | The AMFI file changed layout or the fetch failed | `docker exec finance_app python -c "from app.engine.amfi_isin import refresh; print(refresh())"`; a non-zero count with NAVs fixes it, else the parser needs the new column order (`_parse_navall`, `tests/test_amfi_navall.py`) |
 | `bank_balances_chain` break on a date | A row is lost or merged, or a statement month was never received | `/api/health/continuity` gives the date and amount; re-read raw files (`POST /api/sync/reprocess`); if the month's statement is not in any mailbox it stays a visible gap |
 | HDFC `IT_FINAL…` / `IT_PROV…` | Home-loan tax certificates (lender's principal/interest per FY; password = loan account number) | Not statements: read by the loan-certificate step of the update (ADR-0035), not by the router |

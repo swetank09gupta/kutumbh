@@ -219,6 +219,21 @@ class OneSharedPipeline(unittest.TestCase):
         finally:
             pipeline.RUN_LOCK.release()
 
+    def test_after_a_restart_the_rules_and_the_sync_catch_up_once(self):
+        """A laptop that was off at 00:05 / 07:10 must not leave the day without a snapshot or rule refresh, nor wait 6 h for a sync."""
+        from unittest import mock
+        from app import scheduler
+        added = {}
+        class Fake:
+            timezone = __import__("zoneinfo").ZoneInfo("Asia/Kolkata")
+            running = False
+            def add_job(self, fn, trigger, id=None, **kw): added[id] = (fn, type(trigger).__name__)
+            def start(self): pass
+        with mock.patch.object(scheduler, "BackgroundScheduler", return_value=Fake()):
+            scheduler.start_scheduler()
+        self.assertEqual(added["startup_sync"], (scheduler._sync_job, "DateTrigger"))
+        self.assertEqual(added["startup_rules"], (scheduler._live_rules_job, "DateTrigger"))
+
     def test_scheduler_and_sync_button_use_the_pipeline_not_their_own_copies(self):   # mutation guards
         from app import scheduler
         sched = inspect.getsource(scheduler._sync_job)                      # the other jobs (daily snapshot) are separate
