@@ -241,6 +241,29 @@ class HdfcParser(BaseParser):
 
     # ── PDF ──────────────────────────────────────────────────────────────────
 
+    def _first_row_kind(self, row, dr_col, cr_col, bal_vals) -> tuple[str, Decimal] | None:
+        """(type, amount) of the first stacked row when the statement prints no opening balance, else None.
+
+        Every later row's type and amount follow from the balance deltas. The first row is a debit when the Withdrawal
+        column holds exactly one more amount than the later debits (and the Deposit column exactly the later credits), a credit
+        when it is the other way round; it is accepted only when one of the two fits amount for amount, so a column that does
+        not line up never yields a guess."""
+        def column(c) -> list[Decimal]:
+            if c is None or c >= len(row):
+                return []
+            return [v for v in (self._to_decimal(x.strip()) for x in str(row[c] or "").split("\n")) if v is not None]
+        deltas = [bal_vals[i] - bal_vals[i - 1] for i in range(1, len(bal_vals))]
+        if any(d == 0 for d in deltas):
+            return None
+        debits = [-d for d in deltas if d < 0]
+        credits = [d for d in deltas if d > 0]
+        wd, dep = column(dr_col), column(cr_col)
+        as_debit = wd[1:] == debits and len(wd) == len(debits) + 1 and dep == credits
+        as_credit = dep[1:] == credits and len(dep) == len(credits) + 1 and wd == debits
+        if as_debit == as_credit:                         # neither fits, or both do: unproven
+            return None
+        return ("debit", wd[0]) if as_debit else ("credit", dep[0])
+
     def _parse_pdf(self, path: Path) -> ParseResult:
         """
         HDFC bank statement PDF — two known table layouts:
@@ -377,24 +400,30 @@ class HdfcParser(BaseParser):
                                 prev = prev_balance if i == 0 else bal_vals[i - 1]
 
                                 if prev is None:
-                                    prev_balance = bal
-                                    continue
+                                    # First row of the statement and no opening balance printed: no delta to take. Its amount is
+                                    # still printed in the Withdrawal/Deposit column; use it only when it is proven (see helper).
+                                    first = self._first_row_kind(
+                                        row, 4 if ncols == 7 else idx["dr"], 5 if ncols == 7 else idx["cr"], bal_vals) if i == 0 else None
+                                    if first is None:
+                                        prev_balance = bal
+                                        continue
+                                    txn_type, amount = first
+                                else:
+                                    delta = bal - prev
+                                    if delta == 0:
+                                        continue
 
-                                delta = bal - prev
-                                if delta == 0:
-                                    continue
+                                    # Sanity check: reject balances that look like PDF extraction artifacts
+                                    # (spurious totals / page footers getting picked up as closing balances)
+                                    if abs(delta) > 100_000_000:
+                                        logger.warning(
+                                            "HDFC PDF %s: skipping implausible delta ₹%s on %s — likely bad balance extraction",
+                                            path.name, abs(delta), date_vals[i],
+                                        )
+                                        continue
 
-                                # Sanity check: reject balances that look like PDF extraction artifacts
-                                # (spurious totals / page footers getting picked up as closing balances)
-                                if abs(delta) > 100_000_000:
-                                    logger.warning(
-                                        "HDFC PDF %s: skipping implausible delta ₹%s on %s — likely bad balance extraction",
-                                        path.name, abs(delta), date_vals[i],
-                                    )
-                                    continue
-
-                                txn_type = "credit" if delta > 0 else "debit"
-                                amount   = abs(delta)
+                                    txn_type = "credit" if delta > 0 else "debit"
+                                    amount   = abs(delta)
 
                                 # Reconstruct narration from all lines belonging to this transaction
                                 start = narr_starts[i]

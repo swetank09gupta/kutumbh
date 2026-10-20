@@ -74,6 +74,24 @@ class IdenticalBankRows(unittest.TestCase):
         self.store(row("1744.77", ref="UTR1234567890"), row("1531.77", ref="UTR1234567890"))
         self.assertEqual(self.count(), 1)
 
+    def test_a_reversal_credit_with_the_debits_reference_is_stored_too(self):
+        # Real case: HDFC "REV-UPI" credit of a failed ₹50,000 payment carries the debit's date and UPI reference.
+        self.store(row("143037.99", "50000.00", "UPI-ZERODHA", "102738290", "debit"),
+                   row("193037.99", "50000.00", "REV-UPI-ZERODHA", "102738290", "credit"))
+        self.assertEqual(self.count(), 2)
+
+    def test_maintenance_rekeys_a_ref_only_row_and_keeps_the_reversal(self):
+        from app.etl.maintenance import _dedup_transactions
+        import hashlib
+        self.store(row("143037.99", "50000.00", "UPI-ZERODHA", "102738290", "debit"))
+        t = self.db.query(self.m.Transaction).one()
+        t.fingerprint = hashlib.sha256(f"{t.account_id}|{t.date}|102738290".encode()).hexdigest()   # the old identity
+        self.db.commit()
+        self.store(row("193037.99", "50000.00", "REV-UPI-ZERODHA", "102738290", "credit"), name="again.pdf")
+        _dedup_transactions(self.db)
+        self.assertEqual(self.count(), 2)
+        self.assertEqual(len({r.fingerprint for r in self.db.query(self.m.Transaction)}), 2)
+
     def test_maintenance_does_not_merge_the_proven_second_row_away(self):
         from app.etl.maintenance import _dedup_transactions
         self.store(row("1744.77"), row("1531.77"))

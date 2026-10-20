@@ -76,6 +76,8 @@ KNOWN_SENDERS: dict[str, dict] = {
 
     # ── Axis Bank ─────────────────────────────────────────────────────────────
     "axisbank.com":  {"institution": "Axis", "account_type": "bank"},
+    # Since 2026 statements come from axis.bank.in. Exact address, not the domain: Straight2axis@axis.bank.in sends payment advices.
+    "statements@axis.bank.in": {"institution": "Axis", "account_type": "bank"},
 
     # ── Zerodha ────────────────────────────────────────────────────────────────
     # Monthly demat statements come from reportsmailer.zerodha.net, not zerodha.com

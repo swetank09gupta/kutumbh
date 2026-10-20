@@ -17,5 +17,8 @@ Loading old history and a new AMFI file exposed three silent errors, each found 
 - **Provisional spending** (revises ADR-0025's "never counted"): a pending alert counts as spending only if it is a UPI payment out to a named payee that is not the household and not a transfer/investment/EMI by the categoriser (`app/txn/provisional.py`). Transfers (the alert names the payee, often truncated), sweeps, SIP/ACH debits and all credits wait for the statement. It enters `v_cashflow` with `provisional = true`, is shown as such, and leaves in the same rebuild in which the statement matches it. So it is a floor of real spending and never double counted.
 - A dormant Axis account (opening = closing, no rows) is reconciled, not a warning.
 
+## Revisited
+ADR-0038: rows *with* a reference now also carry direction and amount in their identity (a reversal credit was dropped).
+
 ## Consequences
 Parse cache `v17`. Tests: `test_identical_bank_rows_db`, `test_continuity`, `test_derive_db` (long interval, attributed debit), `test_amfi_navall`, `test_prices_live_db`, `test_provisional_db`, `test_axis_layout`. Figures moved: funds are valued at live NAVs (≈ −₹12,000 family-wide against the stale prices).

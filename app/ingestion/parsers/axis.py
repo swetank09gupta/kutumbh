@@ -123,6 +123,17 @@ class AxisParser(BaseParser):
     # ── PDF ──────────────────────────────────────────────────────────────────
 
     @staticmethod
+    def _account_ref(text: str) -> str | None:
+        """The statement's own account number: its last four digits, or the whole masked number when the tail is hidden
+        (the ex-Citi LIBERTY account prints 50410XXXXX). Without one every statement lands on "unknown"."""
+        t = re.sub(r"\(cid:\d+\)", " ", text)
+        m = re.search(r"(?i)(?:a/c\s*no\.?|account\s*(?:no\.?|number))\s*[:.]?\s*([0-9X*]{6,})", t)
+        if not m:
+            return None
+        num = m.group(1).upper()
+        return num[-4:] if num[-4:].isdigit() else num
+
+    @staticmethod
     def _empty_statement(text: str):
         """A statement with no transactions whose opening and closing balances agree (a dormant account): reconciled
         by definition, nothing to store but the balance. (closing, period end) or None."""
@@ -143,16 +154,18 @@ class AxisParser(BaseParser):
             pages = [p.extract_words() for p in pdf.pages]
             text = "\n".join((p.extract_text() or "") for p in pdf.pages)
         blocks = [b for b in layout.read_blocks(pages) if b.kind == "savings"]
+        ref = self._account_ref(text)
         warnings: list[str] = []
         if not blocks and (empty := self._empty_statement(text)):
             return ParseResult(institution=self.institution, account_type=self.account_type, source_file=str(path),
-                               balance=ParsedBalance(balance=empty[0], snapshot_date=empty[1]), statement_date=empty[1])
+                               account_ref=ref, balance=ParsedBalance(balance=empty[0], snapshot_date=empty[1]),
+                               statement_date=empty[1])
         if not blocks or not all(b.reconciles for b in blocks):
             warnings.append(f"Axis {path.name}: the transaction table does not reconcile to the printed opening/closing "
                             "balance; no transactions stored from this file")
             logger.error(warnings[-1])
             return ParseResult(institution=self.institution, account_type=self.account_type, source_file=str(path),
-                               parse_warnings=warnings)
+                               account_ref=ref, parse_warnings=warnings)
         txns = [ParsedTransaction(date=r.day, amount=r.amount, transaction_type=r.kind, description=r.narration,
                                   raw_description=r.narration, balance_after=r.balance)
                 for b in blocks for r in b.rows if r.amount > 0]
@@ -166,6 +179,6 @@ class AxisParser(BaseParser):
                     account_ref=d.number_tail, interest_rate=d.rate, start_date=d.start, maturity_date=d.maturity,
                     maturity_amount=d.maturity_value, statement_date=stmt_end, principal_as_of=d.start))
         balance = ParsedBalance(balance=blocks[-1].closing, snapshot_date=stmt_end) if stmt_end else None
-        return ParseResult(institution=self.institution, account_type=self.account_type, transactions=txns,
-                           manual_assets=deposits, balance=balance, source_file=str(path), parse_warnings=warnings,
+        return ParseResult(institution=self.institution, account_type=self.account_type, account_ref=ref,
+                           transactions=txns, manual_assets=deposits, balance=balance, source_file=str(path), parse_warnings=warnings,
                            statement_date=stmt_end)

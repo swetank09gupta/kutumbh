@@ -67,8 +67,9 @@ def transaction_fingerprint(
 ) -> str:
     """
     Stable fingerprint for a transaction.
-    Uses reference_number when available (more precise),
-    otherwise falls back to (date, amount, type, normalized-desc).
+    Uses reference_number when available (more precise), together with the amount and direction: a UPI reversal
+    credit carries the same reference and date as the debit it undoes, and a ref-only key silently dropped it (ADR-0038).
+    Without a reference it falls back to (date, amount, type, normalized-desc).
 
     `ordinal` is the position among identical reference-less rows of one statement that the running balance
     proves are separate transactions (two ₹1,016 sweep credits on one day); the first keeps the original key.
@@ -76,7 +77,7 @@ def transaction_fingerprint(
     ref_norm  = _normalize_ref(reference_number)
     amt_norm  = _normalize_amount(amount)
     if ref_norm:
-        key = f"{account_id}|{txn_date}|{ref_norm}"
+        key = f"{account_id}|{txn_date}|{ref_norm}|{transaction_type}|{amt_norm}"
     else:
         desc_slug = _normalize_desc(description)[:80]
         key = f"{account_id}|{txn_date}|{amt_norm}|{transaction_type}|{desc_slug}"
