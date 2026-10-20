@@ -71,6 +71,7 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | Goal cards, projections and Grafana use one SIP figure | consistency check `goal_sip_stored_equals_projection` |
 | Every page reads the same owner (Self / Spouse / Family) | UI `switchOwner`; browser check in the release routine below |
 | An update run covers everything since the last successful run | `tests/test_automation.py` (catch-up window) |
+| A job missed while the machine slept runs once on wake; an overdue update is run by the watchdog; a stale snapshot never turns a small deposit/goal accrual difference into a failure, and never excuses a large one | `tests/test_automation.py` (`MissedJobs`, `StaleSnapshotIsAWarningNotAFailure`) |
 | A past loan year shows the lender's certified figures when one exists | `tests/test_loan_report_db.py` |
 | A bonus/IPO trade exists only when a demat credit of the same quantity proves it | `tests/test_registrar_notices.py` |
 | A dividend credit matches only shares our trades say were held (name+arithmetic only where none are recorded) | `tests/test_dividends_tax_db.py` |

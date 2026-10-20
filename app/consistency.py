@@ -25,6 +25,32 @@ def _check(name: str, ok: bool, detail: str, severity: str = "fail", **values) -
     return {"name": name, "ok": bool(ok), "severity": "ok" if ok else severity, "detail": detail, "values": values}
 
 
+def stale_snapshot(db: Session):
+    """Date of the newest net-worth snapshot when it is older than today, else None. Deposits accrue interest by the day
+    and goals are projected from them, so a figure computed live and the same figure stored at the snapshot differ by a
+    day's accrual until the next update re-takes it: that is a missing update (see automatic_update_is_running), not a bug."""
+    from app.models.schemas import NetWorthSnapshot
+    d = db.query(func.max(NetWorthSnapshot.snapshot_date)).scalar()
+    return d if d and d < date.today() else None
+
+
+def within_accrual(a: float, b: float, stale, rate: float = 0.001) -> bool:
+    """True when two figures differ by no more than `rate` of their size for each day the snapshot is old (deposits earn
+    ~0.02% a day; the default allows 5x that). A real mismatch is far larger and stays a failure."""
+    days = (date.today() - stale).days if stale else 0
+    return abs(a - b) <= max(TOL, rate * max(abs(a), abs(b)) * days)
+
+
+def _if_stale(check: dict, stale, small: bool = True) -> dict:
+    """A failing accrual-versus-snapshot check is only a warning while the snapshot is a day or more old and the
+    difference is small enough to be accrual (`small`, computed by the caller)."""
+    if stale is None or not small or check["ok"] or check["severity"] != "fail":
+        return check
+    return {**check, "severity": "warn",
+            "detail": f"Net-worth snapshot is from {stale}; deposits and goals have moved since — the next update re-takes it. "
+                      + check["detail"]}
+
+
 def _owners(db: Session) -> list[str]:
     from app.engine.networth import real_owners
     return [o.id for o in real_owners(db)]
@@ -80,7 +106,7 @@ def networth_matches_holdings(db: Session) -> dict:
 def returns_match_holdings(db: Session) -> dict:
     from app.engine.holdings_view import latest_holdings
     from app.engine.portfolio_xirr import compute_owner_returns
-    bad = {}
+    bad, accrual = {}, {}
     for o in _owners(db):
         ret = {c["class"]: float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"]}
         held = defaultdict(float)
@@ -94,10 +120,14 @@ def returns_match_holdings(db: Session) -> dict:
         by = {c["class"]: float(c["current_all"]) for c in compute_owner_returns(db, o)["by_class"]}
         for cls, field in (("fd", "fd_value"), ("ppf", "ppf_value")):
             if o in nw and abs(by.get(cls, 0.0) - float(getattr(nw[o], field) or 0)) > TOL:
-                bad.setdefault(o, {})[cls] = {"returns": by.get(cls, 0.0), "net_worth": float(getattr(nw[o], field) or 0)}
-    return _check("returns_match_holdings", not bad,
-                  "Returns page values equal the Investments table" if not bad else
-                  "Returns page values differ from the Investments table", differences=bad)
+                accrual.setdefault(o, {})[cls] = {"returns": by.get(cls, 0.0), "net_worth": float(getattr(nw[o], field) or 0)}
+    differences = {o: {**bad.get(o, {}), **accrual.get(o, {})} for o in {*bad, *accrual}}
+    check = _check("returns_match_holdings", not differences,
+                   "Returns page values equal the Investments table" if not differences else
+                   "Returns page values differ from the Investments table", differences=differences)
+    stale = stale_snapshot(db)
+    small = not bad and all(within_accrual(v["returns"], v["net_worth"], stale) for d in accrual.values() for v in d.values())
+    return _if_stale(check, stale, small)                              # only small deposit accrual differs: a stale snapshot, not a bug
 
 
 def goals_are_one_story(db: Session) -> dict:
@@ -108,9 +138,11 @@ def goals_are_one_story(db: Session) -> dict:
         g = db.get(Goal, p.goal_id)
         if g is not None and abs(float(g.monthly_sip_needed or 0) - p.monthly_sip_needed) > TOL:
             bad[p.name] = {"stored": float(g.monthly_sip_needed or 0), "projection": p.monthly_sip_needed}
-    return _check("goal_sip_stored_equals_projection", not bad,
-                  "Goal cards, projections table and Grafana use the same SIP figure" if not bad else
-                  "Stored goal SIP differs from the live projection (run goal refresh)", differences=bad)
+    stale = stale_snapshot(db)
+    small = all(within_accrual(v["stored"], v["projection"], stale, 0.005) for v in bad.values())
+    return _if_stale(_check("goal_sip_stored_equals_projection", not bad,
+                            "Goal cards, projections table and Grafana use the same SIP figure" if not bad else
+                            "Stored goal SIP differs from the live projection (run goal refresh)", differences=bad), stale, small)
 
 
 def goal_corpus_matches_holdings(db: Session) -> dict:
@@ -232,17 +264,30 @@ def alerts_match_statements(db: Session) -> dict:
                   "warn", **r)
 
 
+ACCRUAL_INVARIANTS = ("INV-03", "INV-09")      # Investments / Manual Assets versus the stored net worth: deposits accrue daily
+
+
+def _is_small_accrual(message: str, stale) -> bool:
+    """An INV-03/INV-09 line such as 'wife: fd is ₹635,309 on Investments but ₹635,201 in net worth' that is only accrual."""
+    import re
+    m = re.match(r"\w+: (?:fd|ppf|deposits|PPF)\b.*?₹([\d,]+).*?₹([\d,]+)", message)
+    return bool(m) and within_accrual(float(m.group(1).replace(",", "")), float(m.group(2).replace(",", "")), stale)
+
+
 def product_invariants(db: Session) -> dict:
     """The cross-page rules in app/invariants.py (docs/INVARIANTS.md): a page must not drop or disagree."""
     from app.invariants import INVARIANTS
-    broken = {}
+    broken, accrual_only, stale = {}, True, stale_snapshot(db)
     for name, fn in INVARIANTS:
         found = fn(db)
         if found:
             broken[name] = found[:5]
-    return _check("product_invariants", not broken,
-                  f"All {len(INVARIANTS)} cross-page invariants hold" if not broken else
-                  "Broken: " + "; ".join(f"{k} ({v[0]})" for k, v in broken.items()), "fail", broken=broken)
+            # only a deposit/PPF figure that differs by interest accrued since the snapshot is excused while it is stale
+            accrual_only &= name.split()[0] in ACCRUAL_INVARIANTS and all(_is_small_accrual(m, stale) for m in found)
+    check = _check("product_invariants", not broken,
+                   f"All {len(INVARIANTS)} cross-page invariants hold" if not broken else
+                   "Broken: " + "; ".join(f"{k} ({v[0]})" for k, v in broken.items()), "fail", broken=broken)
+    return _if_stale(check, stale, bool(broken and accrual_only))
 
 
 def ppf_reconciles(db: Session) -> dict:

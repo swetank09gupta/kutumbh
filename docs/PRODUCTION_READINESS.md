@@ -26,7 +26,7 @@
 | Parser failure does not poison the batch | ✅ | One bad attachment is isolated; the rest of the batch commits. |
 | LLM fallback timeout | ✅ | 120s hard cap; failures logged with `source='llm_failed'`. |
 | Postgres healthcheck gate on app startup | ✅ | `depends_on: service_healthy`. |
-| Scheduler missed-tick handling | 🟡 | APScheduler default coalesce=True; an outage >6h merges into one run. Documented, not tunable yet. |
+| Scheduler missed-tick handling | ✅ | Jobs coalesce with a 23 h grace (6 days for the weekly one); a 10-minute watchdog runs an overdue update (ADR-0039). |
 | Crash recovery / restart policy | 🟡 | Compose has implicit restart on `app`; not set to `unless-stopped`. Easy fix. |
 
 ## 3. Security

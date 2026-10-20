@@ -41,3 +41,5 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0035](0035-lender-and-registrar-evidence.md) | Lenders and registrars already mail the missing facts; the update window follows the last good run | Accepted |
 | [0036](0036-tax-slabs-and-self-confirming-rules.md) | Slab tax is estimated per person; rules confirm themselves against their source | Accepted |
 | [0037](0037-reconcile-across-sources-and-live-prices.md) | Every account reconciles against its own balances; prices live or flagged; alerts count as provisional spending | Accepted |
+| [0038](0038-row-identity-and-lost-statement-rows.md) | A bank row's identity includes direction and amount; first-row amounts are read; Axis moved domain; named missing months | Accepted |
+| [0039](0039-missed-jobs-and-stale-snapshot.md) | Missed jobs run once on wake; a stale snapshot is a warning, not a failure | Accepted |

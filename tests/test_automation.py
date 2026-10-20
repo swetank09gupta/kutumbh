@@ -376,5 +376,83 @@ class WithDatabase(unittest.TestCase):
         self.assertIn(consistency.automation_is_running, consistency.CHECKS)
 
 
+class MissedJobs(unittest.TestCase):
+    """The laptop sleeps: jobs missed overnight must still run once on wake, and an overdue update must not wait for the next interval.
+    Real case (Oct 2026): the 00:05 snapshot was 'missed by 23:07' and dropped, the 6-hourly sync 'missed by 0:38' (grace was 300 s)."""
+
+    def test_every_job_coalesces_and_has_a_grace_that_survives_a_night(self):
+        from app import scheduler
+        sched = scheduler._build_scheduler()
+        sched.start(paused=True)                                   # defaults are applied when the jobs reach the store
+        self.addCleanup(sched.shutdown, wait=False)
+        jobs = {j.id: j for j in sched.get_jobs()}
+        for jid in ("email_sync", "networth_snapshot", "holdings_autotag", "live_rules", "goal_update"):
+            self.assertTrue(jobs[jid].coalesce, jid)                                   # one catch-up run, not one per missed tick
+            self.assertGreaterEqual(jobs[jid].misfire_grace_time, 12 * 3600, jid)
+        self.assertGreaterEqual(jobs["goal_update"].misfire_grace_time, 6 * 86400)
+        self.assertIn("update_watchdog", jobs)
+
+    def test_overdue_rule(self):
+        from app import scheduler
+        now = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+        ran = lambda h: {"at": (now - timedelta(hours=h)).isoformat(), "ok": True}
+        self.assertFalse(scheduler.update_is_overdue(ran(5), now, 6))                  # not due yet
+        self.assertFalse(scheduler.update_is_overdue(ran(6.4), now, 6))                # inside the slack
+        self.assertTrue(scheduler.update_is_overdue(ran(7), now, 6))                   # a run was missed
+        self.assertTrue(scheduler.update_is_overdue(None, now, 6))                     # never ran
+        self.assertTrue(scheduler.update_is_overdue({"at": "garbage"}, now, 6))
+        failed = {"at": (now - timedelta(hours=2)).isoformat(), "ok": False}
+        self.assertFalse(scheduler.update_is_overdue(failed, now, 6))                  # a failed attempt is retried next interval, not every tick
+
+    def test_the_watchdog_runs_the_update_only_when_it_is_overdue_and_idle(self):
+        from app import scheduler
+        from app.etl import pipeline
+        with mock.patch.object(scheduler, "_sync_job") as sync, mock.patch("app.models.database.SessionLocal"), \
+                mock.patch.object(pipeline, "last_run", return_value=None):
+            scheduler._watchdog_job()
+            sync.assert_called_once()                                                  # never ran: overdue
+            sync.reset_mock()
+            self.assertTrue(pipeline.RUN_LOCK.acquire(blocking=False))
+            try:
+                scheduler._watchdog_job()
+                sync.assert_not_called()                                               # an update is already running
+            finally:
+                pipeline.RUN_LOCK.release()
+
+
+class StaleSnapshotIsAWarningNotAFailure(unittest.TestCase):
+    """Deposits accrue interest by the day; the net-worth snapshot and stored goal SIPs are taken at the last update. One day apart
+    they differ by that day's accrual: a missing update (reported by automatic_update_is_running), not a broken page."""
+
+    yesterday = date.today() - timedelta(days=1)
+    failing = {"name": "x", "ok": False, "severity": "fail", "detail": "differs", "values": {}}
+
+    def test_small_accrual_difference_with_a_stale_snapshot_is_a_warning(self):
+        from app import consistency
+        out = consistency._if_stale(self.failing, self.yesterday)
+        self.assertEqual(out["severity"], "warn"); self.assertIn("snapshot is from", out["detail"])
+
+    def test_a_current_snapshot_keeps_the_failure(self):
+        from app import consistency
+        self.assertEqual(consistency._if_stale(self.failing, None)["severity"], "fail")
+
+    def test_a_difference_too_large_to_be_interest_stays_a_failure(self):
+        from app import consistency
+        self.assertTrue(consistency.within_accrual(635309.44, 635200.98, self.yesterday))     # ₹108 on ₹635k: one day of interest
+        self.assertFalse(consistency.within_accrual(635309.44, 535200.98, self.yesterday))    # ₹1 lakh is not interest
+        for stored, live in ((13625.24, 13636.93), (147676.95, 147759.11)):                   # the real SIP differences of 19 Oct
+            self.assertTrue(consistency.within_accrual(stored, live, self.yesterday, 0.005))
+        self.assertFalse(consistency.within_accrual(13625.24, 15000.00, self.yesterday, 0.005))
+        self.assertEqual(consistency._if_stale(self.failing, self.yesterday, small=False)["severity"], "fail")
+
+    def test_the_invariant_lines_that_are_only_accrual(self):
+        from app import consistency
+        ok = "wife: fd is ₹635,309 on Investments but ₹635,201 in net worth"
+        self.assertTrue(consistency._is_small_accrual(ok, self.yesterday))
+        self.assertTrue(consistency._is_small_accrual("wife: deposits are ₹635,309 on Manual Assets but ₹635,201 in net worth", self.yesterday))
+        self.assertFalse(consistency._is_small_accrual("wife: fd is ₹635,309 on Investments but ₹135,201 in net worth", self.yesterday))
+        self.assertFalse(consistency._is_small_accrual("wife: equity+bonds is ₹635,309 on Investments but ₹635,201 in net worth", self.yesterday))
+
+
 if __name__ == "__main__":
     unittest.main()
