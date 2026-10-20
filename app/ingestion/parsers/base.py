@@ -99,6 +99,10 @@ class BaseParser:
     # all cached pickles so we don't deserialize stale schemas.
     _CACHE_SCHEMA = "v18"  # v18: HDFC first row of a statement without an opening balance read from the printed amount column; Axis account number read; v17: dormant Axis statements (no rows, equal balances) reconcile; v16: Zerodha daily margin statements are not holdings; v15: SBI PPF keyword is the word, not PPFAS; v14: ParsedManualAsset.principal_as_of (Axis FD); v13: 2018 contract-note layout (no exchange token); v12: Axis statements read by column position and reconciled; v11: SBI PPF row (open date, balance, ROI) read deterministically; v10: SBI FD interest accrued; v9: tradebook qty/price/kind; v8: Coin purchase-confirmation + redemption mails; v7: 2021 holdings layout; v6/v5: as-on dates; v4: demat movements = balance deltas; v3: contract-note text layouts; v2: ledger fields
 
+    # Per-parser suffix of the cache key: bump it in the parser you changed and only that parser's files are re-read. Bump
+    # `_CACHE_SCHEMA` instead when the ParseResult / Parsed* shape changes (every parser's cached pickles are then stale).
+    _PARSER_VERSION = ""
+
     def __init__(self, pdf_password: str = ""):
         self.pdf_password = pdf_password
 
@@ -131,7 +135,7 @@ class BaseParser:
         h.update(b"\x00")
         h.update(type(self).__name__.encode())
         h.update(b"\x00")
-        h.update(self._CACHE_SCHEMA.encode())
+        h.update((self._CACHE_SCHEMA + self._PARSER_VERSION).encode())
         key = h.hexdigest()
 
         cache_dir = Path(os.getenv("PARSE_RESULT_CACHE_DIR", "data/cache/parsed"))

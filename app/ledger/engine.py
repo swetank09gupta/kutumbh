@@ -616,7 +616,8 @@ def dedupe_cashflows(db: Session, apply: bool = False) -> dict:
     """
     Where two sources report the same (owner, isin, date, side) with the same
     total quantity, only the best-ranked source may feed XIRR. Lower-ranked
-    trades are listed (dry run) or removed together with their cashflow rows.
+    trades are listed (dry run) or removed together with their cashflow rows, unless a kept trade points at the same row
+    (a contract note and a tradebook with the same trade id and date share one).
     Disagreeing totals are never touched — they are reported as source_conflict.
     """
     removed_trades = removed_txns = 0
@@ -626,7 +627,8 @@ def dedupe_cashflows(db: Session, apply: bool = False) -> dict:
         rows = db.query(InstrumentTrade).filter(InstrumentTrade.owner_id == oid,
                                                 InstrumentTrade.isin.isnot(None)).all()
         by_id = {str(r.id): r for r in rows}
-        _, superseded, _conflicts = rules.effective_trades([_to_trade(r) for r in rows])
+        effective, superseded, _conflicts = rules.effective_trades([_to_trade(r) for r in rows])
+        in_use = {by_id[t.id].txn_fingerprint for t in effective if by_id[t.id].txn_fingerprint}   # cashflow rows a kept trade points at
         conflict_groups = {(c.isin, c.trade_date, c.side) for c in _conflicts}
         for t in superseded:
             if (t.isin, t.trade_date, t.side) in conflict_groups:
@@ -635,7 +637,7 @@ def dedupe_cashflows(db: Session, apply: bool = False) -> dict:
             candidates.append({"owner": oid, "isin": t.isin, "date": str(t.trade_date), "side": t.side,
                                "qty": str(t.qty), "source": t.source, "source_file": r.source_file})
             if apply:
-                if r.txn_fingerprint:
+                if r.txn_fingerprint and r.txn_fingerprint not in in_use:      # a shared row (same trade id and date) stays
                     removed_txns += db.query(Transaction).filter(
                         Transaction.fingerprint == r.txn_fingerprint).delete(synchronize_session=False)
                 db.delete(r)

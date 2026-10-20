@@ -66,6 +66,8 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | Inflation: one automatic app-wide rate (10-year CPI average); an override can be set and cleared; goals ignore their own rate | `tests/test_settings.py`, `tests/test_inflation.py` |
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |
 | Bank alerts are evidence, never cashflow; each gets exactly one status | `tests/test_alert_recon.py`, `tests/test_bank_alert.py` |
+| Every ledger trade with a cashflow link points at a cashflow row that exists (0 orphans after any re-key, re-read or duplicate removal); a contract note and its tradebook row dedupe to one trade and one cashflow | `tests/test_ledger_shared_cashflow_db.py` |
+| A missing statement month counts as explained only when that month's alerts (copies excluded) add up to the break exactly; a partial sum stays a warning | `test_identical_bank_rows_db` (`test_a_missing_month_is_explained…`, `test_alerts_that_do_not_add_up…`) |
 | Expense / income definitions; tag authority order | `tests/test_definitions_db.py`, `tests/test_txn_layer.py` |
 | Every API call the UI makes hits a route that exists, with that method | `tests/test_ui_api_contract.py` |
 | Goal cards, projections and Grafana use one SIP figure | consistency check `goal_sip_stored_equals_projection` |

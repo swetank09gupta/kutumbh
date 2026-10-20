@@ -158,7 +158,7 @@ Liability rows (`ManualAsset.asset_type = "liability"`) gained a `monthly_paymen
 
 | Cache | Purpose | Location | Invalidation |
 |---|---|---|---|
-| `ParseResult` pickle | Skip pdfplumber on unchanged statements | `data/cache/parsed/` | `sha1(file_bytes)` changes, or `BaseParser._CACHE_SCHEMA` bump. |
+| `ParseResult` pickle | Skip pdfplumber on unchanged statements | `data/cache/parsed/` | `sha1(file_bytes)` changes, or a bump of that parser's `_PARSER_VERSION` (or `BaseParser._CACHE_SCHEMA` when the result shape changes). |
 | LLM response | Skip Ollama calls on identical prompt+input | `data/cache/llm/` | `sha1(model + prompt + input)` changes. |
 | PDF text sidecar | `.txt.cache` next to each PDF for whole-doc-text parsers | next to source PDF | Source PDF mtime newer than sidecar. |
 | Market signals | Live Nifty P/Es + USD/INR + Nasdaq levels for the rec engine | `data/market_signals_cache.json` | 12 hours since `cached_at`. |

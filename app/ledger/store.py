@@ -11,6 +11,7 @@ import re
 import uuid
 from decimal import Decimal
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -117,6 +118,13 @@ def record_parse_result(db: Session, result, owner_id: str, account, txn_fingerp
         stmt = pg_insert(InstrumentTrade.__table__).values(_dedupe_batch(trade_rows))
         stmt = stmt.on_conflict_do_nothing(index_elements=["natural_key"])
         inserted["trades"] = db.execute(stmt).rowcount
+        # A trade read before keeps its natural key, so a re-read never touched its cashflow link: if the cashflow row's fingerprint
+        # has changed since (older identity rules), the trade pointed at nothing ("trade_without_cashflow"). The parse in hand
+        # carries the current fingerprint: point the existing trade at it.
+        relink = [{"nk": r["natural_key"], "fp": r["txn_fingerprint"]} for r in trade_rows if r.get("txn_fingerprint")]
+        if relink:
+            db.execute(text("UPDATE instrument_trades SET txn_fingerprint = :fp WHERE natural_key = :nk "
+                            "AND txn_fingerprint IS DISTINCT FROM :fp"), relink)
     if move_rows:
         stmt = pg_insert(DematMovement.__table__).values(_dedupe_batch(move_rows))
         stmt = stmt.on_conflict_do_nothing(index_elements=["natural_key"])

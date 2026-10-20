@@ -34,3 +34,6 @@ postgres_data/
 
 # Local agent state
 .claude/
+
+# Private figures baseline (net worth, returns): see scripts/figures.py
+data/figures_baseline.json

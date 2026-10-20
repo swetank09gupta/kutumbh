@@ -249,7 +249,7 @@ def persist_parse_result(result: ParseResult, owner_id: str, db: Session) -> dic
                 ordinal = seen.index(bal) + 1
             fp = transaction_fingerprint(
                 account_id_str, pt.date, pt.amount, pt.transaction_type,
-                desc, pt.reference_number, ordinal,
+                desc, pt.reference_number, ordinal, with_direction=account.account_type == "bank",
             )
 
         cat = categorise(desc)

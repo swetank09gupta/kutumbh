@@ -33,13 +33,35 @@ _ISIN_RE = re.compile(r'^[A-Z]{2}[A-Z0-9]{9}[0-9]$')
 
 
 class ZerodhaParser(BaseParser):
+    _PARSER_VERSION = "+date2"      # contract-note trade date read year-first; only Zerodha files are re-read
     institution  = "Zerodha"
     account_type = "stocks"
 
     def parse(self, path: Path) -> ParseResult:
         if path.suffix.lower() == ".pdf":
             return self._parse_pdf(path)
+        if path.suffix.lower() == ".xlsx":
+            return self._parse_xlsx(path)
         return self._parse_csv(path)
+
+    def _parse_xlsx(self, path: Path) -> ParseResult:
+        """Console tradebook export: a few preamble rows ("Client ID", "Tradebook for Equity from … to …"), then the header
+        row (Symbol, ISIN, Trade Date, …, Trade Type, Quantity, Price, Trade ID, …), then one row per executed order."""
+        from app.ingestion.xlsx_reader import read_sheets
+        try:
+            sheets = read_sheets(path)
+        except Exception as exc:
+            logger.error("Zerodha xlsx read error %s: %s", path.name, exc)
+            return ParseResult(institution=self.institution, account_type=self.account_type)
+        for rows in sheets.values():
+            head = next((i for i, r in enumerate(rows) if {"symbol", "trade date"} <= {str(c or "").strip().lower() for c in r}), None)
+            if head is None:
+                continue
+            cols = [str(c or "").strip() for c in rows[head]]
+            body = [(r + [None] * len(cols))[:len(cols)] for r in rows[head + 1:] if any(c not in (None, "") for c in r)]
+            return self._parse_tradebook(pd.DataFrame(body, columns=cols), str(path))
+        logger.warning("Zerodha xlsx %s: no tradebook header found", path.name)
+        return ParseResult(institution=self.institution, account_type=self.account_type)
 
     def _parse_csv(self, path: Path) -> ParseResult:
         try:
@@ -422,6 +444,25 @@ class ZerodhaParser(BaseParser):
         return out
 
     # ── PDF — Contract Note (daily trade confirmation) ────────────────────────
+    def _contract_note_trade_date(self, all_text: str):
+        """The note's trade date. The header prints "TRADE DATE 2020-06-23 23/06/2020 SETTLEMENT NO …" (year-first) on some layouts
+        and "Trade Date: 23/06/2020" on others; the settlement date (T+2) must never be taken for it."""
+        trade_date = None
+        DATE_RE = re.compile(
+            r'(?:Trade\s+Date|Date|Dated?)\s*[:\-]?\s*'
+            r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+            re.I,
+        )
+        iso = re.search(r'TRADE\s+DATE\s*[:\-]?\s*(\d{4})-(\d{2})-(\d{2})', all_text[:3000], re.I)
+        if iso:
+            return self._parse_date(f"{iso[3]}/{iso[2]}/{iso[1]}", ["%d/%m/%Y"])
+        for m in DATE_RE.finditer(all_text[:3000]):
+            raw = m.group(1).replace("-", "/")
+            d = self._parse_date(raw, ["%d/%m/%Y", "%d/%m/%y"])
+            if d:
+                return d
+        return None
+
     def _parse_contract_note(self, pdf, path: Path) -> list[ParsedTransaction]:
         """
         Parse a Zerodha contract note PDF (sent per trading day from backoffice@zerodha.com).
@@ -430,19 +471,7 @@ class ZerodhaParser(BaseParser):
         """
         all_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
 
-        # ── Extract trade date ────────────────────────────────────────────────
-        trade_date = None
-        DATE_RE = re.compile(
-            r'(?:Trade\s+Date|Date|Dated?)\s*[:\-]?\s*'
-            r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
-            re.I,
-        )
-        for m in DATE_RE.finditer(all_text[:3000]):
-            raw = m.group(1).replace("-", "/")
-            d = self._parse_date(raw, ["%d/%m/%Y", "%d/%m/%y"])
-            if d:
-                trade_date = d
-                break
+        trade_date = self._contract_note_trade_date(all_text)
 
         if not trade_date:
             logger.warning("Contract note: cannot extract trade date from %s", path.name)

@@ -77,5 +77,56 @@ class SbiAlerts(unittest.TestCase):
         self.assertIsNone(parse_tds(HDFC, text))
 
 
+AXIS = "Axis Bank Alerts <alerts@axisbank.com>"
+
+
+class AxisAlerts(unittest.TestCase):
+    """Real wordings (May 2025, names removed). Axis prints no balance; the reference is the UPI/NEFT id."""
+    def test_summary_wording_debit_upi(self):
+        a = parse_alert(AXIS, "02-05-2025 Dear Customer, Here's the summary of your transaction: Amount Debited: INR 1318.00 "
+                        "Account Number: XX3856 Date & Time: 02-05-25, 00:15:14 IST Transaction Info: UPI/P2M/548863353225/FLIPKART PAYMENTS "
+                        "If this transaction was not initiated by you: To block UPI: SMS BLOCKUPI to +91 from your registered mobile number.")
+        self.assertEqual((a.bank, a.kind, a.direction, a.amount, a.txn_date, a.account_last4, a.ref, a.payee, a.balance_after),
+                         ("AXIS", "upi", "debit", Decimal("1318.00"), date(2025, 5, 2), "3856", "548863353225", "FLIPKART PAYMENTS", None))
+
+    def test_summary_wording_credit(self):
+        a = parse_alert(AXIS, "03-05-2025 Dear , Here's the summary of your transaction: Amount Credited: INR 661.00 Account Number: XX3856 "
+                        "Date & Time: 03-05-25, 22:30:32 IST Transaction Info: UPI/P2A/100486302551/FLIPKART /HDFC BANK Feel free to connect with us")
+        self.assertEqual((a.direction, a.amount, a.ref), ("credit", Decimal("661.00"), "100486302551"))
+
+    def test_older_wording_neft(self):
+        a = parse_alert(AXIS, "02-05-2025 Dear Customer, Thank you for banking with us. We wish to inform you that your A/c no. XX3856 has been "
+                        "debited with INR 5000.00 on 02-05-2025 13:05:03 IST by NEFT/MB/AXOMB12253386885/A. To check your available balance")
+        self.assertEqual((a.kind, a.direction, a.amount, a.txn_date, a.ref), ("neft", "debit", Decimal("5000.00"), date(2025, 5, 2), "AXOMB12253386885"))
+
+    def test_logins_and_payment_advices_are_not_transactions(self):
+        self.assertIsNone(parse_alert(AXIS, "Dear Customer, your attempt to log into Axis Mobile has failed."))
+        self.assertIsNone(parse_alert("Straight2axis@axis.bank.in", "Payment Advice Amount Debited: INR 100.00 Account Number: XX1234 Date & Time: 02-05-25, 00:15:14 IST Transaction Info: UPI/P2M/548863353225/X"))
+
+
+class SbiOlderDomainAlerts(unittest.TestCase):
+    """Oct 2024 wordings from alerts.sbi.co.in (the account is the same one the statements call 8660)."""
+    OLD = "SBI <donotreply.sbiatm@alerts.sbi.co.in>"
+
+    def test_atm_cash_withdrawal(self):
+        a = parse_alert(self.OLD, "TranSaction alert Email Document --> Transaction Alert Message Oct 02, 2024, 12:59 Dear Valued SBI Debit Card Holder, "
+                        "The below transaction has been done using your SBI debit card. Description Value Bank AXS ATM ID DERH4908 Date & Time Oct 02, 2024, 12:59 "
+                        "Transaction Number 427612031045 Amount (INR) 10000.00 Last 4 Digit of Account X3316 Transaction Type CASH WITHDRAWAL "
+                        "Channel ATM Available Balance (INR) 231040.46 City GURGAON If not done by you")
+        self.assertEqual((a.bank, a.kind, a.direction, a.amount, a.txn_date, a.account_last4, a.ref, a.balance_after),
+                         ("SBI", "atm", "debit", Decimal("10000.00"), date(2024, 10, 2), "3316", "427612031045", Decimal("231040.46")))
+
+    def test_a_card_purchase_names_the_card_not_the_account_and_is_skipped(self):
+        self.assertIsNone(parse_alert(self.OLD, "Date & Time Oct 20, 2024, 11:54 Transaction Number 429306558542 Amount (INR) 14939.00 "
+                                      "Last 4 Digit of Card X8571 Transaction Type PURCHASE Channel POS / ECOM"))
+
+    def test_yono_neft_takes_the_day_it_was_sent_and_has_no_ref(self):
+        text = ("Dear Customer, Thank you for banking with State Bank of India. NEFT transfer to XXk HDFC for Rs.50,000.00 from A/C no. XXXX3316 "
+                "has been completed successfully.TID: UR39352518 . Download YONO at www.yonosbi.com.")
+        a = parse_alert("SBI <donotreply.sbimb@alerts.sbi.co.in>", text, date(2024, 10, 21))
+        self.assertEqual((a.kind, a.direction, a.amount, a.txn_date, a.account_last4, a.ref), ("neft", "debit", Decimal("50000.00"), date(2024, 10, 21), "3316", None))
+        self.assertIsNone(parse_alert("SBI <donotreply.sbimb@alerts.sbi.co.in>", text))           # no body date and no sent date: nothing to record
+
+
 if __name__ == "__main__":
     unittest.main()

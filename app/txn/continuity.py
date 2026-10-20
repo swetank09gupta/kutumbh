@@ -70,9 +70,21 @@ def gap_month(db: Session, account_id, day: date) -> str | None:
     return None if seen else prev.strftime("%Y-%m")
 
 
+def alert_evidence(db: Session, account_id, month: str) -> dict:
+    """What the bank's own alert mails say happened in a month whose statement never arrived: {count, net_debit} (debits minus
+    credits, copies of the same alert excluded). Evidence only: no row is created from it (ADR-0025)."""
+    from app.models.schemas import Account
+    from app.txn.alert_recon import account_alerts
+    acc = db.get(Account, account_id)
+    rows = [a for a in account_alerts(db, acc) if a.status != "dup" and a.txn_date.strftime("%Y-%m") == month]
+    net = sum((Decimal(a.amount) if a.direction == "debit" else -Decimal(a.amount)) for a in rows)
+    return {"count": len(rows), "net_debit": net}
+
+
 def account_breaks(db: Session) -> list[dict]:
     """[{account, owner, days, breaks:[{date, missing, gap?}]}] for every bank account that prints balances.
-    `gap` names the month whose statement never arrived (see gap_month)."""
+    `gap` names the month whose statement never arrived (see gap_month); `alerts` is what that month's alert mails add up to and
+    `explained` says they account for the break to the paisa."""
     out = []
     for aid, inst, owner, ref in db.execute(text(
             "SELECT id, institution, owner_id, account_ref FROM accounts "
@@ -85,5 +97,8 @@ def account_breaks(db: Session) -> list[dict]:
         for b in breaks:
             if (g := gap_month(db, aid, b["date"])):
                 b["gap"] = g
+                ev = alert_evidence(db, aid, g)
+                b["alerts"] = ev
+                b["explained"] = ev["count"] > 0 and abs(ev["net_debit"] - Decimal(b["missing"])) < TOLERANCE
         out.append({"account": f"{inst} {ref}", "owner": owner, "rows": len(rows), "breaks": breaks})
     return out

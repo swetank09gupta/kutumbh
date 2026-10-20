@@ -1,5 +1,5 @@
 """
-Bank alert e-mails (HDFC Insta Alerts, SBI CBSSBI / NEFT / YONO) → one small record each.
+Bank alert e-mails (HDFC Insta Alerts, SBI CBSSBI / NEFT / YONO / debit-card ATM, Axis UPI / NEFT) → one small record each.
 
 Alerts arrive the same minute as the transaction, weeks before the statement, so they are the
 only early evidence of what happened. They are evidence, never cashflow: app.txn.alert_recon
@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "sbi.co.in")
+SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in")
 
 
 @dataclass
 class BankAlert:
-    bank: str                     # HDFC | SBI
+    bank: str                     # HDFC | SBI | AXIS
     account_last4: str | None
     direction: str                # debit | credit
     amount: Decimal
@@ -36,7 +36,7 @@ def _amt(s: str) -> Decimal:
 
 def _date(s: str) -> date:
     s = s.strip().replace(".", "/")
-    for fmt in ("%d-%m-%y", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%y", "%d/%m/%Y"):
+    for fmt in ("%d-%m-%y", "%d-%m-%Y", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%y", "%d/%m/%Y", "%b %d, %Y"):
         try:
             return datetime.strptime(s.title() if "-" in s and s[3:6].isalpha() else s, fmt).date()
         except ValueError:
@@ -100,7 +100,38 @@ _SBI = [
     ("transfer", "debit", re.compile(
         rf"Ac X+(\d+) debited for SI Fund Transfer of Rs\.?{_N} to (.*?) Ac X*\d+ on {_D} Ref (\S+?)\.", re.I),
      lambda m: dict(acct=m[1], amount=m[2], payee=m[3], date=m[4], ref=m[5])),
+    # Debit-card alert for an ATM cash withdrawal. A purchase prints the card's last four, not the account's: skipped.
+    ("atm", "debit", re.compile(
+        rf"Date & Time ([A-Za-z]{{3}} \d\d, \d{{4}}), [\d:]+ Transaction Number (\d+) Amount \(INR\) {_N} "
+        rf"Last 4 Digit of Account X*(\d{{4}}) Transaction Type CASH WITHDRAWAL Channel ATM Available Balance \(INR\) {_N}", re.I),
+     lambda m: dict(date=m[1], ref=m[2], amount=m[3], acct=m[4], balance=m[5])),
+    # YONO / mobile-banking NEFT: the mail carries no date (the day it was sent is the day) and its TID is not the UTR, so no
+    # ref: a "NEFT Transaction" mail for the same transfer, which has the UTR, then counts as the original and this as its copy.
+    ("neft", "debit", re.compile(
+        rf"NEFT transfer to (.*?) for Rs\.?{_N} from A/C no\. X+(\d+) has been completed successfully", re.I),
+     lambda m: dict(payee=m[1], amount=m[2], acct=m[3], date=None)),
 ]
+
+# Axis: the new "summary" alert and the older "A/c no. … has been debited with …" wording; both carry UPI/NEFT info, no balance.
+_AD = r"(\d\d-\d\d-\d{2,4})"
+_AXIS = [
+    ("upi", None, re.compile(
+        rf"Amount (Debited|Credited): INR {_N} Account Number: X*(\d+) Date & Time: {_AD}, [\d:]+ IST "
+        rf"Transaction Info: (.*?)(?: If this transaction| Feel free| Call us| $)", re.I),
+     lambda m: dict(direction="debit" if m[1].lower().startswith("deb") else "credit", amount=m[2], acct=m[3], date=m[4], info=m[5])),
+    ("upi", None, re.compile(
+        rf"A/c no\. X*(\d+) has been (debited|credited) with INR {_N} on {_AD} [\d:]+ IST by (\S+)", re.I),
+     lambda m: dict(direction="debit" if m[2].lower().startswith("deb") else "credit", amount=m[3], acct=m[1], date=m[4], info=m[5])),
+]
+
+
+def _axis_info(info: str) -> tuple[str, str | None, str | None]:
+    """'UPI/P2M/548863353225/FLIPKART PAYMENTS' → (kind, ref, payee); 'NEFT/MB/AXOMB12253386885/A' likewise."""
+    parts = [p.strip() for p in (info or "").split("/") if p.strip()]
+    kind = "upi" if parts[:1] == ["UPI"] else "neft" if parts[:1] == ["NEFT"] else "other"
+    ref = next((p for p in parts[1:] if re.fullmatch(r"[A-Za-z0-9]{10,}", p)), None)
+    payee = next((p for p in reversed(parts[2:]) if p != ref and not re.fullmatch(r"[A-Za-z0-9]{10,}", p)), None)
+    return kind, ref, payee
 
 
 _TDS = re.compile(rf"TDS of INR {_N} deducted for interest paid on A/C No X*(\d+)", re.I)
@@ -115,13 +146,16 @@ def parse_tds(sender: str, text: str) -> tuple[str, Decimal] | None:
     return (m.group(2)[-4:], _amt(m.group(1))) if m else None
 
 
-def parse_alert(sender: str, text: str) -> BankAlert | None:
-    """Parse one alert body (already tag-stripped). Returns None for anything that is not a transaction."""
+def parse_alert(sender: str, text: str, sent: date | None = None) -> BankAlert | None:
+    """Parse one alert body (already tag-stripped). Returns None for anything that is not a transaction.
+    `sent` is the day the mail was sent, used by the one template (YONO NEFT) whose body carries no date."""
     s = (sender or "").lower()
     if "hdfc" in s:
         bank, table = "HDFC", _HDFC
     elif "sbi" in s:
         bank, table = "SBI", _SBI
+    elif "alerts@axis" in s:                      # not Straight2axis@ payment advices
+        bank, table = "AXIS", _AXIS
     else:
         return None
     for kind, direction, rx, pick in table:
@@ -130,9 +164,13 @@ def parse_alert(sender: str, text: str) -> BankAlert | None:
             continue
         f = pick(m)
         try:
-            when = _date(f["date"])
+            when = _date(f["date"]) if f.get("date") else sent
         except ValueError:
             continue
+        if when is None:
+            continue
+        if f.get("info") is not None:
+            kind, f["ref"], f["payee"] = _axis_info(f["info"])
         acct = f.get("acct")
         return BankAlert(
             bank=bank, account_last4=acct[-4:] if acct else None,

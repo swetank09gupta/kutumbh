@@ -65,7 +65,7 @@ def _dedup_transactions(db: Session) -> dict[str, int]:
                 continue                   # the 2nd..nth identical row of a statement, proven separate by its balance
             fp = transaction_fingerprint(
                 str(r.account_id), r.date, r.amount, r.transaction_type,
-                r.description or "", r.reference_number,
+                r.description or "", r.reference_number, with_direction=acc.account_type == "bank",
             )
         by_fp[fp].append(r)
         fp_map[str(r.id)] = fp
@@ -91,13 +91,35 @@ def _dedup_transactions(db: Session) -> dict[str, int]:
         new_fp = fp_map[str(k.id)]
         if k.fingerprint == new_fp:
             continue
+        old_fp = k.fingerprint
         k.fingerprint = new_fp
         try:
+            # ledger trades point at their cashflow row by this fingerprint: they must follow it (an unfollowed re-key left 216
+            # trades "without a cashflow" and out of XIRR, Oct 2026)
+            db.execute(text("UPDATE instrument_trades SET txn_fingerprint = :new WHERE txn_fingerprint = :old"),
+                       {"new": new_fp, "old": old_fp})
             db.commit()
             updated += 1
         except Exception:
             db.rollback()
-    return {"deleted": deleted, "keepers_refingerprinted": updated}
+    return {"deleted": deleted, "keepers_refingerprinted": updated, "trades_relinked": _relink_trades(db)}
+
+
+def _relink_trades(db: Session) -> int:
+    """Point a ledger trade whose cashflow link is dead at its cashflow row, when exactly one row of its account has the same
+    date, amount and reference (the link was written when the row's fingerprint was different)."""
+    res = db.execute(text("""
+        UPDATE instrument_trades t SET txn_fingerprint = c.fp
+        FROM (SELECT t2.id AS tid, min(x.fingerprint) AS fp, count(*) AS n
+                FROM instrument_trades t2
+                JOIN transactions x ON x.account_id = t2.account_id AND x.date = t2.trade_date
+                                   AND abs(x.amount - t2.amount) < 0.01 AND x.reference_number = t2.source_ref
+               WHERE t2.txn_fingerprint IS NOT NULL AND t2.source_ref IS NOT NULL
+                 AND NOT EXISTS (SELECT 1 FROM transactions y WHERE y.fingerprint = t2.txn_fingerprint)
+               GROUP BY t2.id) c
+        WHERE t.id = c.tid AND c.n = 1"""))
+    db.commit()
+    return res.rowcount
 
 
 # ─────────────────────────────────────────────────────────────────────────────

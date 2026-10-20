@@ -1,5 +1,5 @@
 """
-Pull bank alert e-mails (HDFC / SBI) from every mailbox and store them idempotently in bank_alerts.
+Pull bank alert e-mails (HDFC / SBI / Axis) from every mailbox and store them idempotently in bank_alerts.
 
 Alerts are small body-only mails, so they are parsed straight from IMAP — nothing is saved to
 data/raw. Each alert gets a natural key, so re-fetching an overlapping window inserts nothing new.
@@ -23,9 +23,9 @@ from app.models.schemas import BankAlertRow, TdsDeduction
 
 logger = logging.getLogger(__name__)
 
-_SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in")
+_SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in")
 _SUBJECT_HINTS = ("upi txn", "account update", "deposit alert", "cbssbi", "neft transaction",
-                  "transaction success", "debited", "credited")
+                  "transaction success", "debited", "credited", "transaction alert")
 
 
 def alert_key(owner_id: str, a: BankAlert) -> str:
@@ -83,11 +83,11 @@ def fetch_alerts(since_days: int, tds: list | None = None) -> list[tuple[str, Ba
                     if not any(h in subj for h in _SUBJECT_HINTS):
                         continue
                     body = _body(msg)
-                    alert = parse_alert(msg.get("From", ""), body)
                     try:
                         sent = parsedate_to_datetime(msg.get("Date"))
                     except Exception:
                         sent = None
+                    alert = parse_alert(msg.get("From", ""), body, sent.date() if sent else None)
                     if alert:
                         out.append((acc["owner_id"], alert, sent))
                     elif tds is not None and (t := parse_tds(msg.get("From", ""), body)) and sent:

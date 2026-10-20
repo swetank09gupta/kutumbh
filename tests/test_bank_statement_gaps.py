@@ -37,14 +37,20 @@ class HdfcFirstRow(unittest.TestCase):
 
 
 class ReversalKeepsItsOwnIdentity(unittest.TestCase):
-    def fp(self, kind, amount="50000.00", ref="0000102738290"):
-        return transaction_fingerprint("acc", date(2025, 4, 7), D(amount), kind, "UPI-ZERODHA", ref)
+    def fp(self, kind, amount="50000.00", ref="0000102738290", bank=True):
+        return transaction_fingerprint("acc", date(2025, 4, 7), D(amount), kind, "UPI-ZERODHA", ref, with_direction=bank)
 
     def test_a_reversal_credit_is_not_the_debit_it_undoes(self):
         self.assertNotEqual(self.fp("debit"), self.fp("credit"))
 
     def test_a_different_amount_on_the_same_reference_is_another_row(self):
         self.assertNotEqual(self.fp("debit"), self.fp("debit", "49999.00"))
+
+    def test_broker_rows_keep_the_reference_only_key_the_ledger_links_to(self):
+        # The ledger's trades point at their cashflow row by this fingerprint: changing it orphaned 216 trades (Oct 2026).
+        self.assertEqual(self.fp("debit", bank=False), self.fp("credit", "1.00", bank=False))
+        self.assertEqual(self.fp("debit", bank=False),
+                         __import__("hashlib").sha256(f"acc|{date(2025, 4, 7)}|102738290".encode()).hexdigest())
 
     def test_the_same_payment_in_two_statements_is_still_one_row(self):
         self.assertEqual(self.fp("debit", "50000"), self.fp("debit", "50000.00", "102738290"))   # padding and scale do not matter
@@ -71,6 +77,42 @@ class MaskedAccountNumbers(unittest.TestCase):
         self.assertFalse(_masks_agree("50410XXXXX", "XXXXXX3237X"))         # different width: not the same number
         self.assertFalse(_masks_agree("50410XXXXX", "51410XXXXX"))          # a visible digit differs
         self.assertFalse(_masks_agree("3856", "3856"))                      # nothing masked: exact refs are matched elsewhere
+
+
+class ParseCacheIsPerParser(unittest.TestCase):
+    """Bumping one parser's version must not throw away every other parser's cached results (a cold re-parse took hours, Oct 2026)."""
+
+    def test_a_parser_version_changes_only_that_parsers_cache_key(self):
+        import os, tempfile
+        from pathlib import Path
+        from app.ingestion.parsers.base import BaseParser, ParseResult
+        calls = []
+
+        class A(BaseParser):
+            def parse(self, path): calls.append("A"); return ParseResult(institution="A", account_type="bank")
+
+        class B(BaseParser):
+            def parse(self, path): calls.append("B"); return ParseResult(institution="B", account_type="bank")
+
+        with tempfile.TemporaryDirectory() as d, mock_env(PARSE_RESULT_CACHE_DIR=d):
+            f = Path(d) / "x.txt"; f.write_text("statement")
+            A().parse_cached(f); B().parse_cached(f); A().parse_cached(f); B().parse_cached(f)
+            self.assertEqual(calls, ["A", "B"])                                 # second reads hit the cache
+            A._PARSER_VERSION = "+a2"                                           # the parser that changed
+            try:
+                A().parse_cached(f); B().parse_cached(f)
+            finally:
+                del A._PARSER_VERSION
+            self.assertEqual(calls, ["A", "B", "A"])                            # only A re-parsed; B still cached
+
+    def test_the_axis_key_is_unchanged_by_the_move_to_a_suffix(self):
+        self.assertEqual(AxisParser._CACHE_SCHEMA + AxisParser._PARSER_VERSION, "v18+axis2")
+
+
+def mock_env(**kv):
+    import os
+    from unittest import mock
+    return mock.patch.dict(os.environ, kv)
 
 
 if __name__ == "__main__":

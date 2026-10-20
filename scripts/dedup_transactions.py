@@ -31,6 +31,8 @@ def main() -> None:
     db = SessionLocal()
     try:
         rows = db.query(Transaction).all()
+        from app.models.schemas import Account
+        is_bank = {a.id: a.account_type == "bank" for a in db.query(Account).all()}      # direction+amount identity: bank rows only (ADR-0038)
         log.info("Scanning %d transactions", len(rows))
 
         # Group by NEW fingerprint computed on the fly
@@ -38,7 +40,7 @@ def main() -> None:
         for r in rows:
             new_fp = transaction_fingerprint(
                 str(r.account_id), r.date, r.amount, r.transaction_type,
-                r.description or "", r.reference_number,
+                r.description or "", r.reference_number, with_direction=is_bank.get(r.account_id, False),
             )
             by_new_fp[new_fp].append(r)
 
@@ -86,7 +88,7 @@ def main() -> None:
         for k in keepers:
             new_fp = transaction_fingerprint(
                 str(k.account_id), k.date, k.amount, k.transaction_type,
-                k.description or "", k.reference_number,
+                k.description or "", k.reference_number, with_direction=is_bank.get(k.account_id, False),
             )
             if k.fingerprint == new_fp:
                 continue

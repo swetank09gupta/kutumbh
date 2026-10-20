@@ -409,22 +409,38 @@ def dividends_reconcile(db: Session) -> dict:
 
 def bank_balances_chain(db: Session) -> dict:
     """Every bank account's printed running balance chains day to day (app/txn/continuity.py): a break is a lost,
-    merged or never-fetched transaction on that date, found by arithmetic on the statements alone."""
+    merged or never-fetched transaction on that date, found by arithmetic on the statements alone. A break across a month
+    whose statement never arrived is explained when that month's alert mails add up to it exactly; it is then evidence-backed,
+    not a warning (alerts stay evidence: no row is created)."""
     from app.txn.continuity import account_breaks
     cutoff = date.today().replace(year=date.today().year - 2)           # older history is reported by the API, not warned on
     rows = [{**a, "breaks": [b for b in a["breaks"] if b["date"] >= cutoff]} for a in account_breaks(db)]
+    explained = [{"account": a["account"], "owner": a["owner"], "month": b["gap"], "amount": float(b["missing"]), "alerts": b["alerts"]["count"]}
+                 for a in rows for b in a["breaks"] if b.get("explained")]
+    rows = [{**a, "breaks": [b for b in a["breaks"] if not b.get("explained")]} for a in rows]
     bad = [a for a in rows if a["breaks"]]
     n = sum(len(a["breaks"]) for a in bad)
-    return _check("bank_balances_chain", not bad,
-                  "Every bank account's balance chains day to day (last 2 years)" if not bad else
-                  f"{n} day(s) in {len(bad)} account(s) where the printed balance is not explained by the rows we hold: "
-                  + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}"
-                              + "".join(f" [no statement for {b['gap']}]" for b in a["breaks"] if b.get("gap")) for a in bad)
-                  + " — see /api/health/continuity",
-                  "warn", accounts=[{"account": a["account"], "owner": a["owner"],
-                                     "breaks": [{"date": str(b["date"]), "missing": float(b["missing"]),
-                                                 **({"gap": b["gap"]} if b.get("gap") else {})} for b in a["breaks"]]} for a in bad])
 
+    def tag(b):
+        if not b.get("gap"):
+            return ""
+        got = b.get("alerts", {})
+        def net(v):
+            return f"net {'debit' if v >= 0 else 'credit'} of ₹{abs(float(v)):,.2f}"
+        part = f"; {got['count']} alert(s) show a {net(got['net_debit'])}, the break is a {net(b['missing'])}" if got.get("count") else ""
+        return f" [no statement for {b['gap']}{part}]"
+    return _check("bank_balances_chain", not bad,
+                  ("Every bank account's balance chains day to day (last 2 years)" +
+                   (f"; {len(explained)} missing statement month(s) are explained to the paisa by the bank's alert mails" if explained else ""))
+                  if not bad else
+                  f"{n} day(s) in {len(bad)} account(s) where the printed balance is not explained by the rows we hold: "
+                  + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}" + "".join(tag(b) for b in a["breaks"]) for a in bad)
+                  + " — see /api/health/continuity",
+                  "warn", explained=explained,
+                  accounts=[{"account": a["account"], "owner": a["owner"],
+                             "breaks": [{"date": str(b["date"]), "missing": float(b["missing"]),
+                                         **({"gap": b["gap"], "alerts": {"count": b["alerts"]["count"], "net_debit": float(b["alerts"]["net_debit"])}}
+                                            if b.get("gap") else {})} for b in a["breaks"]]} for a in bad])
 
 def prices_are_live(db: Session) -> dict:
     """Every fund is valued at AMFI's latest NAV and every listed share at its market price; a holding that fell back to its last

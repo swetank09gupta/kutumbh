@@ -87,7 +87,7 @@ Expense excludes transfers, investments and loan prepayments; income is salary, 
 `POST /api/ledger/verify` with the quantities you see; then `GET /api/ledger/issues?severity=error`. Usual causes, in order: a Coin/contract-note e-mail never reached the mailbox (`missing_trade`; check `WIFE_GMAIL*`-style credentials), a statement month is missing (`missing_statement`), or a trade settled after the last statement (`pending_trade`, resolves by itself).
 
 ### A mailbox gets no Coin mails
-Not every account receives Coin allotment mails (the wife's Yahoo does not). The CDSL "Transactions In Your Demat Account" alerts still arrive and the ledger uses them for quantity (`alert_without_trade`); cost stays partial until a tradebook CSV (Console → Reports → Tradebook, Mutual funds) fills the trades — the ledger de-duplicates it against any Coin mails.
+Not every account receives Coin allotment mails (the wife's Yahoo does not). The CDSL "Transactions In Your Demat Account" alerts still arrive and the ledger uses them for quantity (`alert_without_trade`); cost stays partial until a tradebook CSV or XLSX (Console → Reports → Tradebook, Mutual funds; save it as `tradebook-…-<year>.xlsx` under `data/raw/<owner>/`) fills the trades — the ledger de-duplicates it against any Coin mails.
 
 ### Cost shows "partial"
 Some units have no traced purchase (bought before the earliest contract note/Coin e-mail, SGB allotments, transfers). Invested/P&L are left empty rather than guessed. Supplying a tradebook CSV for that period or the Console holdings export fixes it.
@@ -163,7 +163,7 @@ Some document types that arrive as PDF email attachments are **not** transaction
 | Any filename containing `TDS.CERTIFICATE` | Bank TDS / interest certificate (Axis, HDFC, SBI) | Silently skipped |
 | "on N% of the value — ₹X has no purchase history yet" | Units in the demat with no trade, no unit line and no matching bank debit | Import the Console tradebook CSV for that account (Reports → Tradebook, Mutual funds); derived trades are replaced automatically |
 | A deposit shows as closed but is not | The newest SBI statement's FD table did not list it (parse failure?) | Check `deposit_snapshots` for that statement date; re-read it with `python -m scripts.backfill_deposit_history` |
-| Deposit value or accrued interest looks off after a parser change | Parse results are cached | Bump `_CACHE_SCHEMA` in `parsers/base.py`, then `python -m scripts.backfill_fd_accrued` (or reprocess) |
+| Deposit value or accrued interest looks off after a parser change | Parse results are cached | Bump that parser's `_PARSER_VERSION` (`_CACHE_SCHEMA` in `parsers/base.py` only if the result shape changed), then `python -m scripts.backfill_fd_accrued` (or reprocess) |
 | Deposit row shows "x% FD rate" instead of a measured XIRR | Fewer than ~80% of its monthly "INT TRF FRM" credits are in the bank statements, or the principal changed | Import the missing statements; the measured return appears on the next sync |
 | `ppf_years_reconcile` warns | A PPF year does not close: a deposit whose month cannot be pinned down, or a balance lower than deposits + interest explain | `/api/health/ppf` shows each year; add the missing statement or deposit |
 | PPF rate looks stale | The NSI page was unreachable; last known table is used | Check `data/cache/ppf_rates.json`; it refreshes weekly |

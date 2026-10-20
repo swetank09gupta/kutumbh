@@ -29,7 +29,7 @@ DATE_FMTS = ["%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%m-%y",
 
 
 class AxisParser(BaseParser):
-    _CACHE_SCHEMA = BaseParser._CACHE_SCHEMA + "+axis2"      # per-parser: a change here re-reads only Axis files
+    _PARSER_VERSION = "+axis2"      # a change here re-reads only Axis files (same key as before: nothing is invalidated)
     institution  = "Axis"
     account_type = "bank"
 

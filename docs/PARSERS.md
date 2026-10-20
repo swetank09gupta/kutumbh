@@ -12,7 +12,7 @@ Kutumb ingests official email statement attachments — it never scrapes bank we
 | SBI | `sbi.py` | CSV | Email attachment from SBI |
 | Axis Bank | `axis.py` | CSV | Email attachment from Axis |
 | Union Bank of India | `union_bank.py` | PDF (password-protected) | Email attachment from Union Bank |
-| Zerodha Kite | `zerodha.py` | CSV (holdings), CSV (tradebook), CSV (contract notes) | Email attachment from Zerodha |
+| Zerodha Kite | `zerodha.py` | CSV (holdings), CSV/XLSX (tradebook), PDF (contract notes) | Email attachment from Zerodha |
 | Zerodha Coin | `zerodha_coin.py` | PDF — old format (2021–mid-2024) and new format (mid-2024+) | Email attachment from Zerodha Coin |
 | CAMS / KFintech CAS | `cas_mf.py` | PDF (CAMS consolidated account statement) | Email from CAMS / KFintech |
 | KFintech folio | `kfintech_folio.py` | PDF | Email from KFintech |
@@ -83,7 +83,7 @@ Also read from mail, not as statements: HDFC loan tax certificates (`parsers/loa
 
 Three CSV types detected by filename / column headers:
 - **Holdings** — current portfolio snapshot
-- **Tradebook** — buy/sell history
+- **Tradebook** — buy/sell history. Console exports `.xlsx` (a few preamble rows, then Symbol / ISIN / Trade Date / … / Trade ID); a file whose name contains `tradebook` is read (`xlsx_reader.py`, standard library). Its rows share a trade's Trade ID with the contract note, and its dates are the exchange's.
 - **Contract notes** — daily settlement PDFs (used for exact trade prices)
 
 ISIN values in the holdings CSV are used to join Coin mutual fund transactions via the AMFI NAV file.
@@ -115,9 +115,9 @@ Also handled: **"Purchase confirmation"** (Coin v3, 2025+; same block layout as 
 
 ---
 
-## Bank alerts (HDFC, SBI)
+## Bank alerts (HDFC, SBI, Axis)
 
-**File:** `app/ingestion/parsers/bank_alert.py` — body-only mails from `hdfcbank.bank.in` / `hdfcbank.net` / `alerts.sbi.bank.in`, parsed straight from IMAP into `bank_alerts` (nothing saved under `data/raw`). Evidence only; see ADR-0025. Supported templates: HDFC UPI debit ("You have done a UPI txn") and credit, ACH/UMRN debit, "New Deposit Alert"; SBI "Debited/Credited INR … -<narration>. Avl Bal", NACH debit, "has credit/debit for UPI/…", NEFT originated/received (UTR), standing-instruction "Transaction success". Anything else (TDS, interest certificates, marketing) is ignored.
+**File:** `app/ingestion/parsers/bank_alert.py` — body-only mails from `hdfcbank.bank.in` / `hdfcbank.net` / `alerts.sbi.bank.in` (and, before 2025, `alerts.sbi.co.in`) / `alerts@axisbank.com` / `alerts@axis.bank.in`, parsed straight from IMAP into `bank_alerts` (nothing saved under `data/raw`). Evidence only; see ADR-0025. Supported templates: HDFC UPI debit ("You have done a UPI txn") and credit, ACH/UMRN debit, "New Deposit Alert"; SBI "Debited/Credited INR … -<narration>. Avl Bal", NACH debit, "has credit/debit for UPI/…", NEFT originated/received (UTR), standing-instruction "Transaction success", debit-card ATM cash withdrawal (a card purchase names the card, not the account: skipped), YONO NEFT (no date or UTR in the mail: sent-day, no ref); Axis "Amount Debited/Credited … Transaction Info: UPI/NEFT/…" and the older "A/c no. … has been debited/credited with INR …" (no balance). Anything else (TDS, interest certificates, marketing) is ignored.
 
 ## HDFC home-loan prepayment letters
 

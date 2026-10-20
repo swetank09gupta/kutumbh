@@ -87,3 +87,26 @@ Total: 1203.169 295.863 907.306 52473.74
 
     def test_no_marker_no_holdings(self):
         self.assertEqual(ZerodhaParser()._parse_old_layout_holdings("nothing here"), [])
+
+
+class ContractNoteTradeDate(unittest.TestCase):
+    """Real header (wife, June 2020): the trade date is printed year-first; the settlement date two days later must not be taken for it."""
+    HEAD_2020 = ("CONTRACT NOTE NO.: CNT-20/21-27104425 Equity\nTRADE DATE 2020-06-23 23/06/2020 SETTLEMENT NO 2020118\n"
+                 "SETTLEMENT DATE 25/06/2020\nName of the Client X\n")
+
+    def date(self, text):
+        return ZerodhaParser()._contract_note_trade_date(text)
+
+    def test_year_first_trade_date_beats_the_settlement_date(self):
+        self.assertEqual(self.date(self.HEAD_2020), date(2020, 6, 23))
+
+    def test_day_first_layouts_still_read(self):
+        self.assertEqual(self.date("Trade Date: 07/03/2022\nSettlement Date: 09/03/2022"), date(2022, 3, 7))
+        self.assertEqual(self.date("Date 16/03/2020\n"), date(2020, 3, 16))
+
+    def test_no_date_no_guess(self):
+        self.assertIsNone(self.date("CONTRACT NOTE with nothing printed"))
+
+
+if __name__ == "__main__":
+    unittest.main()

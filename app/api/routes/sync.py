@@ -314,7 +314,7 @@ def _detect_institution(path: Path, pdf_password: str = "") -> str | None:
     if "contract-note" in name: return "Zerodha"
     # Console tradebook exports (equity or MF). The ledger de-duplicates them against
     # contract notes / Coin mails, so importing them only ever fills gaps.
-    if "tradebook" in name and path.suffix.lower() == ".csv": return "Zerodha"
+    if "tradebook" in name and path.suffix.lower() in (".csv", ".xlsx"): return "Zerodha"
     # Zerodha "statement of transactions" PDFs (2025+ naming): <date>_<client>-<dp+boid>-sot.pdf
     if name.endswith("-sot.pdf"): return "Zerodha"
     if "transaction-with-holding" in name or "holding-statement" in name: return "Zerodha"

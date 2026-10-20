@@ -9,6 +9,7 @@ statement row for it?
     untracked — an account that appears in alerts but whose statements we never receive
     pending   — newer than the last statement we hold for that bank: nothing to compare with yet
     unmatched — the statement covers that date but has no such row: a parser gap or a missing page
+    gap       — inside the statements' range but the statement for that month never arrived (no row, no balance): nothing to match
     dup       — the same event announced twice (e.g. SBI sends a CBSSBI alert and an NEFT/SI mail)
 
 Matching is greedy and one-to-one, so two identical payments need two statement rows.
@@ -17,7 +18,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func
@@ -34,7 +35,7 @@ def _tokens(ref: str | None) -> list[str]:
 def reconcile_alerts(db: Session, apply: bool = True) -> dict:
     alerts = db.query(BankAlertRow).order_by(BankAlertRow.txn_date, BankAlertRow.sent_at).all()
     if not alerts:
-        return {"alerts": 0, "matched": 0, "pending": 0, "unmatched": 0, "dup": 0, "outside": 0, "untracked": 0}
+        return {"alerts": 0, "matched": 0, "pending": 0, "unmatched": 0, "gap": 0, "dup": 0, "outside": 0, "untracked": 0}
 
     # statement coverage per (owner, bank)
     cover: dict[tuple[str, str], tuple] = {}
@@ -44,6 +45,16 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
                                 .filter(Account.account_type == "bank")
                                 .group_by(Account.owner_id, Account.institution).all()):
         cover[(owner, (bank or "").upper())] = (lo, hi)
+
+    # months for which a bank has any statement evidence (a row or a printed balance) for the owner
+    from app.models.schemas import Balance
+    covered: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for owner, bank, d in (db.query(Account.owner_id, Account.institution, Transaction.date)
+                           .join(Transaction, Transaction.account_id == Account.id).filter(Account.account_type == "bank").distinct().all()):
+        covered[(owner, (bank or "").upper())].add(d.strftime("%Y-%m"))
+    for owner, bank, d in (db.query(Account.owner_id, Account.institution, Balance.snapshot_date)
+                           .join(Balance, Balance.account_id == Account.id).filter(Account.account_type == "bank").distinct().all()):
+        covered[(owner, (bank or "").upper())].add(d.strftime("%Y-%m"))
 
     txns: dict[tuple[str, str], list[Transaction]] = defaultdict(list)
     for t, owner, bank in (db.query(Transaction, Account.owner_id, Account.institution)
@@ -87,7 +98,7 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
                 hit[a.id] = t
 
     tokens = own_tokens(db)
-    stats = {"alerts": len(alerts), "matched": 0, "pending": 0, "unmatched": 0, "dup": 0, "outside": 0, "untracked": 0}
+    stats = {"alerts": len(alerts), "matched": 0, "pending": 0, "unmatched": 0, "gap": 0, "dup": 0, "outside": 0, "untracked": 0}
     # an account is tracked once any of its alerts matched a statement row (SBI alerts show the
     # real account number, statements only a masked reference), or its last 4 equal a stored ref
     tracked = {(a.owner_id, a.bank, a.account_last4) for a in alerts if a.id in hit}
@@ -108,6 +119,8 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
                 status = "pending"                    # no statement reaches this date yet
             elif a.txn_date < lo:
                 status = "outside"                    # older than the first statement we hold
+            elif a.txn_date.strftime("%Y-%m") not in covered[(a.owner_id, a.bank)]:
+                status = "gap"                        # the statement for that month never arrived: nothing to match against
             else:
                 status = "unmatched"                  # the statement covers it but has no such row
         stats[status] += 1
@@ -120,6 +133,9 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
     if apply:
         db.commit()
     return stats
+
+
+SILENT_DEPOSIT_DAYS = 135
 
 
 def alert_summary(db: Session, recent: int = 40) -> dict:
@@ -153,11 +169,13 @@ def alert_summary(db: Session, recent: int = 40) -> dict:
         row = {"owner": o, "bank": b, "account": last4, "alert_balance": bal, "as_of": a.txn_date.isoformat()}
         if hit:
             m = hit[0]
+            if m.source_statement_date and a.txn_date < m.source_statement_date:
+                continue                                      # a newer statement outranks an older alert
             row.update({"asset": m.name, "asset_value": float(m.current_value or 0),
                         "difference": round(bal - float(m.current_value or 0), 2)})
             deposits.append(row)
-        elif bal > 0:
-            missing.append(row)
+        elif bal > 0 and (date.today() - a.txn_date).days <= SILENT_DEPOSIT_DAYS:
+            missing.append(row)                               # a deposit mails at least quarterly (interest): silent longer = closed
     return {
         "counts": counts,
         "pending_by_bank": [{"bank": b, "owner": o, "direction": d, "count": n, "amount": float(v or 0),
@@ -169,6 +187,21 @@ def alert_summary(db: Session, recent: int = 40) -> dict:
     }
 
 
+def account_alerts(db: Session, account: Account) -> list[BankAlertRow]:
+    """Every alert of this bank account. SBI alerts show the real account number while statements show a masked reference, so an
+    alert account belongs to this account once one of its alerts matched a statement row of it; HDFC and Axis alerts carry the
+    same last four digits as the account."""
+    last4 = {(a.bank, a.account_last4) for a in
+             db.query(BankAlertRow).join(Transaction, Transaction.id == BankAlertRow.matched_txn_id)
+             .filter(Transaction.account_id == account.id, BankAlertRow.account_last4.isnot(None)).all()}
+    if (account.account_ref or "")[-4:].isdigit():
+        last4.add(((account.institution or "").upper(), account.account_ref[-4:]))
+    if not last4:
+        return []
+    return [a for a in db.query(BankAlertRow).filter(BankAlertRow.owner_id == account.owner_id).all()
+            if (a.bank, a.account_last4) in last4]
+
+
 def alert_balance(db: Session, account: Account):
     """
     The bank account's balance as the alerts last told it: (balance, as_of date, alerts applied) or None.
@@ -178,15 +211,9 @@ def alert_balance(db: Session, account: Account):
     show a masked reference, so an alert account belongs to this account once one of its alerts
     matched a statement row of it; HDFC alerts carry the same last four digits as the account.
     """
-    last4 = {(a.bank, a.account_last4) for a in
-             db.query(BankAlertRow).join(Transaction, Transaction.id == BankAlertRow.matched_txn_id)
-             .filter(Transaction.account_id == account.id, BankAlertRow.account_last4.isnot(None)).all()}
-    if (account.account_ref or "")[-4:].isdigit():
-        last4.add(((account.institution or "").upper(), account.account_ref[-4:]))
-    if not last4:
+    rows = account_alerts(db, account)
+    if not rows:
         return None
-    rows = [a for a in db.query(BankAlertRow).filter(BankAlertRow.owner_id == account.owner_id).all()
-            if (a.bank, a.account_last4) in last4]
     from datetime import datetime, time, timezone
 
     def when(a):

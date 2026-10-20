@@ -65,6 +65,32 @@ class AlertRecon(unittest.TestCase):
         self.assertEqual(got, {("2026-09-20", "matched"), ("2026-09-21", "matched"),
                                ("2026-09-21", "unmatched"), ("2026-10-03", "pending")})
 
+    def test_an_alert_in_a_month_whose_statement_never_arrived_is_a_gap_not_a_lost_row(self):
+        # statements for Sep and Nov exist, October's was never mailed: its alerts have nothing to match against
+        self.txn(self.hdfc, date(2026, 9, 20), "10", "debit", "UPI-A")
+        self.txn(self.hdfc, date(2026, 11, 5), "10", "debit", "UPI-B")
+        self.alert("HDFC", "1632", date(2026, 10, 9), "400", "debit", ref="333333333333")          # October: no statement
+        self.alert("HDFC", "1632", date(2026, 11, 5), "999", "debit", ref="444444444444")          # November has rows but not this one
+        self.db.flush()
+        got = {(d, s) for _, _, d, s in self.statuses()}
+        self.assertEqual(got, {("2026-10-09", "gap"), ("2026-11-05", "unmatched")})
+
+    def test_deposit_alerts_older_than_the_statement_or_long_silent_are_not_warnings(self):
+        from datetime import timedelta
+        from app.txn.alert_recon import alert_summary, reconcile_alerts
+        today = date.today()
+        def dep(last4, days_ago, bal):                                                           # an untracked deposit account's alert
+            self.db.add(self.m.BankAlertRow(owner_id="user", bank="SBI", account_last4=last4, direction="debit", amount=D("10"),
+                                            txn_date=today - timedelta(days=days_ago), kind="transfer", balance_after=D(bal),
+                                            natural_key=uuid.uuid4().hex))
+        dep("4895", 300, "55000"); dep("9764", 400, "18000"); dep("9858", 20, "12000")
+        self.db.add(self.m.ManualAsset(owner_id="user", asset_type="fd", name="SBI FD ...4895", current_value=D("40000"),
+                                       source_statement_date=today - timedelta(days=30)))
+        self.db.flush(); reconcile_alerts(self.db)
+        out = alert_summary(self.db)
+        self.assertEqual(out["deposit_accounts"], [])                                              # 4895: the newer statement wins
+        self.assertEqual([r["account"] for r in out["accounts_missing_from_assets"]], ["9858"])    # 9764 silent 400 days: closed
+
     def test_one_statement_row_confirms_one_alert(self):
         self.txn(self.hdfc, date(2026, 9, 20), "35", "debit", "UPI-A-a@ybl-1-UPI")
         self.txn(self.hdfc, date(2026, 9, 25), "1", "debit", "UPI-pad")

@@ -47,7 +47,7 @@ Because most parsers need both `extract_text()` *and* `extract_tables()`, a text
 
 - The router (`attachment_router.route_and_parse`) calls `parse_cached` instead of `parse` — every parser benefits automatically, no per-parser changes needed.
 - Cache invalidates on file-bytes change.
-- Schema-version bump (`BaseParser._CACHE_SCHEMA`) busts the entire cache when the dataclasses change shape.
+- Schema-version bump (`BaseParser._CACHE_SCHEMA`) busts the entire cache when the dataclasses change shape (a cold re-parse of everything took hours, Oct 2026); a parser's own `_PARSER_VERSION` busts only its files.
 - Disable with `PARSE_RESULT_CACHE=0`.
 
 **Impact:** parser-only re-runs (e.g. after a categoriser tweak triggers re-parse) drop from minutes to seconds. On the second `sync/historical` over the same window, pdfplumber doesn't run at all for files we've already parsed.

@@ -43,3 +43,5 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0037](0037-reconcile-across-sources-and-live-prices.md) | Every account reconciles against its own balances; prices live or flagged; alerts count as provisional spending | Accepted |
 | [0038](0038-row-identity-and-lost-statement-rows.md) | A bank row's identity includes direction and amount; first-row amounts are read; Axis moved domain; named missing months | Accepted |
 | [0039](0039-missed-jobs-and-stale-snapshot.md) | Missed jobs run once on wake; a stale snapshot is a warning, not a failure | Accepted |
+| [0040](0040-alerts-explain-missing-statement-months.md) | The bank's own alert mails explain a month whose statement never came | Accepted |
+| [0041](0041-tradebook-import-and-cashflow-links.md) | Console tradebooks fill what notes and mails miss; a trade's cashflow link must survive re-keying | Accepted |

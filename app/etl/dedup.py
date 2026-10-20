@@ -64,11 +64,14 @@ def transaction_fingerprint(
     description: str,
     reference_number: str | None = None,
     ordinal: int = 1,
+    with_direction: bool = False,
 ) -> str:
     """
     Stable fingerprint for a transaction.
-    Uses reference_number when available (more precise), together with the amount and direction: a UPI reversal
-    credit carries the same reference and date as the debit it undoes, and a ref-only key silently dropped it (ADR-0038).
+    Uses reference_number when available (more precise). For bank accounts (`with_direction`) the key also carries the amount
+    and direction: a UPI reversal credit has the same reference and date as the debit it undoes, and a ref-only key silently
+    dropped it (ADR-0038). Broker rows keep the ref-only key: the ledger's trades point at their cashflow row by this
+    fingerprint, so re-keying them orphaned 216 trades (found Oct 2026).
     Without a reference it falls back to (date, amount, type, normalized-desc).
 
     `ordinal` is the position among identical reference-less rows of one statement that the running balance
@@ -77,7 +80,7 @@ def transaction_fingerprint(
     ref_norm  = _normalize_ref(reference_number)
     amt_norm  = _normalize_amount(amount)
     if ref_norm:
-        key = f"{account_id}|{txn_date}|{ref_norm}|{transaction_type}|{amt_norm}"
+        key = f"{account_id}|{txn_date}|{ref_norm}" + (f"|{transaction_type}|{amt_norm}" if with_direction else "")
     else:
         desc_slug = _normalize_desc(description)[:80]
         key = f"{account_id}|{txn_date}|{amt_norm}|{transaction_type}|{desc_slug}"

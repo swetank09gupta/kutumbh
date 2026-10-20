@@ -40,7 +40,7 @@ class IdenticalBankRows(unittest.TestCase):
     def setUp(self):
         from sqlalchemy import text
         with self.engine.begin() as c:
-            c.execute(text("TRUNCATE transactions, balances, accounts, owners CASCADE"))
+            c.execute(text("TRUNCATE transactions, balances, bank_alerts, accounts, owners CASCADE"))
         self.db = self.S()
         self.addCleanup(self.db.close)
 
@@ -80,6 +80,19 @@ class IdenticalBankRows(unittest.TestCase):
                    row("193037.99", "50000.00", "REV-UPI-ZERODHA", "102738290", "credit"))
         self.assertEqual(self.count(), 2)
 
+    def test_maintenance_never_changes_a_broker_rows_fingerprint(self):
+        # trades link to their cashflow by transactions.fingerprint; a re-key of broker rows left 216 trades without a cashflow
+        from app.etl.maintenance import _dedup_transactions
+        from app.etl.normalizer import persist_parse_result
+        persist_parse_result(ParseResult(institution="Zerodha", account_type="stocks", source_file="cn.pdf", transactions=[
+            ParsedTransaction(date=date(2020, 7, 31), amount=D("40487.10"), transaction_type="credit", description="SELL 19 × RELIANCE @ 2130.90",
+                              raw_description="x", reference_number="CN123", counterparty="RELIANCE", quantity=D("19"), price=D("2130.90"), kind="contract_note")]),
+            "wife", self.db)
+        self.db.commit()
+        before = self.db.query(self.m.Transaction.fingerprint).scalar()
+        _dedup_transactions(self.db)
+        self.assertEqual(self.db.query(self.m.Transaction.fingerprint).scalar(), before)
+
     def test_maintenance_rekeys_a_ref_only_row_and_keeps_the_reversal(self):
         from app.etl.maintenance import _dedup_transactions
         import hashlib
@@ -102,6 +115,44 @@ class IdenticalBankRows(unittest.TestCase):
         self.store(at(date(2024, 11, 1), "300.00"), at(date(2024, 11, 5), "200.00"), name="nov.pdf")   # 500 was spent in October
         (acct,) = [a for a in account_breaks(self.db) if a["breaks"]]
         self.assertEqual([(b["date"], b.get("gap")) for b in acct["breaks"]], [(date(2024, 11, 1), "2024-10")])
+
+    def _october_gap(self):
+        def at(day, bal):
+            return ParsedTransaction(date=day, amount=D("100.00"), transaction_type="debit", description=f"UPI {day}",
+                                     raw_description=f"UPI {day}", reference_number=f"R{day:%m%d}", balance_after=D(bal))
+        self.store(at(date(2024, 9, 28), "1000.00"), at(date(2024, 9, 30), "900.00"), name="sep.pdf")
+        self.store(at(date(2024, 11, 1), "300.00"), at(date(2024, 11, 5), "200.00"), name="nov.pdf")      # ₹500 net spent in October
+
+    def _alert(self, n, direction, amount, status="new", day=date(2024, 10, 9)):
+        self.db.add(self.m.BankAlertRow(owner_id="wife", bank="SBI", account_last4="9132", direction=direction, amount=D(amount),
+                                        txn_date=day, kind="upi", natural_key=f"k{n}", status=status))
+        self.db.commit()
+
+    def test_a_missing_month_is_explained_when_the_banks_alerts_add_up_to_it_exactly(self):
+        from app.txn.continuity import account_breaks
+        self._october_gap()
+        for n, (d, a) in enumerate((("debit", "400.00"), ("debit", "200.00"), ("credit", "100.00"))):
+            self._alert(n, d, a)
+        self._alert(9, "debit", "400.00", status="dup")                          # the same alert announced twice: not counted again
+        (b,) = [x for a in account_breaks(self.db) for x in a["breaks"]]
+        self.assertEqual((b["gap"], b["alerts"]["count"], b["alerts"]["net_debit"], b["explained"]), ("2024-10", 3, D("500.00"), True))
+
+    def test_alerts_that_do_not_add_up_leave_the_break_open_and_say_how_far_they_get(self):
+        from app import consistency
+        from app.txn.continuity import account_breaks
+        self._october_gap()
+        self._alert(1, "debit", "400.00")
+        (b,) = [x for a in account_breaks(self.db) for x in a["breaks"]]
+        self.assertFalse(b["explained"])
+        c = consistency.bank_balances_chain(self.db)
+        self.assertFalse(c["ok"]); self.assertIn("1 alert(s) show a net debit of ₹400.00, the break is a net debit of ₹500.00", c["detail"])
+
+    def test_an_explained_month_is_not_a_warning(self):
+        from app import consistency
+        self._october_gap()
+        self._alert(1, "debit", "600.00"); self._alert(2, "credit", "100.00")
+        c = consistency.bank_balances_chain(self.db)
+        self.assertTrue(c["ok"]); self.assertEqual([e["month"] for e in c["values"]["explained"]], ["2024-10"])
 
     def test_a_break_inside_a_covered_month_is_not_called_a_missing_statement(self):
         from app.txn.continuity import account_breaks

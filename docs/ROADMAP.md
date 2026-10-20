@@ -36,7 +36,7 @@ Looked for an automatic feed: the mailboxes hold only EPFO account-security noti
 - **Union Bank and Axis balances are stale** because no statement or alert mail has arrived since Nov/Dec 2025; nothing to fetch.
 - **Locked PDFs — solved (ADR-0035):** Union Bank statements open with the account number (2020-21) or name+DDMM (2024+); `IT_PROV…`/`IT_FINAL…` are HDFC loan tax certificates (password: loan account number) and now feed the loan card and tax view. Still locked: 3 of the wife's old SBI/Axis files.
 - **Two newer FDs (…4395, …5054)** are balance-only until they have enough interest credits; they resolve by themselves.
-- **Cost unknown on sales:** your LIC (IPO allotment) and Nykaa (bonus) units are now proven from the registrar's mails (ADR-0035). Still unknown: the wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta units, for which no contract note or mail exists.
+- **Cost unknown on sales:** your LIC (IPO allotment) and Nykaa (bonus) units are now proven from the registrar's mails (ADR-0035). The wife's pre-2020 BEL/HDFC/SBIN/Reliance/Vedanta trades came from her Console tradebooks for 2018, 2020 and 2021 (ADR-0041); she had no trades in 2017 or 2019.
 
 ## Self-sustaining audit (12 Oct 2026, ADR-0037)
 Updates without a person: statements, alerts, loan letters/certificates, registrar notices (every 6 h, since the last good run); repo rate and 18 rule pages (daily); AMFI NAVs and Yahoo share prices (each rebuild, expiring after 6 h / the day); dividend history; derived trades. Each now has a check that goes to warn when it stops (`prices_are_live`, `rules_are_current`, `automation_is_running`, `bank_balances_chain`, ledger reconciliation).
@@ -56,6 +56,4 @@ Updates without a person: statements, alerts, loan letters/certificates, registr
 
 ## Inbox (requests waiting for triage)
 - (Done) The five ₹100,000 "debits" in the wife's Axis account never happened: they were summary text read as transactions. Axis statements are now read by column and reconciled (ADR-0033); a real Axis FD (₹100,000, Oct 2025) was found.
-- Dividends: 36 of 38 candidate credits are matched (older history, later bonus/split-adjusted amounts, 120-day window); the wife's Vedanta (2020) and SBI (2021) credits stay unmatched — shares held before any record.
-- Axis debit/credit alert mails (`alerts@axis.bank.in`, 74 since Dec 2025, more before) are not read; like HDFC/SBI alerts they could fill months whose statement never arrived (Axis 3856 May 2025). Proposed, not started.
-- Parse cache: one version for all parsers means a change to one re-parses everything (hours). Started: `AxisParser` has its own suffix; the other parsers still share the base version.
+- Dividends: 36 of 38 candidate credits are matched (older history, later bonus/split-adjusted amounts, 120-day window); the Vedanta credit matches since the 2020 tradebook (ADR-0041); the SBI (2021) credit of ₹68 is the one left.
