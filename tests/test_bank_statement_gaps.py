@@ -59,7 +59,18 @@ class AxisStatements(unittest.TestCase):
         ref = AxisParser._account_ref
         self.assertEqual(ref("Detailed Statement for a/c no. XXXXXXXXXXX3856 between 01-04-2020 to 30-04-2020"), "3856")
         self.assertEqual(ref("Statement(cid:9)for(cid:9)Account(cid:9)No.(cid:9)50410XXXXX(cid:9)for the period"), "50410XXXXX")
+        self.assertEqual(ref("There have been no customer induced transactions in your account XXXXXX3237 for the last"), None)  # prose, not a header
+        self.assertEqual(ref("Account Number : XXXXXX3237 3\nSr.No."), "XXXXXX3237")        # short masks keep their width
         self.assertIsNone(ref("Account No. Branch IFSC Code"))
+
+
+class MaskedAccountNumbers(unittest.TestCase):
+    def test_two_masks_of_one_number_agree(self):
+        from app.etl.maintenance import _masks_agree
+        self.assertTrue(_masks_agree("50410XXXXX", "XXXXXX3237"))           # the ex-Citi account, two statement layouts
+        self.assertFalse(_masks_agree("50410XXXXX", "XXXXXX3237X"))         # different width: not the same number
+        self.assertFalse(_masks_agree("50410XXXXX", "51410XXXXX"))          # a visible digit differs
+        self.assertFalse(_masks_agree("3856", "3856"))                      # nothing masked: exact refs are matched elsewhere
 
 
 if __name__ == "__main__":

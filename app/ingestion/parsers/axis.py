@@ -29,6 +29,7 @@ DATE_FMTS = ["%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%m-%y",
 
 
 class AxisParser(BaseParser):
+    _CACHE_SCHEMA = BaseParser._CACHE_SCHEMA + "+axis2"      # per-parser: a change here re-reads only Axis files
     institution  = "Axis"
     account_type = "bank"
 
@@ -124,14 +125,15 @@ class AxisParser(BaseParser):
 
     @staticmethod
     def _account_ref(text: str) -> str | None:
-        """The statement's own account number: its last four digits, or the whole masked number when the tail is hidden
-        (the ex-Citi LIBERTY account prints 50410XXXXX). Without one every statement lands on "unknown"."""
+        """The statement's own account number. A long masked number (XXXXXXXXXXX3856) is reduced to its last four digits; a
+        10-character one is kept as printed (50410XXXXX, XXXXXX3237: the ex-Citi account in two layouts) because its width is
+        what lets maintenance see they are one number. Without any, every statement lands on "unknown"."""
         t = re.sub(r"\(cid:\d+\)", " ", text)
         m = re.search(r"(?i)(?:a/c\s*no\.?|account\s*(?:no\.?|number))\s*[:.]?\s*([0-9X*]{6,})", t)
         if not m:
             return None
         num = m.group(1).upper()
-        return num[-4:] if num[-4:].isdigit() else num
+        return num[-4:] if num[-4:].isdigit() and len(num) > 10 else num
 
     @staticmethod
     def _empty_statement(text: str):

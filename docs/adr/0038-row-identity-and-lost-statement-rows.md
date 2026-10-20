@@ -15,5 +15,12 @@ Separately, Axis statements arrive from `statements@axis.bank.in` since 2026 (we
 - **First row**: when no opening balance is printed, its type and amount are taken from the Withdrawal/Deposit column, only if that column holds exactly one more amount than the later rows' deltas explain and the other column matches exactly. Otherwise the row is still skipped, never guessed.
 - **Axis**: accept `statements@axis.bank.in` (exact address; `Straight2axis@axis.bank.in` sends payment advices). Read the account number from the statement: last four digits, or the whole masked number when the bank hides the tail (the ex-Citi LIBERTY account prints `50410XXXXX`).
 
+## Follow-up (same week)
+- **Cross-file duplicate removal** now keeps two rows whose printed running balances differ, whatever their narrations share: two ₹80 debits to one shop share its QR code, two ₹3.26 NEFT credits share the date inside their references; both pairs had been merged into one (the balance is the proof, as in ADR-0037).
+- **Axis letters** (`RD_LETTER`, `DORMANT_LETTER`) are not statements. Read as one they created empty "accounts" named after the wife's two recurring-deposit numbers (…6646, …8187; both matured Mar 2025) — the origin of the wrong "Axis 6646" label.
+- **Two masks of one account number** (`50410XXXXX` and `XXXXXX3237`, the ex-Citi account; the dormant letter confirms 3237) are merged by maintenance when they have the same width and agree wherever both show a digit.
+- **A chain break after a month with no rows and no statement balance names that month** ("no statement for 2024-10"): it is that month's net movement, not a lost row. Three exist (SBI 8660 Oct 2024, SBI 9132 Aug 2025, Axis 3856 May 2025); the banks never mailed those statements, so they stay as named gaps.
+- **"Bank balances are recent"** compares each account with its own rhythm (median gap between its balances, at least a month) plus a 25-day delivery lag, and ignores ₹0 balances; the fixed 45-day limit flagged a monthly statement that was merely due.
+
 ## Consequences
-Parse cache `v18`. Tests: `tests/test_bank_statement_gaps.py`, `test_identical_bank_rows_db` (reversal kept; ref-only row re-keyed). Known and not fixed: a few 2021 Axis statements bundle several accounts (…3856, …5859, …6463) and are read as one.
+Parse cache `v18`; the Axis parser carries its own suffix (`_CACHE_SCHEMA` is a class attribute), so a change to one parser re-reads only its files. Tests: `tests/test_bank_statement_gaps.py`, `test_identical_bank_rows_db` (reversal kept; ref-only row re-keyed). Known and not fixed: a few 2021 Axis statements bundle several accounts (…3856, …5859, …6463) and are read as one.

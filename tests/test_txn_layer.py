@@ -53,6 +53,21 @@ class Dedupe(unittest.TestCase):
                 R("2", "SB0 00001217758047", "UPI-NHLSHR-NHLGURUGRAM.HYPG@YESPAY-YE")]
         self.assertEqual(duplicate_ids(rows), {"2": "1"})
 
+    def test_two_payments_sharing_a_qr_code_or_a_date_are_not_duplicates(self):
+        # Real cases (HDFC 1632): two ₹80 debits to one shop share its QR code; two ₹3.26 NEFT credits share the date inside their
+        # references. The printed balances differ, so both are kept.
+        shop = [Row("1", "a", date(2024, 10, 28), 80, "debit", "0000430213941994", "UPI-THESNACKSTORY-PAYTMQR2810050501011", "other", 8513.60),
+                Row("2", "a", date(2024, 10, 28), 80, "debit", "9", "KLOOMJ2J45M@PAYTM-YESB0PTMUPI-430213941 94-UPI UPI-THESNACKSTORY-PAYTMQR2810050501011", "other", 8433.60)]
+        neft = [Row("3", "a", date(2025, 11, 12), 3.26, "credit", "ICICN22025111220428003", "NEFTCR-ICIC0099999-LENDENCLUB", "other", 42596.87),
+                Row("4", "a", date(2025, 11, 12), 3.26, "credit", "ICICN22025111221619398", "NEFTCR-ICIC0099999-LENDENCLUB", "other", 42600.13)]
+        self.assertEqual(duplicate_ids(shop), {})
+        self.assertEqual(duplicate_ids(neft), {})
+
+    def test_the_same_payment_with_the_same_balance_in_two_layouts_is_still_one_row(self):
+        rows = [Row("1", "a", date(2026, 4, 18), 1500, "debit", "121775804732", "UPI-NHLSHR-A", "other", 900.0),
+                Row("2", "a", date(2026, 4, 18), 1500, "debit", "SB0 00001217758047", "UPI-NHLSHR-B", "other", 900.0)]
+        self.assertEqual(len(duplicate_ids(rows)), 1)
+
     def test_a_real_category_beats_a_generic_one(self):
         rows = [R("t", "121859759822", "REPAYMENTISPLTDACCOUNT-SWETANK", cat="transfer", amount=2699),
                 R("s", "X 0000121859759822", "UPI-LENSKART-LENSKARTOFFLINE@AXL", cat="shopping", amount=2699)]

@@ -101,6 +101,11 @@ def route_and_parse(attachment: FetchedAttachment) -> ParseResult | None:
         # (IT_FINAL, IT_PROV, IT_ARHL).  None contain transaction history.
         logger.debug("Skipping %s: HDFC non-statement document", fname)
         return None
+    if "axis" in inst and re.search(r"(RD|DORMANT).LETTER", fname, re.IGNORECASE):
+        # Axis letters (a recurring deposit opened; an account turned inoperative) are not statements: read as one they
+        # created empty "accounts" named after the RD number (…6646, …8187). ADR-0038.
+        logger.debug("Skipping %s: Axis letter (no transaction data)", fname)
+        return None
     if re.search(r"TDS.CERTIFICATE", fname, re.IGNORECASE):
         # Bank TDS/interest certificates (Axis, HDFC, SBI): tax documents, not statements.
         logger.debug("Skipping %s: TDS certificate (no transaction data)", fname)

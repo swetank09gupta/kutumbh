@@ -176,7 +176,7 @@ CDSL sends a consolidated demat statement PDF. Password: PAN uppercase. Covers e
 
 
 ## Axis (PDF)
-Read by column position (`axis_layout.py`); a statement is stored only if opening + deposits − withdrawals equals the closing balance it prints. Running term deposits come from "Summary of Deposits". The account number is read from the statement (last four digits, or the masked number when the tail is hidden); mail comes from `axisbank.com` and, since 2026, `statements@axis.bank.in`. To repair a month: delete that bank's rows, re-read the raw file (`process_attachments`), then run the pipeline rebuild.
+Read by column position (`axis_layout.py`); a statement is stored only if opening + deposits − withdrawals equals the closing balance it prints. Running term deposits come from "Summary of Deposits". The account number is read from the statement (last four digits, or the masked number when the tail is hidden); mail comes from `axisbank.com` and, since 2026, `statements@axis.bank.in`. `RD_LETTER` / `DORMANT_LETTER` PDFs are skipped (letters, not statements). To repair a month: delete that bank's rows, re-read the raw file (`process_attachments`), then run the pipeline rebuild.
 
 
 ## Zerodha contract notes: layouts

@@ -189,16 +189,27 @@ def ledger_reconciliation(db: Session) -> dict:
                   f"{errs} unexplained holding changes — see /api/ledger/issues", "warn", errors=errs)
 
 
+STATEMENT_LAG_DAYS = 25         # a monthly statement reaches the mailbox within ~25 days of its period end (observed Oct 2026)
+
+
 def data_freshness(db: Session) -> dict:
+    """A bank balance is stale when no statement arrived within the account's own rhythm (median gap between its balances,
+    at least a month) plus the delivery lag. A ₹0 balance cannot change net worth, so it never warns."""
+    from statistics import median
     from app.models.schemas import Account, Balance
     stale = []
     for a in db.query(Account).filter(Account.account_type == "bank", Account.is_active.is_(True)).all():
-        last = db.query(func.max(Balance.snapshot_date)).filter(Balance.account_id == a.id).scalar()
-        if last and (date.today() - last).days > 45:
-            stale.append({"account": f"{a.institution} {a.account_ref}", "owner": a.owner_id, "last_balance": str(last)})
+        snaps = (db.query(Balance.snapshot_date, Balance.balance).filter(Balance.account_id == a.id)
+                 .order_by(Balance.snapshot_date.desc()).limit(13).all())
+        if not snaps or not float(snaps[0][1] or 0):
+            continue
+        gaps = [(snaps[i][0] - snaps[i + 1][0]).days for i in range(len(snaps) - 1)]
+        limit = max(median(gaps) if gaps else 0, 28) + STATEMENT_LAG_DAYS
+        if (date.today() - snaps[0][0]).days > limit:
+            stale.append({"account": f"{a.institution} {a.account_ref}", "owner": a.owner_id, "last_balance": str(snaps[0][0])})
     return _check("bank_balances_are_recent", not stale,
-                  "Every bank balance is under 45 days old" if not stale else
-                  f"{len(stale)} bank accounts have no statement in 45+ days (net-worth bank balance includes them)",
+                  "Every bank balance is within its statement rhythm" if not stale else
+                  f"{len(stale)} bank accounts have missed their statement rhythm (net-worth bank balance includes them)",
                   "warn", accounts=stale)
 
 
@@ -362,9 +373,12 @@ def bank_balances_chain(db: Session) -> dict:
     return _check("bank_balances_chain", not bad,
                   "Every bank account's balance chains day to day (last 2 years)" if not bad else
                   f"{n} day(s) in {len(bad)} account(s) where the printed balance is not explained by the rows we hold: "
-                  + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}" for a in bad) + " — see /api/health/continuity",
+                  + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}"
+                              + "".join(f" [no statement for {b['gap']}]" for b in a["breaks"] if b.get("gap")) for a in bad)
+                  + " — see /api/health/continuity",
                   "warn", accounts=[{"account": a["account"], "owner": a["owner"],
-                                     "breaks": [{"date": str(b["date"]), "missing": float(b["missing"])} for b in a["breaks"]]} for a in bad])
+                                     "breaks": [{"date": str(b["date"]), "missing": float(b["missing"]),
+                                                 **({"gap": b["gap"]} if b.get("gap") else {})} for b in a["breaks"]]} for a in bad])
 
 
 def prices_are_live(db: Session) -> dict:

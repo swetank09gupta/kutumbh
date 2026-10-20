@@ -57,3 +57,5 @@ Updates without a person: statements, alerts, loan letters/certificates, registr
 ## Inbox (requests waiting for triage)
 - (Done) The five ₹100,000 "debits" in the wife's Axis account never happened: they were summary text read as transactions. Axis statements are now read by column and reconciled (ADR-0033); a real Axis FD (₹100,000, Oct 2025) was found.
 - Dividends: 36 of 38 candidate credits are matched (older history, later bonus/split-adjusted amounts, 120-day window); the wife's Vedanta (2020) and SBI (2021) credits stay unmatched — shares held before any record.
+- Axis debit/credit alert mails (`alerts@axis.bank.in`, 74 since Dec 2025, more before) are not read; like HDFC/SBI alerts they could fill months whose statement never arrived (Axis 3856 May 2025). Proposed, not started.
+- Parse cache: one version for all parsers means a change to one re-parses everything (hours). Started: `AxisParser` has its own suffix; the other parsers still share the base version.

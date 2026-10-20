@@ -29,6 +29,7 @@ class Row:
     ref: str
     raw: str
     category: str
+    balance: object = None                 # balance printed after the row, when the layout has one
 
 
 def _score(r: Row) -> tuple:
@@ -56,6 +57,8 @@ def duplicate_ids(rows: Sequence[Row]) -> dict[str, str]:
             return x
 
         for a, b in itertools.combinations(g, 2):
+            if a.balance is not None and b.balance is not None and a.balance != b.balance:
+                continue                   # separate payments: the running balance moved differently
             if share_utr((a.ref, a.raw), (b.ref, b.raw)):
                 parent[find(a.id)] = find(b.id)
         clusters: dict[str, list[Row]] = defaultdict(list)
@@ -79,7 +82,7 @@ def dedupe_bank_transactions(db, apply: bool = True) -> dict:
             .join(Account, Transaction.account_id == Account.id)
             .filter(Account.account_type == "bank").all())
     plain = [Row(str(t.id), str(aid), t.date, t.amount, t.transaction_type,
-                 t.reference_number or "", t.raw_description or t.description or "", t.category or "")
+                 t.reference_number or "", t.raw_description or t.description or "", t.category or "", t.balance_after)
              for t, aid in rows]
     dups = duplicate_ids(plain)
     amount = sum(float(r.amount) for r in plain if r.id in dups)

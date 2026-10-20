@@ -103,6 +103,59 @@ def _dedup_transactions(db: Session) -> dict[str, int]:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Unknown-ref account dedup
 # ─────────────────────────────────────────────────────────────────────────────
+def _absorb_account(db: Session, canonical: Account, other: Account) -> None:
+    """Move everything of `other` onto `canonical` (rows that would collide on date/isin are dropped) and delete `other`."""
+    db.execute(text("UPDATE transactions SET account_id = :new WHERE account_id = :old"),
+               {"new": str(canonical.id), "old": str(other.id)})
+    db.execute(text("""
+        DELETE FROM holdings h WHERE h.account_id = :old
+          AND EXISTS (SELECT 1 FROM holdings c
+                        WHERE c.account_id = :new
+                          AND c.snapshot_date = h.snapshot_date
+                          AND COALESCE(c.isin,'') = COALESCE(h.isin,''))
+    """), {"new": str(canonical.id), "old": str(other.id)})
+    db.execute(text("UPDATE holdings SET account_id = :new WHERE account_id = :old"),
+               {"new": str(canonical.id), "old": str(other.id)})
+    db.execute(text("""
+        DELETE FROM balances b WHERE b.account_id = :old
+          AND EXISTS (SELECT 1 FROM balances c
+                        WHERE c.account_id = :new
+                          AND c.snapshot_date = b.snapshot_date)
+    """), {"new": str(canonical.id), "old": str(other.id)})
+    db.execute(text("UPDATE balances SET account_id = :new WHERE account_id = :old"),
+               {"new": str(canonical.id), "old": str(other.id)})
+    db.execute(text("DELETE FROM accounts WHERE id = :old"), {"old": str(other.id)})
+
+
+def _masks_agree(a: str, b: str) -> bool:
+    """Two printed renderings of one account number: same length, equal wherever both show a digit
+    (50410XXXXX and XXXXXX3237 are the same 10-digit number seen through different masks)."""
+    a, b = (a or "").upper(), (b or "").upper()
+    return len(a) == len(b) and "X" in a + b and all(x == y or "X" in (x, y) for x, y in zip(a, b))
+
+
+def _merge_masked_accounts(db: Session) -> dict[str, int]:
+    groups: dict[tuple, list[Account]] = defaultdict(list)
+    for a in db.query(Account).all():
+        groups[(a.owner_id, a.institution, a.account_type)].append(a)
+    merged = 0
+    for accs in groups.values():
+        accs = [a for a in accs if (a.account_ref or "").lower() != "unknown"]
+        weight = lambda a: (db.query(Transaction).filter(Transaction.account_id == a.id).count(),
+                            db.execute(text("SELECT count(*) FROM balances WHERE account_id = :a"), {"a": str(a.id)}).scalar())
+        gone: set = set()
+        for a in sorted(accs, key=weight, reverse=True):         # the account with most data absorbs the others
+            if a.id in gone:
+                continue
+            for b in accs:
+                if b is not a and b.id not in gone and _masks_agree(a.account_ref, b.account_ref):
+                    _absorb_account(db, a, b)
+                    gone.add(b.id)
+                    merged += 1
+    db.commit()
+    return {"masked_accounts_merged": merged}
+
+
 def _dedup_unknown_accounts(db: Session) -> dict[str, int]:
     groups: dict[tuple, list[Account]] = defaultdict(list)
     for a in db.query(Account).all():
@@ -120,27 +173,7 @@ def _dedup_unknown_accounts(db: Session) -> dict[str, int]:
             key=lambda a: db.query(Transaction).filter(Transaction.account_id == a.id).count()
         )
         for u in unknown:
-            db.execute(text("UPDATE transactions SET account_id = :new WHERE account_id = :old"),
-                       {"new": str(canonical.id), "old": str(u.id)})
-            db.execute(text("""
-                DELETE FROM holdings h WHERE h.account_id = :old
-                  AND EXISTS (SELECT 1 FROM holdings c
-                                WHERE c.account_id = :new
-                                  AND c.snapshot_date = h.snapshot_date
-                                  AND COALESCE(c.isin,'') = COALESCE(h.isin,''))
-            """), {"new": str(canonical.id), "old": str(u.id)})
-            db.execute(text("UPDATE holdings SET account_id = :new WHERE account_id = :old"),
-                       {"new": str(canonical.id), "old": str(u.id)})
-            db.execute(text("""
-                DELETE FROM balances b WHERE b.account_id = :old
-                  AND EXISTS (SELECT 1 FROM balances c
-                                WHERE c.account_id = :new
-                                  AND c.snapshot_date = b.snapshot_date)
-            """), {"new": str(canonical.id), "old": str(u.id)})
-            db.execute(text("UPDATE balances SET account_id = :new WHERE account_id = :old"),
-                       {"new": str(canonical.id), "old": str(u.id)})
-            db.execute(text("DELETE FROM accounts WHERE id = :old"),
-                       {"old": str(u.id)})
+            _absorb_account(db, canonical, u)
             merges += 1
     db.commit()
     return {"phantoms_merged": merges}
@@ -351,6 +384,7 @@ def run_all(db: Session) -> dict[str, Any]:
     steps = [
         ("dedup_transactions",      _dedup_transactions),
         ("dedup_unknown_accounts",  _dedup_unknown_accounts),
+        ("merge_masked_accounts",   _merge_masked_accounts),
         ("backfill_coin_isins",     _backfill_coin_isins),
         ("cleanup_phantom_owners",  _cleanup_phantom_owners),
         ("txn_dedupe",              _txn_dedupe),

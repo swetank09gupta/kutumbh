@@ -12,7 +12,7 @@ twin, or a missing statement month shows up the day it happens instead of as a w
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import text
@@ -57,8 +57,22 @@ def day_breaks(rows: list[tuple[date, str, Decimal, Decimal]]) -> list[dict]:
     return out
 
 
+def gap_month(db: Session, account_id, day: date) -> str | None:
+    """'YYYY-MM' when a break in the first days of a month follows a month for which the account has neither a row nor a
+    statement balance: the statement for that month never arrived, so the break is the month's net movement (not a lost row)."""
+    if day.day > 10:
+        return None
+    prev = (day.replace(day=1) - timedelta(days=1)).replace(day=1)
+    seen = db.execute(text(
+        "SELECT (SELECT count(*) FROM transactions WHERE account_id = :a AND date_trunc('month', date) = :m)"
+        " + (SELECT count(*) FROM balances WHERE account_id = :a AND date_trunc('month', snapshot_date) = :m)"),
+        {"a": str(account_id), "m": prev}).scalar()
+    return None if seen else prev.strftime("%Y-%m")
+
+
 def account_breaks(db: Session) -> list[dict]:
-    """[{account, owner, days, breaks:[{date, missing}]}] for every bank account that prints balances."""
+    """[{account, owner, days, breaks:[{date, missing, gap?}]}] for every bank account that prints balances.
+    `gap` names the month whose statement never arrived (see gap_month)."""
     out = []
     for aid, inst, owner, ref in db.execute(text(
             "SELECT id, institution, owner_id, account_ref FROM accounts "
@@ -67,5 +81,9 @@ def account_breaks(db: Session) -> list[dict]:
                                "WHERE account_id = :a AND balance_after IS NOT NULL"), {"a": aid}).all()
         if not rows:
             continue
-        out.append({"account": f"{inst} {ref}", "owner": owner, "rows": len(rows), "breaks": day_breaks(rows)})
+        breaks = day_breaks(rows)
+        for b in breaks:
+            if (g := gap_month(db, aid, b["date"])):
+                b["gap"] = g
+        out.append({"account": f"{inst} {ref}", "owner": owner, "rows": len(rows), "breaks": breaks})
     return out
