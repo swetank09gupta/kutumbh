@@ -28,7 +28,8 @@ def _owner_ids(db: Session, owner_id: Optional[str]) -> list[str] | None:
 
 def _account_label(a: Account) -> str:
     """"HDFC …1632 (user)": what a person recognises, not the row id."""
-    ref = (a.account_ref or "")[-4:]
+    ref = (a.account_ref or "")
+    ref = ref[-4:] if ref.isdigit() or ref.replace("X", "").isdigit() else ""            # "unknown" or a client code is not a number to show
     return f"{a.institution or a.account_type}{' …' + ref if ref else ''} ({a.owner_id})"
 
 
