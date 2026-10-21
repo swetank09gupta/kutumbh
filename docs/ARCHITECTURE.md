@@ -83,6 +83,7 @@ Five containers, all on one Docker network:
 | `holdings_view.py` | Current holdings, last price, market value (deduped per-ISIN across CDSL + broker mirrors). |
 | `portfolio_xirr.py` | XIRR per instrument / asset class / owner / family. Per-ISIN bucketing for mixed accounts; synthesizes SGB and PPF purchase cashflows when statements don't expose them (see §3.6). |
 | `goals.py` | Inflation-adjusted corpus target + SIP needed. Age-derived target dates for retirement (owner DOB + `retirement_age`) and child goals (child DOB + education/marriage milestone). |
+| `app/planning/` | `history.py` (AMFI NAV history, cached 30 days), `assumptions.py`, `simulate.py` (block-bootstrap Monte Carlo, closed-form SIP for confidence), `need.py` (retirement living cost from spending), `allocation.py` (holding mix and glide guidance), `plan.py` (assembles `/api/plan/`). See PLANNING.md. |
 | `holding_tagger.py` | Auto-tags holdings to goals from a per-ISIN map + fund-name regex + holding-type fallback. Runs on every sync and on a daily 00:15 IST scheduler sweep. |
 | `ppf_from_transfers.py` | Synthesises PPF as a `ManualAsset` from bank-savings debits matching PPF-transfer patterns (Union Bank etc.). |
 | `metal_prices.py` | Live gold/silver spot via Yahoo Finance, used to mark SGB holdings to market. |

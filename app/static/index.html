@@ -756,6 +756,24 @@
         <div class="skel-card"><span class="skel" style="width:50%;height:14px"></span><span class="skel" style="width:100%;height:8px"></span><span class="skel" style="width:35%"></span></div>
       </div>
 
+      <div class="card" id="plan-card" style="padding:0;margin-bottom:16px">
+        <div style="padding:16px 20px 12px;border-bottom:1px solid #1e2738;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:600;color:#f1f5f9">Plan — what your goals really need <span id="plan-sub" style="font-size:12px;color:#64748b;font-weight:400"></span></div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px">Derived from your spending and 15–20 years of real market history (simulated, 5,000 paths). Ranges and odds, not promises. <a href="https://github.com/swetank09gupta/kutumbh/blob/master/docs/PLANNING.md" target="_blank" style="color:#a5b4fc">Method and sources</a></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:#94a3b8">
+            Market
+            <select id="plan-scenario" onchange="loadPlan()" style="background:#0f1117;color:#e2e8f0;border:1px solid #1e2738;border-radius:6px;padding:4px 6px">
+              <option value="cautious">cautious</option><option value="base" selected>base</option><option value="hopeful">hopeful</option></select>
+            Yearly SIP rise
+            <select id="plan-stepup" onchange="loadPlan()" style="background:#0f1117;color:#e2e8f0;border:1px solid #1e2738;border-radius:6px;padding:4px 6px">
+              <option value="0">0%</option><option value="0.05">5%</option><option value="0.08" selected>8%</option><option value="0.10">10%</option></select>
+          </div>
+        </div>
+        <div id="plan-body" style="padding:14px 20px;font-size:13px;color:#94a3b8">Loading the plan… (the first run reads market history and takes a few seconds)</div>
+      </div>
+
       <div class="card" style="padding:0;margin-bottom:16px">
         <div style="padding:16px 20px 12px;border-bottom:1px solid #1e2738">
           <div class="card-title" style="margin-bottom:0">SIP Projections</div>
@@ -1311,7 +1329,7 @@ function nav(id, opts = {}) {
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
-  if (id === 'goals')        { loadGoals(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
+  if (id === 'goals')        { loadGoals(); loadPlan(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
   if (id === 'accounts')     { loadAccounts(); }
   if (id === 'manual')       { loadMetalPrices(); loadMetalHistory().then(loadManualAssets); }
 }
@@ -2132,6 +2150,61 @@ async function loadGoals() {
       </div>`;
     }).join('') : `<div class="goal-card" style="color:#475569;font-style:italic">No goals yet. Add one above or check config/accounts.yml.</div>`;
   } catch (e) { $('goals-grid').innerHTML = `<div class="goal-card" style="color:#fca5a5">${e.message}</div>`; }
+}
+
+/* ── plan: goal numbers from real spending, real history and simulation (docs/PLANNING.md) ── */
+async function loadPlan() {
+  const body = $('plan-body');
+  if (!body) return;
+  const sc = $('plan-scenario').value, st = $('plan-stepup').value;
+  body.style.opacity = '0.6';
+  try {
+    const d = await apiFetch(`/api/plan/?scenario=${sc}&stepup=${st}`);
+    const f = d.facts, c = d.capacity, h = d.household_retirement, sp = f.spending;
+    const L = v => '₹' + (v / 100000).toFixed(1) + ' L', Cr = v => '₹' + (v / 10000000).toFixed(2) + ' cr';
+    const pct = x => (x * 100).toFixed(0) + '%';
+    const chance = x => `<b style="color:${x >= 0.8 ? '#4ade80' : x >= 0.5 ? '#fbbf24' : '#f87171'}">${pct(x)}</b>`;
+    const k = v => v == null ? '—' : '₹' + fmt(Math.round(v / 100) * 100);
+    $('plan-sub').textContent = `· ${sc} market · history ${d.history.from.slice(0, 7)} → ${d.history.to.slice(0, 7)}${d.history.stale ? ' (stale cache)' : ''}`;
+    const goalRows = d.goals.filter(g => g.type !== 'emergency').map(g => {
+      const a = g.at_your_plan, o = g.options || [];
+      return `<tr><td style="padding:6px 8px"><div style="color:#e2e8f0;font-weight:500">${_esc(g.name)}</div><div style="font-size:11px;color:#64748b">${fmtDate(g.target_date)} · ${g.years} yrs · mix ${Object.entries(g.mix_now).map(([x, v]) => x + ' ' + pct(v)).join(', ')}</div></td>
+        <td style="text-align:right;padding:6px 8px">${Cr(g.target_today)}<div style="font-size:11px;color:#64748b">today's money</div></td>
+        <td style="text-align:right;padding:6px 8px">${k(g.sip_now)}<div style="font-size:11px;color:#64748b">now / month</div></td>
+        <td style="text-align:right;padding:6px 8px">${chance(a.probability)}</td>
+        <td style="text-align:right;padding:6px 8px">${k(a.sip_for_confidence['80'])}<div style="font-size:11px;color:#64748b">80% · 90%: ${k(a.sip_for_confidence['90'])}</div></td></tr>
+        <tr><td colspan="5" style="padding:0 8px 8px"><details style="font-size:12px"><summary style="cursor:pointer;color:#a5b4fc">What if the target were different? (public cost ladders)</summary>
+          <table style="width:100%;margin-top:6px;font-size:12px">${o.map(x => `<tr><td style="padding:2px 6px">${_esc(x.label)}</td><td style="text-align:right">${Cr(x.target_today)}</td><td style="text-align:right">chance ${chance(x.probability_at_current)}</td><td style="text-align:right">SIP for 80%: <b>${k(x.sip_for_80)}</b></td></tr>`).join('')}</table>
+          <div style="color:#64748b;margin-top:4px">Inflation: yours ${g.inflation_yours_pct}% vs data ${g.inflation_data_pct}%${g.with_data_inflation ? ` → chance at the data rate ${pct(g.with_data_inflation.probability)}` : ''}.</div></details></td></tr>`;
+    }).join('');
+    const em = d.goals.find(g => g.type === 'emergency');
+    const retRows = h.scenarios.map(s => `<tr><td style="padding:4px 8px">Retire at ${s.retire_at_age}, money to ${s.to_age}</td>
+        <td style="text-align:right">${chance(s.probability)}</td>
+        <td style="text-align:right">${Cr(s.required_corpus_today_money['80'])} · ${Cr(s.required_corpus_today_money['90'])} · ${Cr(s.required_corpus_today_money['95'])}</td>
+        <td style="text-align:right">${k(s.sip_for_confidence['90'])}</td></tr>`).join('');
+    const pay = (c.loan ? c.loan.payoff : []).map(p => `<span style="margin-right:12px">+${k(p.extra_prepay_month)}/mo → <b>${(p.months / 12).toFixed(1)} yrs</b>, interest ${L(p.interest)}</span>`).join('');
+    const pv = (d.prepay_vs_invest || []).map(r => `<tr><td style="padding:2px 8px">${r.years} years</td>${Object.entries(r.mixes).map(([m, v]) => `<td style="text-align:right;padding:2px 8px">${m}: beats ${r.rate_pct}% in <b>${pct(v.beats_loan)}</b> (worst 1-in-10 ${(v.cagr_p10 * 100).toFixed(1)}%/yr)</td>`).join('')}</tr>`).join('');
+    const byMkt = Object.entries(h.by_market || {}).map(([m, rows]) => `<span style="margin-right:14px"><b style="color:#cbd5e1">${m}</b>: ${rows.map(r => `retire ${r.retire_at_age} → need ${Cr(r.required_today_money_90)}, SIP ${k(r.sip_for_90)}`).join('; ')}</span>`).join('');
+    body.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:14px">
+        <div><div style="font-size:11px;color:#64748b">Last 12 months</div>Income <b>${L(f.income_12m)}</b> · spent <b>${L(f.spending_12m)}</b> · saved ${f.savings_rate != null ? pct(f.savings_rate) : '—'}</div>
+        <div><div style="font-size:11px;color:#64748b">Recurring monthly surplus</div><b>${k(c.surplus_before_loan_prepay_month)}</b>${c.loan ? ` · after the loan ends <b>${k(c.loan.surplus_after_loan_month)}</b>` : ''}</div>
+        <div><div style="font-size:11px;color:#64748b">Cost of living in retirement</div><b>${L(sp.retirement_core)}</b>/yr <span style="color:#64748b">(spending minus loan EMI, term premium, child costs, family support)</span></div>
+        ${em ? `<div><div style="font-size:11px;color:#64748b">Emergency money</div><b>${em.months_covered.toFixed(1)} months</b> of spending (${L(em.corpus_now)}; 6 months = ${L(em.target_months_6)})</div>` : ''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:#64748b;font-size:11px;text-align:right"><th style="text-align:left;padding:4px 8px">Goal</th><th>Target</th><th>Saving now</th><th>Chance at today's plan</th><th>Monthly SIP for 80% chance</th></tr></thead><tbody>${goalRows}</tbody></table>
+      <div style="font-weight:600;color:#e2e8f0;margin:16px 0 4px">Household retirement <span style="font-size:11px;color:#64748b;font-weight:400">— your pool ${L(h.corpus_now)} + SIP ${k(h.sip_now)}/mo against ${L(h.spend_today)}/yr of living costs; targets you set sum to ${Cr(h.targets_you_set_sum_today)}</span></div>
+      <table style="width:100%;font-size:12px"><thead><tr style="color:#64748b;font-size:11px;text-align:right"><th style="text-align:left;padding:4px 8px"></th><th>Chance now</th><th>Corpus needed (today's money) at 80% · 90% · 95%</th><th>SIP for 90%</th></tr></thead><tbody>${retRows}</tbody></table>
+      <div style="font-size:12px;color:#94a3b8;margin-top:6px">${byMkt}</div>
+      ${c.loan ? `<div style="font-weight:600;color:#e2e8f0;margin:16px 0 4px">The loan: prepay or invest? <span style="font-size:11px;color:#64748b;font-weight:400">— ${L(c.loan.outstanding)} at ${c.loan.rate_pct}%, EMI ${k(c.loan.emi)}</span></div>
+      <div style="font-size:12px;margin-bottom:6px">${pay}</div>
+      <table style="width:100%;font-size:12px">${pv}</table>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">Prepaying earns ${c.loan.rate_pct}% for certain (and the repo rate is rising). Markets beat it roughly two times in three after tax, with real downside, so it is a risk choice, not a free win.</div>` : ''}
+      <div style="font-size:11px;color:#475569;margin-top:12px">${_esc(c.note)} History: ${d.history.months} months joint, ${d.history.equity_months} months equity. Not investment advice.</div>`;
+  } catch (e) {
+    body.innerHTML = `<span style="color:#fca5a5">${_esc(e.message || 'Plan unavailable')}</span>`;
+  }
+  body.style.opacity = '1';
 }
 
 async function loadProjections() {
