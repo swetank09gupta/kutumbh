@@ -22,7 +22,9 @@ class Assumptions:
     inflation_education: float = 0.09          # domestic
     inflation_education_abroad: float = 0.075
     inflation_wedding: float = 0.075
-    medical_weight_in_retirement: float = 0.15
+    spending_drift: float = 0.0                # own spending growth above prices, carried forward (app/planning/need.py), 0 unless seen in 3 yearly windows
+    spread_full_years: float | None = 10       # a category's premium over general inflation applies in full this long, then fades
+    spread_floor: float = 0.25
     salary_growth: float = 0.09
     equity_vol_scale: float | None = None      # None: derived from the 20-year / joint-window volatility ratio
     n_paths: int = 3000
@@ -34,8 +36,7 @@ class Assumptions:
 
     @property
     def retirement_inflation(self) -> float:
-        w = self.medical_weight_in_retirement
-        return (1 - w) * self.inflation_general + w * self.inflation_medical
+        return self.inflation_general + self.spending_drift
 
 
 SCENARIOS = {"cautious": "weaker returns, higher inflation", "base": "", "hopeful": "stronger returns, lower inflation"}

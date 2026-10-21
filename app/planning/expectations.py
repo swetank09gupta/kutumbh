@@ -63,7 +63,7 @@ def derive(macro: dict, data: dict, scenario: str = "base", ppf: float | None = 
                 equity=equity / 100, gold=gold / 100, debt=debt / 100, ppf=(ppf if ppf is not None else 0.071),
                 inflation_general=general / 100, inflation_medical=medical / 100, inflation_education=edu_dom / 100,
                 inflation_education_abroad=edu_abroad / 100, inflation_wedding=wedding / 100,
-                medical_weight_in_retirement=p("inflation", "retirement_medical_weight"),
+                spread_full_years=p("spending_trend", "spread_full_years"), spread_floor=p("spending_trend", "spread_floor"),
                 salary_growth=p("earnings", "salary_growth_pct") / 100)
     why = {"inflation_general_inputs": general_inputs, "equity_premium_pp": round(prem, 2), "valuation_factor": round(valuation, 3),
            "pe": pe, "pe_avg": pe_avg, "yield_10y": y10, "gold_real_used_pp": round(min(real_gold, p("returns", "gold_real_cap_pp")), 2),

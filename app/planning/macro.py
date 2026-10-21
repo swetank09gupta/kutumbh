@@ -24,8 +24,15 @@ FX_TTL_DAYS = 7
 HIST_AVG_PE = 22.0                      # the app's own long-run anchor for the Nifty 50 (market_signals._HIST_AVG_PE)
 
 
+_PARAMS: dict = {}
+
+
 def params() -> dict:
-    return yaml.safe_load(PARAMS.read_text())
+    """params.yml, re-read only when the file changes (it is consulted thousands of times in one plan)."""
+    stamp = PARAMS.stat().st_mtime_ns
+    if _PARAMS.get("stamp") != stamp:
+        _PARAMS.update(stamp=stamp, data=yaml.safe_load(PARAMS.read_text()))
+    return _PARAMS["data"]
 
 
 def param(group: str, key: str, today: date | None = None):

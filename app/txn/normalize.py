@@ -67,11 +67,12 @@ def share_utr(a: Iterable[Optional[str]], b: Iterable[Optional[str]]) -> bool:
 def is_family_payee(description: Optional[str], family_names: Iterable[str]) -> bool:
     """True when the narration names a family member whose money moves through the household accounts (parents: cheque deposits,
     RTGS/NEFT). Matched on the whole name with everything but letters removed, so "CHQ DEP … PRADEEP KUMAR GUPTA DAYA GUPTA" and
-    "NEFT-PRADEEPKUMARGUPTA" both match and a stranger sharing a first name or the surname does not."""
+    "NEFT-PRADEEPKUMARGUPTA" both match and a stranger sharing a first name or the surname does not. A narration cut short by the bank
+    ("CHQDEP-CTSCLG1-RAMPURUP:PRADEEPK") matches when it ENDS with the first 8+ letters of the name."""
     text = re.sub(r"[^A-Z]", "", (description or "").upper())
     for name in family_names:
         key = re.sub(r"[^A-Z]", "", (name or "").upper())
-        if len(key) >= 8 and key in text:
+        if len(key) >= 8 and (key in text or any(text.endswith(key[:n]) for n in range(len(key) - 1, 7, -1))):
             return True
     return False
 

@@ -181,6 +181,12 @@ class FamilyPayee(unittest.TestCase):
         self.assertTrue(is_family_payee("RTGS CR-IBKL0001049-PRADEEP KUMAR GUPTA-SWETANK GUPTA-IBKLR9202606060007719", self.NAMES))
         self.assertTrue(is_family_payee("CHQDEP-CTSCLG1-RAMPURUP:PRADEEPKUMARGUPTADAYAGUPTA", self.NAMES))
 
+    def test_a_narration_the_bank_cut_short_still_matches(self):
+        from app.txn.normalize import is_family_payee
+        self.assertTrue(is_family_payee("CHQDEP-CTSCLG1-RAMPURUP:PRADEEPK", self.NAMES))             # the 2.9 L cheque of Nov 2025, once 'other'
+        self.assertFalse(is_family_payee("CHQDEP-CTSCLG1-RAMPURUP:PRADEEPKUMARSINGH", self.NAMES))    # a different person is not a prefix at the end
+        self.assertFalse(is_family_payee("CHQDEP-RAMPURUP:PRADEEP", self.NAMES))                      # too short to be sure
+
     def test_a_stranger_with_a_shared_name_part_does_not(self):
         from app.txn.normalize import is_family_payee
         self.assertFalse(is_family_payee("UPI-PRADEEP KUMAR-9999@OKAXIS", self.NAMES))

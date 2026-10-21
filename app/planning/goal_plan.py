@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Optional
 
@@ -15,14 +15,13 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.planning import allocation, expectations, history, macro, need, simulate, taxes
+from app.planning import allocation, expectations, history, longevity, macro, need, simulate, taxes
 from app.planning.assumptions import Assumptions, with_drags
 from app.planning.macro import param
 
 logger = logging.getLogger(__name__)
 
 CONFIDENCE = 0.8                       # the "ideal target" and the SIP shown are the ones that give this chance
-HORIZON_AGE = 95                       # money lasts until the younger spouse is this old
 RETIRE_MIX = {"equity": 0.40, "gold": 0.05, "debt": 0.55}
 DEFAULT_STEPUP = 0.08
 _TTL = 600
@@ -75,9 +74,14 @@ def build_context(db: Session, today: date | None = None, scenario: str = "base"
                                                                                               "e": need.month_window(today)[1]}).scalar() or 0)
            for oid in owners}
     loan = db.execute(text("SELECT principal_after, emi, rate, emis_left FROM loan_anchors ORDER BY as_on DESC LIMIT 1")).first()
+    spending = need.household_spending(db, today)
+    spending["trend"] = need.spending_trend(db, today)
+    g = spending["trend"]["growth_pct"]
+    cap = float(param("spending_trend", "drift_cap_pp")["value"])
+    base = replace(base, spending_drift=need.drift_from_growth(g, base.inflation_general * 100, cap))
     return Context(today=today, macro=snap, data=data, base=base, why=why,
                    profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
-                   spending=need.household_spending(db, today), owners=owners, salary=sal,
+                   spending=spending, owners=owners, salary=sal,
                    loan={"outstanding": float(loan.principal_after), "emi": float(loan.emi), "rate_pct": float(loan.rate)} if loan else None,
                    stepup=stepup)
 
@@ -160,20 +164,23 @@ def _quantile(x: np.ndarray, q: float) -> float:
 
 
 def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_owner: dict[str, float], items: list,
-                    typed_today: float, use_typed: bool) -> Optional[dict]:
+                    typed_today: float, use_typed: bool, retire_ages: dict[str, int] | None = None, search: bool = True) -> Optional[dict]:
     """One household retirement: it starts when the first earner stops (their profile's retirement age); a spouse still working offsets
-    spending until their own retirement date; the money must last until the younger spouse is 95."""
+    spending until their own retirement date; the money lasts until the chance that either spouse is alive falls to 15% (life table,
+    app/planning/longevity.py), with spending stepping down once it is more likelier than not that one has died."""
     today, a0 = ctx.today, ctx.base
-    owners = {o: v for o, v in ctx.owners.items() if v["dob"] and v["retirement_age"]}
+    owners = {o: dict(v, retirement_age=(retire_ages or {}).get(o, v["retirement_age"])) for o, v in ctx.owners.items() if v["dob"] and v["retirement_age"]}
     if not owners:
         return None
     ret_dates = {o: _add_years(v["dob"], v["retirement_age"]) for o, v in owners.items()}
     first = min(ret_dates, key=lambda o: ret_dates[o])
     start_date = ret_dates[first]
-    horizon_end = _add_years(max(v["dob"] for v in ctx.owners.values() if v["dob"]), HORIZON_AGE)
+    life = longevity.household_horizon([v["dob"] for v in ctx.owners.values() if v["dob"]], today)
+    horizon_end = life["end"]
     n_acc, n = _months(today, start_date), _months(today, horizon_end)
     if n <= n_acc:
         return None
+    step_m = _months(today, life["step"]) if life["step"] else n + 1
     years = n_acc / 12
     spend_today = ctx.spending["retirement_core"]
     a, tax_note = _goal_assumptions(ctx, items, years)
@@ -204,9 +211,11 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
             mm = np.arange(n_acc, min(m_end, n))
             offset[mm] += inc_m * (1 + a.salary_growth) ** (mm / 12)
 
+    household = np.where(np.arange(n + 1) < step_m, 1.0, life["factor"])
+
     def outflow(infl, n_paths):
         o = np.zeros((n_paths, n + 1))
-        o[:, n_acc:n] = np.maximum(spend_today / 12 * infl["basket"][:, n_acc:n] - offset[None, n_acc:n], 0.0)
+        o[:, n_acc:n] = np.maximum(spend_today / 12 * household[None, n_acc:n] * infl["basket"][:, n_acc:n] - offset[None, n_acc:n], 0.0)
         return o
 
     res = simulate.simulate_plan(corpus0=corpus0, n_months=n, shape=shape, scale_now=total_sip, outflow_fn=outflow, weights=w,
@@ -221,19 +230,39 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
     extra = {"expected_return_pct": _expected(a, start), "required_at_start_nominal": req80, "start_date": start_date.isoformat(), "horizon_end": horizon_end.isoformat(),
              "spend_today": spend_today, "spouse_offset_today_monthly": {o: ctx.salary.get(o, 0.0) * haircut / 12 for o in owners if o != first},
              "tax": tax_note, "first_retiree": first, "retire_dates": {o: d.isoformat() for o, d in ret_dates.items()},
-             "mix_start": {k: round(v, 3) for k, v in start.items()}}
+             "mix_start": {k: round(v, 3) for k, v in start.items()}, "step_date": life["step"].isoformat() if life["step"] else None,
+             "step_factor": life["factor"], "survivor_chance": life["chance"]}
     out = _result(ctx, a, res, shape, total_sip, corpus0, n_acc, req80, ideal_today, "typed" if use_typed else "derived",
                   a.retirement_inflation, years, w, extra)
     if use_typed:                                           # chance against the typed corpus rather than the derived need
         c_start = (corpus0 + total_sip * np.cumsum(shape[None, :] * D, axis=1)[:, n_acc]) / D[:, n_acc]
         out["chance"] = float((c_start >= typed_today * deflate).mean())
+    if search and out["chance"] is not None and out["chance"] < CONFIDENCE and total_sip > 0:
+        out["age_for_80"] = _retire_age_for_chance(db, ctx, goal, corpus0, sip_now_by_owner, items, typed_today, use_typed, owners[first]["retirement_age"], first)
     return out
+
+
+def _retire_age_for_chance(db, ctx, goal, corpus0, sip_by_owner, items, typed_today, use_typed, from_age: int, who: str, top: int = 70) -> Optional[int]:
+    """Earliest retirement age (of the first earner) at which today's SIPs reach CONFIDENCE; None if not even by `top`. Chance only rises with age."""
+    light = replace(ctx, base=replace(ctx.base, n_paths=min(1000, ctx.base.n_paths)))            # a search needs the ranking of ages, not the third decimal of a chance
+
+    def ok(age: int) -> bool:
+        r = plan_retirement(db, light, goal, corpus0, sip_by_owner, items, typed_today, use_typed, retire_ages={who: age}, search=False)
+        return bool(r and r["chance"] is not None and r["chance"] >= CONFIDENCE)
+    if not ok(top):
+        return None
+    lo, hi = from_age + 1, top
+    while lo < hi:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if ok(mid) else (mid + 1, hi)
+    return lo
 
 
 def plan_staged(db: Session, ctx: Context, goal, corpus0: float, sip_now: float, items: list, outflows: list[tuple[date, float, str]],
                 category_rate: float, goal_type: str, years_to_first: float, typed_today: float, use_typed: bool, basis_default: str,
-                fallback: list[tuple[date, float, str]] | None = None) -> Optional[dict]:
-    """A goal paid in one or more dated instalments (today's money, inflated per category), funded by a SIP until the last payment."""
+                fallback: list[tuple[date, float, str]] | None = None, decumulate: bool = False) -> Optional[dict]:
+    """A goal paid in one or more dated instalments (today's money, inflated per category), funded by a SIP until the first payment.
+    `decumulate`: payments run for decades after the first (a lifetime cost): the money moves to the retirement mix and its tax drag."""
     today = ctx.today
     if not outflows:
         return None
@@ -247,8 +276,8 @@ def plan_staged(db: Session, ctx: Context, goal, corpus0: float, sip_now: float,
     risk = _risk_shift(ctx, owner_vals) if owner_vals else "moderate"
     rec_start = allocation.split_for(allocation.recommended_equity(years_to_first, risk, goal_type), goal_type)
     start = allocation.blend([(v, w_) for _o, v, w_ in items]) or rec_start
-    end = allocation.split_for(allocation.recommended_equity(0.0, risk, goal_type), goal_type)
-    w = simulate.glide_weights(start, end, n, round(min(5.0, years_to_first) * 12), glide_end=first_out)
+    end = RETIRE_MIX if decumulate else allocation.split_for(allocation.recommended_equity(0.0, risk, goal_type), goal_type)
+    w = simulate.glide_weights(start, end, n, round(min(10.0 if decumulate else 5.0, years_to_first) * 12), glide_end=first_out)
     shape = simulate.contribution_shape(n, ctx.stepup, [(1.0, first_out)])
     scale = {"general": a.inflation_general}
 
@@ -262,16 +291,21 @@ def plan_staged(db: Session, ctx: Context, goal, corpus0: float, sip_now: float,
         return outflow
 
     derived_total = sum(amt for _d, amt, _c in outflows)
-    k = (typed_today / derived_total) if (use_typed and derived_total > 0) else 1.0
+    k = (typed_today / derived_total) if (use_typed and derived_total > 0 and not decumulate) else 1.0
     outflow = mk(outflows, k)
-    res = simulate.simulate_plan(corpus0=corpus0, n_months=n, shape=shape, scale_now=sip_now, outflow_fn=outflow, weights=w, retire_month=None,
-                                 data=ctx.data, a=a, confidences=(0.5, CONFIDENCE, 0.9))
+    res = simulate.simulate_plan(corpus0=corpus0, n_months=n, shape=shape, scale_now=sip_now, outflow_fn=outflow, weights=w,
+                                 retire_month=first_out if decumulate else None, data=ctx.data, a=a, confidences=(0.5, CONFIDENCE, 0.9))
     D = res["D"]
     o_nom = outflow(res["infl"], a.n_paths)
     req = (o_nom[:, first_out:] * D[:, first_out:] / D[:, first_out:first_out + 1]).sum(axis=1)
     req80 = _quantile(req, CONFIDENCE)
     total_nom_p50 = float(np.median(o_nom.sum(axis=1)))
     ideal_today = float(derived_total)
+    if decumulate:                                       # a lifetime cost: the corpus needed when it starts, in the cost's own prices today
+        ideal_today = req80 / float(np.median(res["infl"][outflows[0][2]][:, first_out]))
+        if use_typed and ideal_today > 0 and abs(typed_today / ideal_today - 1) > 1e-9:
+            return plan_staged(db, ctx, goal, corpus0, sip_now, items, [(d, amt * typed_today / ideal_today, c) for d, amt, c in outflows],
+                               category_rate, goal_type, years_to_first, typed_today, False, basis_default, fallback, decumulate) | {"target_basis": "typed", "ideal_target_today": typed_today}
     extra = {"expected_return_pct": _expected(a, start), "tax": tax_note, "mix_start": {k_: round(v, 3) for k_, v in start.items()}, "mix_recommended_now": {k_: round(v, 3) for k_, v in rec_start.items()},
              "mix_recommended_end": {k_: round(v, 3) for k_, v in end.items()}, "required_at_start_nominal": req80, "payments": len(outflows),
              "first_payment": min(d for d, _a, _c in outflows).isoformat(), "last_payment": max(d for d, _a, _c in outflows).isoformat()}
@@ -286,6 +320,23 @@ def plan_staged(db: Session, ctx: Context, goal, corpus0: float, sip_now: float,
         out["fallback_chance"] = fb["probability"]
         out["fallback_today"] = float(sum(amt for _d, amt, _c in fallback))
     return out
+
+
+def health_schedule(ctx: Context) -> list[tuple[date, float, str]]:
+    """Senior health cost (today's money): from each person's retirement (the employer's cover ends) to their own life-table horizon, a year at a
+    time: an individual Rs 10 lakh policy plus the bills the NSS hospitalisation rate and LASI out-of-pocket cost imply (app/planning/params.yml)."""
+    p = lambda k: float(param("health", k)["value"])
+    per_year = p("senior_premium_per_person") + p("senior_hospitalisation_rate") * p("out_of_pocket_per_hospitalisation")
+    out = []
+    for o in ctx.owners.values():
+        if not o["dob"] or not o["retirement_age"]:
+            continue
+        start, end = _add_years(o["dob"], o["retirement_age"]), longevity.person_end(o["dob"], ctx.today)
+        d = start
+        while d < end:
+            out.append((d, per_year, "medical"))
+            d = _add_years(d, 1)
+    return sorted(out)
 
 
 def _fallback_outflow(today: date, schedule):
@@ -328,8 +379,19 @@ def plan_emergency(ctx: Context, corpus0: float, typed_today: float, use_typed: 
 def _note(res: dict, goal_type: str, ctx: Context) -> str:
     if goal_type == "retirement":
         off = res.get("spouse_offset_today_monthly") or {}
-        return (f"Household retirement from {res['start_date']}; money lasts to {res['horizon_end'][:4]}. Living cost ₹{res['spend_today'] / 100000:.1f} L/yr "
-                f"(today's money)" + (f"; a working spouse's income (₹{sum(off.values()) / 1000:.0f}k/mo after a job-risk haircut) offsets it until their own retirement." if off else "."))
+        txt = (f"Household retirement from {res['start_date']}; money lasts to {res['horizon_end'][:4]} (until the chance either of you is alive falls to "
+               f"{res['survivor_chance'] * 100:.0f}%, official life table)" + (f", spending {int((1 - res['step_factor']) * 100)}% lower from {res['step_date'][:4]}" if res.get("step_date") else "")
+               + f". Living cost ₹{res['spend_today'] / 100000:.1f} L/yr (today's money, health is in its own goal)"
+               + (f"; a working spouse's income (₹{sum(off.values()) / 1000:.0f}k/mo after a job-risk haircut) offsets it until their own retirement." if off else "."))
+        if res.get("age_for_80"):
+            txt += f" At today's saving an 80% chance needs retiring at {res['age_for_80']}."
+        elif res.get("chance") is not None and res["chance"] < CONFIDENCE and "age_for_80" in res:
+            txt += " At today's saving, even retiring at 70 does not reach an 80% chance."
+        return txt
+    if goal_type == "health":
+        return (f"Senior health from {res['first_payment'][:4]} (each of you from your own retirement) to {res['last_payment'][:4]}: a ₹10 L individual policy plus expected bills, "
+                f"needs ₹{res['ideal_target_today'] / 100000:.0f} L when it starts (today's prices; cost rising {res['inflation_used_pct']}% a year at first, fading). "
+                f"{'Planning on your figure.' if res['target_basis'] == 'typed' else 'Catastrophic illness is not in it.'}")
     if goal_type == "child_education":
         fb = res.get("fallback_chance")
         return (f"Abroad: undergraduate + postgraduate paid yearly from {res['first_payment'][:7]} to {res['last_payment'][:7]} (₹{res['ideal_target_today'] / 10000000:.2f} cr today's money, "
@@ -378,11 +440,14 @@ def overlay(db: Session, goal, proj, sip_by_owner: dict[str, float], scope: list
                 res = plan_staged(db, ctx, goal, corpus0, sip_now, items, education_schedule(dob, True), a.inflation_education_abroad, gt,
                                   (min(education_schedule(dob, True))[0] - ctx.today).days / 365.25, typed, use_typed, "derived",
                                   fallback=education_schedule(dob, False))
-        elif gt in ("child_marriage", "health"):
+        elif gt == "health":
+            sched = health_schedule(ctx)
+            if sched:
+                res = plan_staged(db, ctx, goal, corpus0, sip_now, items, sched, ctx.base.inflation_medical, gt,
+                                  max(0.25, (sched[0][0] - ctx.today).days / 365.25), typed, use_typed, "derived", decumulate=True)
+        elif gt == "child_marriage":
             when = proj.target_date or goal.target_date
-            cat = "wedding" if gt == "child_marriage" else "medical"
-            rate = ctx.base.inflation_wedding if gt == "child_marriage" else ctx.base.inflation_medical
-            res = plan_staged(db, ctx, goal, corpus0, sip_now, items, [(when, typed, cat)], rate, gt,
+            res = plan_staged(db, ctx, goal, corpus0, sip_now, items, [(when, typed, "wedding")], ctx.base.inflation_wedding, gt,
                               max(0.25, (when - ctx.today).days / 365.25), typed, True, "typed")
         elif gt in ("emergency", "emergency_fund"):
             res = plan_emergency(ctx, corpus0, typed, use_typed)

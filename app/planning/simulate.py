@@ -50,13 +50,23 @@ def inflation_factor(mean: float, sd: float, n_paths: int, n_months: int, rng) -
     return inflation_paths({"x": mean}, sd, n_paths, n_months, rng)["x"]
 
 
-def inflation_paths(means: dict[str, float], sd: float, n_paths: int, n_months: int, rng) -> dict[str, np.ndarray]:
-    """Cumulative price factors per category sharing one yearly shock (they rise and fall together, as prices do)."""
+def spread_fade(years: int, full_years: float, floor: float, until: float = 40.0) -> np.ndarray:
+    """Share of a category's premium over general inflation that is left in each year: all of it for `full_years`, then a straight line down to `floor` at year `until`."""
+    k = np.arange(years, dtype=float)
+    return np.where(k < full_years, 1.0, np.maximum(floor, 1.0 - (k - full_years) / max(until - full_years, 1.0) * (1.0 - floor)))
+
+
+def inflation_paths(means: dict[str, float], sd: float, n_paths: int, n_months: int, rng, full_years: float | None = None,
+                    floor: float = 1.0) -> dict[str, np.ndarray]:
+    """Cumulative price factors per category sharing one yearly shock (they rise and fall together, as prices do). A category's premium over
+    `means['general']` fades after `full_years` (no cost outgrows incomes for decades); without `full_years` it is constant."""
     years = -(-n_months // 12)
     z = rng.standard_normal(size=(n_paths, years)) if sd > 0 else np.zeros((n_paths, years))
+    fade = spread_fade(years, full_years, floor) if full_years is not None else np.ones(years)
+    base = means.get("general", 0.0)
     out = {}
     for cat, mean in means.items():
-        annual = np.clip(mean + sd * z, 0.01, 0.20)
+        annual = np.clip(base + (mean - base) * fade[None, :] + sd * z, 0.01, 0.20)
         monthly = np.repeat((1 + annual) ** (1 / 12), 12, axis=1)[:, :n_months]
         out[cat] = np.concatenate([np.ones((n_paths, 1)), np.cumprod(monthly, axis=1)], axis=1)
     return out
@@ -140,7 +150,7 @@ def simulate_plan(*, corpus0: float, n_months: int, shape: np.ndarray, scale_now
     r = build_returns(data, a, weights, retire_month, a.n_paths, rng)
     means = inflation_means or {"general": a.inflation_general, "medical": a.inflation_medical, "education": a.inflation_education,
                                 "education_abroad": a.inflation_education_abroad, "wedding": a.inflation_wedding, "basket": a.retirement_inflation}
-    infl = inflation_paths(means, a.inflation_sd, a.n_paths, n_months, rng)
+    infl = inflation_paths(means, a.inflation_sd, a.n_paths, n_months, rng, a.spread_full_years, a.spread_floor)
     out = outflow_fn(infl, a.n_paths)
     s = solve(r, shape, out, corpus0)
     need = s["need"]

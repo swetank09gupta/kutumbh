@@ -19,7 +19,7 @@ that inflation should come from the market and be applied to each goal. Decision
   US tuition inflation plus the rupee's fall (FRED). It still uses the long-run view (never the latest print alone), which was the reason for 29. The app-wide setting (`/api/goals/inflation`) now only feeds the
   deterministic fallback.
 - **Per-person tax** (`app/planning/taxes.py`): each holder's regime and the highest annualised taxable income of the last three years set the marginal rate on debt income; equity and gold pay capital-gains tax by horizon.
-- **One household retirement goal**, starting when the first earner stops, with a working spouse's salary offsetting spending until their own retirement and money lasting until the younger spouse is 95. The goal tags
+- **One household retirement goal**, starting when the first earner stops, with a working spouse's salary offsetting spending until their own retirement and money lasting until the chance either spouse is alive falls to 15% (life table; first drafted as "the younger spouse is 95", which is the same age within a year but typed). The goal tags
   of a family retirement goal are both retirement tags; the two former goals were merged (backup `pre_goal_merge_20261021`).
 - **Family money is a transfer**: names in `config/accounts.yml` → `family_names` (parents' cheques and RTGS were counted as income-like "other" credits: ₹32 lakh in a year).
 - Expected returns are derived: debt = the 10-year yield less cost; equity = debt + the net premium the history paid, scaled by valuation; gold = inflation + part of its real return; PPF = declared.
@@ -27,3 +27,10 @@ that inflation should come from the market and be applied to each goal. Decision
 ## Consequences
 Goal figures move by design (targets, SIPs, chances). Tests: `tests/test_planning_engine.py` (closed-form proofs, monotonicity, repeatability), `tests/test_planning_plan.py` (expectations, tax, goal outflows,
 spouse offset, prepay), `tests/test_txn_layer.py` (family payees). Costs and spreads live in `app/planning/params.yml` with sources and dates; the method is `docs/PLANNING.md`.
+
+## Addendum (2026-10-21): practicality pass
+- **Horizon from the official life table** (`app/planning/longevity.py`, SRS 2016-20 urban, female column for both): until the last survivor's chance is 15%, spending ×0.75 once one spouse has probably died.
+- **Health is its own derived goal** from each person's retirement; retirement living cost excludes medical bills so health is not counted twice (the 15% medical weight is gone).
+- **Premiums over general inflation fade** after 10 years (`simulate.spread_fade`): a 46-year compounding at 10.9% is not possible against incomes.
+- **Own spending trend** (`need.spending_trend`): carried forward only when above prices (cap 3 points); today it is falling and adds nothing. Retirement notes name the earliest retirement age at which today's saving reaches 80% (searched with 1,000 paths).
+- A bank-truncated parent's name (`…RAMPURUP:PRADEEPK`) is a family transfer (it ends with the first 8+ letters of the name).

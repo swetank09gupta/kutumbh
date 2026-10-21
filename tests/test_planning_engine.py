@@ -26,7 +26,7 @@ def data(vol=0.0, seed=1):
     return {"joint": joint, "equity_long": joint["equity"]}
 
 
-FLAT = replace(Assumptions(), n_paths=50, inflation_sd=0.0, equity_vol_scale=1.0)
+FLAT = replace(Assumptions(), n_paths=50, inflation_sd=0.0, equity_vol_scale=1.0, spread_full_years=None)
 DEBT_ONLY = {"debt": 1.0}
 
 
@@ -57,13 +57,29 @@ class ClosedForm(unittest.TestCase):
         self.assertAlmostEqual(got, w, places=6)
 
     def test_retirement_corpus_needed_is_the_present_value_of_the_spending(self):
-        a = replace(FLAT, medical_weight_in_retirement=0.0)                           # basket inflation = general 5.5%
+        a = FLAT                                                                      # basket inflation = general 5.5% (no own-spending drift)
         out = simulate.simulate_retirement(corpus0=0, sip0=0, stepup=0, years_to_retire=10, years_in_retirement=30, spend_today=1_200_000,
                                            start_weights=DEBT_ONLY, retire_weights=DEBT_ONLY, glide_years=0, data=data(), a=a)
         g, rm = (1 + a.inflation_general) ** (1 / 12), (1 + a.after_tax("debt", True)) ** (1 / 12)       # retired: the lower tax drag
         pv = sum(1_200_000 / 12 * g ** (120 + m) / rm ** m for m in range(360))
         self.assertAlmostEqual(out["required_corpus"]["90"], pv, delta=pv * 1e-9)
         self.assertEqual(out["probability"], 0.0)                                     # nothing saved: cannot last
+
+
+class SpreadFade(unittest.TestCase):
+    def test_a_premium_over_general_inflation_fades_after_ten_years_but_general_does_not(self):
+        rng = lambda: np.random.default_rng(1)
+        means = {"general": 0.05, "medical": 0.11}
+        flat = simulate.inflation_paths(means, 0.0, 2, 480, rng())
+        faded = simulate.inflation_paths(means, 0.0, 2, 480, rng(), 10, 0.25)
+        self.assertTrue(np.allclose(flat["general"], faded["general"]))
+        self.assertAlmostEqual(faded["medical"][0, 120], flat["medical"][0, 120], places=9)             # the first ten years are untouched
+        self.assertLess(faded["medical"][0, 480], flat["medical"][0, 480] * 0.6)                     # a 40-year 11% run is ~65x; fading keeps it near 35x
+        self.assertGreater(faded["medical"][0, 480], faded["general"][0, 480])                         # still dearer than general, never cheaper
+
+    def test_the_fade_is_a_straight_line_to_the_floor(self):
+        f = simulate.spread_fade(45, 10, 0.25, until=40)
+        self.assertEqual(f[9], 1.0); self.assertAlmostEqual(f[25], 0.625); self.assertAlmostEqual(f[40], 0.25); self.assertAlmostEqual(f[44], 0.25)
 
 
 class Properties(unittest.TestCase):

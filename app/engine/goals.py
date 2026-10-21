@@ -624,12 +624,15 @@ def project_all_goals(db: Session, owner_id: str | None = None, scenario: str = 
         proj = project_goal(
             g, round(actual.get(str(g.id), 0.0), 2), db, owner_ids=scope,
             detected_stepup_pct=sipmod.sip_stepup_pct(db, scope))
+        planned = False
         if ctx is not None:
             try:
-                goal_plan.overlay(db, g, proj, dict(by_owner.get(str(g.id), {})), scope, ctx)
+                planned = goal_plan.overlay(db, g, proj, dict(by_owner.get(str(g.id), {})), scope, ctx)
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception("plan for %s failed; keeping the deterministic projection", g.name)
+        if not planned and (g.goal_type or "").lower() not in ("custom", ""):
+            proj.plan_note = "Simple projection on your typed return (the market plan is not available for this goal right now)."
         out.append(proj)
     return out
 

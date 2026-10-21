@@ -3,6 +3,7 @@ The data side of planning: holding classification, spending split, derived expec
 Synthetic history, no network, no database.
 """
 import unittest
+from unittest import mock
 from dataclasses import replace
 from datetime import date
 
@@ -169,10 +170,52 @@ class GoalPlans(unittest.TestCase):
         r = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0, "wife": 10_000.0}, ITEMS, 100_000_000.0, False)
         self.assertEqual(r["start_date"], "2042-03-09")                                                    # his age 50
         self.assertEqual(r["first_retiree"], "user")
-        self.assertEqual(r["horizon_end"][:4], "2087")                                                     # the younger spouse (b. 1992) at 95
+        self.assertTrue("2083" <= r["horizon_end"][:4] <= "2090")                                          # until the chance either is alive falls to 15%
+        self.assertTrue("2055" <= r["step_date"][:4] <= "2070")                                            # more likely than not one of them has died
+        self.assertEqual(r["step_factor"], 0.75)
         self.assertEqual(r["retire_dates"]["wife"], "2051-08-28")
         self.assertGreater(r["spouse_offset_today_monthly"]["wife"], 0)
         self.assertEqual(r["target_basis"], "derived")
+
+    def test_survivor_spending_and_the_life_table_lower_the_need_against_a_couple_to_95(self):
+        full = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
+        import app.planning.longevity as lg
+        with mock.patch.object(lg, "household_horizon", lambda dobs, today: {"end": date(2087, 3, 9), "step": None, "factor": 1.0, "chance": 0.0}):
+            to95 = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
+        self.assertLess(full["ideal_target_today"], to95["ideal_target_today"])
+
+    def test_when_todays_saving_falls_short_the_earliest_workable_retirement_age_is_named(self):
+        r = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0, "wife": 10_000.0}, ITEMS, 1.0, False)
+        self.assertLess(r["chance"], 0.8)
+        self.assertIn("age_for_80", r)
+        self.assertTrue(r["age_for_80"] is None or 51 <= r["age_for_80"] <= 70)
+        rich = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 500_000.0}, ITEMS, 1.0, False)
+        self.assertNotIn("age_for_80", rich)                                                               # already at 80%: nothing to search
+
+    def test_health_is_planned_from_each_persons_retirement_for_their_own_horizon(self):
+        sched = goal_plan.health_schedule(context())
+        self.assertEqual(sched[0][0], date(2042, 3, 9))                                                    # his retirement: the employer's cover ends
+        self.assertEqual(min(d for d, _a, _c in sched if d.year >= 2051 and d.month == 8), date(2051, 8, 28))   # hers
+        self.assertAlmostEqual(sched[0][1], 45_000 + 0.081 * 49_700)                                       # premium + expected bills
+        self.assertTrue(all(c == "medical" for _d, _a, c in sched))
+        self.assertLess(max(d for d, _a, _c in sched), date(2092, 1, 1))
+
+    def test_health_target_is_the_corpus_needed_when_it_starts_in_todays_prices(self):
+        c = context()
+        r = goal_plan.plan_staged(None, c, None, 500_000.0, 5_000.0, ITEMS, goal_plan.health_schedule(c), c.base.inflation_medical, "health", 15.4,
+                                  5_000_000.0, False, "derived", decumulate=True)
+        total = sum(a for _d, a, _c in goal_plan.health_schedule(c))
+        self.assertGreater(r["ideal_target_today"], 0)
+        self.assertNotAlmostEqual(r["ideal_target_today"], total, delta=total * 0.01)                      # not the plain sum of the payments
+        self.assertEqual(r["target_basis"], "derived")
+
+    def test_own_spending_growth_is_carried_forward_only_above_prices_and_capped(self):
+        d = need.drift_from_growth
+        self.assertEqual(d(None, 4.9, 3.0), 0.0)
+        self.assertEqual(d(-9.4, 4.9, 3.0), 0.0)                                                           # a fall is not counted on
+        self.assertEqual(d(4.0, 4.9, 3.0), 0.0)
+        self.assertAlmostEqual(d(6.9, 4.9, 3.0), 0.02)
+        self.assertAlmostEqual(d(20.0, 4.9, 3.0), 0.03)
 
     def test_a_spouses_income_lowers_what_must_be_saved(self):
         kw = (None, None, 3_700_000.0, {"user": 11_000.0, "wife": 10_000.0}, ITEMS, 100_000_000.0, False)
