@@ -46,13 +46,29 @@ def blend(items: list[tuple[float, dict[str, float]]]) -> dict[str, float]:
     return {k: round(x, 6) for k, x in out.items()}
 
 
+_CURVE = None                       # set by the planner once the market risk model is built (risk.equity_share); the table below is the fallback
+
+
+def set_market_curve(fn) -> None:
+    global _CURVE
+    if fn is None:
+        _CURVE = None
+        return
+    from functools import lru_cache
+    cached = lru_cache(maxsize=1024)(fn)
+    _CURVE = lambda years: cached(round(float(years), 2))
+
+
 def recommended_equity(years_to_goal: float, risk: str | None = "moderate", goal_type: str = "") -> float:
-    """Equity share suggested for the horizon (a glide path, docs/PLANNING.md): long money can bear equity, near money cannot.
-    Emergency money is never in equity. Risk appetite moves it by 10 points."""
+    """Equity share suggested for the horizon (a glide path, docs/PLANNING.md): the largest share whose measured 1-in-20 horizon fits inside the years
+    left (app/planning/risk.py); a table only until market data has been read. Emergency money is never in equity. Risk appetite moves it by 10 points."""
     if goal_type == "emergency":
         return 0.0
     y = years_to_goal
-    base = 0.75 if y >= 10 else 0.60 if y >= 7 else 0.45 if y >= 5 else 0.30 if y >= 3 else 0.10
+    if _CURVE is not None:
+        base = _CURVE(y)
+    else:
+        base = 0.75 if y >= 10 else 0.60 if y >= 7 else 0.45 if y >= 5 else 0.30 if y >= 3 else 0.10
     shift = {"conservative": -0.10, "aggressive": 0.10}.get((risk or "moderate").lower(), 0.0)
     return max(0.0, min(0.85, base + shift))
 

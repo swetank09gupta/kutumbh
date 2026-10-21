@@ -80,17 +80,25 @@ path is closed-form and the **SIP for p-confidence is its p-quantile**: no searc
 - Health: one flat cost per person-year from retirement (age bands within 50-85 are not modelled); a catastrophic uninsured illness is not in the number: keep part of the emergency fund for it.
 - Only the last ~2 years of spending are clean (statement coverage before 2024 is partial), so a five-year trend cannot be read from the data yet; it will be as years accumulate.
 
-## 6. Which holding serves which goal (`app/planning/matching.py`)
+## 6. Which holding serves which goal (`app/planning/matching.py`, `funds.py`, `risk.py`)
 
-Money already held counts toward the goal it is tagged to, and **the matcher chooses the tag**, from the goals' own numbers instead of a fixed fund-to-goal list:
-- Each goal has a need today (the planner's required corpus discounted to today; for the emergency fund its target) and a **mix it should hold at its horizon** (equity share by years left, §3; the emergency fund all debt).
-  A goal's bucket for each asset class is need × mix; what it already holds fills it.
-- A holding goes to the goal whose bucket for what it is made of (equity / gold / debt; PPF as debt; hybrids 60/40) is emptiest and can take it. A single company's shares only suit goals 10+ years away, PPF 5+, equity never the emergency fund.
-  Untagged debt holdings (FDs) first close the emergency fund's gap.
-- **A holding is moved only when its goal no longer wants it half as much as the best goal does**, so labels do not churn. A second run changes nothing.
-- **Tags you set in Holdings are `manual` and never moved**; the matcher's are `auto` (shown as "auto"); clearing a tag hands it back. Tags that predate the matcher count as automatic only if they equal the old fixed rule's answer.
-- It runs after every sync (gaps only) and in the daily sweep (every automatic holding): a sale shrinks a goal's holdings, a purchase lands where the gap is, a goal's date moving changes its mix. Liquid FDs stay with the emergency fund and a home is not a corpus.
-- Not measured: a fund's own volatility or category from AMFI (the asset class comes from its name/type), so a mid-cap and a large-cap count the same; single-stock risk is the one exception.
+Money already held counts toward the goal it is tagged to, and **the matcher chooses the tag from market data**, not from a fund list:
+- **What a holding is** (`funds.py`). Mutual funds: the SEBI category AMFI lists the scheme under (NAVAll.txt, daily) and what its own price history shows it holding: its last five years of monthly
+  returns (mfapi.in) regressed on real index series, with non-negative weights summing to 1 (Nifty 50, Nifty Midcap 150, Nifty Smallcap 250, gold, gilts), pulled gently toward the composition SEBI requires of its category
+  (mid and small caps move together, ~0.9). With under two years of history or a poor fit, the category's composition is used. Direct shares: beta to the Nifty and the volatility the market does not explain (Yahoo, found
+  by ISIN, with the sector). FDs, PPF and government bonds: debt; SGBs: gold. Silver ETFs have no gold-like fit and are read as gold.
+- **What a goal can hold** (`risk.py`). A portfolio with expected return mu and volatility sigma has a loss over h years that is a 1-in-20 event after h = (1.645 σ / μ)² years. σ and the factor covariance are measured
+  from the same real returns; μ is the planner's derived expected return (no extra premium for mid or small caps). A goal that is `years` away may hold a portfolio whose h is no larger. The **safe equity share by horizon**
+  (the glide path, the recommendations) is the same calculation: the largest Nifty 50 share whose h fits (about 17% at 1 year, 45% at 3, 64% at 5, 81% at 7, the 85% cap from about 8); the old table is only a fallback.
+- **The match.** Each goal has a need today (the planner's required corpus discounted to today; the emergency fund's target). A holding goes to the goal furthest from funded among those whose risk budget it fits (score = gap × fit;
+  fit shrinks to nothing as the portfolio would need twice the years). Gold, which moves against equities, lowers a portfolio's h, so it is welcome where equity is already heavy. Untagged cash-like holdings (h ≤ 1 year: FDs) first
+  close the emergency fund's gap; PPF only goes to goals 5+ years away.
+- **A holding is moved only when its goal would want it under half as much as the best goal** (no churn; a second run changes nothing). Tags you set in Holdings are `manual` and never moved; the matcher's are `auto` (shown); clearing
+  a tag hands it back. Tags that predate the matcher count as automatic only if they equal the old fixed rule's answer.
+- **Real time.** Prices and catalogues are cached (a day for the catalogue, a week for prices); it runs after every sync (gaps only) and in the daily sweep (every automatic holding), so a sale, a purchase, a fund changing what it
+  holds, or volatility moving changes the match with nobody there. Liquid FDs stay with the emergency fund; a home is not a corpus. With no market data the matcher does nothing and the old fixed rules fill gaps.
+- **Not available as open data:** a fund's list of shares (each AMC publishes a monthly spreadsheet in its own format; the style regression is what the price shows it holding), fund-level inflows and who invests (AMFI publishes category
+  flows and folios in a monthly PDF, nothing per fund). Flows and popularity are not used: they follow the market, they do not say whether a fund suits a goal.
 
 ## 7. Keeping it current
 

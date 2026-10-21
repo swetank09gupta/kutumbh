@@ -15,7 +15,7 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.planning import allocation, expectations, history, longevity, macro, need, simulate, taxes
+from app.planning import allocation, expectations, funds, history, longevity, macro, need, risk, simulate, taxes
 from app.planning.assumptions import Assumptions, with_drags
 from app.planning.macro import param
 
@@ -42,6 +42,8 @@ class Context:
     salary: dict
     loan: Optional[dict]
     stepup: float = DEFAULT_STEPUP
+    risk_model: object = None                 # app.planning.risk.RiskModel: measured factor covariance + the derived expected returns
+    factors: object = None                    # monthly factor returns (app.planning.funds.factor_frame)
 
 
 def _add_years(d: date, years: int) -> date:
@@ -79,11 +81,19 @@ def build_context(db: Session, today: date | None = None, scenario: str = "base"
     g = spending["trend"]["growth_pct"]
     cap = float(param("spending_trend", "drift_cap_pp")["value"])
     base = replace(base, spending_drift=need.drift_from_growth(g, base.inflation_general * 100, cap))
+    factors, model = None, None
+    try:
+        factors = funds.factor_frame(data, today)
+        if factors is not None:
+            model = risk.build(factors, base)
+            allocation.set_market_curve(lambda years, _m=model: risk.equity_share(_m, years))     # the safe equity share by horizon is measured, not tabled
+    except Exception as exc:                                    # without it the goals keep the tabled share and matching waits
+        logger.warning("market risk model unavailable: %s", exc)
     return Context(today=today, macro=snap, data=data, base=base, why=why,
                    profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
                    spending=spending, owners=owners, salary=sal,
                    loan={"outstanding": float(loan.principal_after), "emi": float(loan.emi), "rate_pct": float(loan.rate)} if loan else None,
-                   stepup=stepup)
+                   stepup=stepup, risk_model=model, factors=factors)
 
 
 def get_context(db: Session, scenario: str = "base", stepup: float = DEFAULT_STEPUP, today: date | None = None) -> Optional[Context]:

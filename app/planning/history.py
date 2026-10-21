@@ -44,7 +44,7 @@ def month_end_returns(navs: dict[str, float], today: date | None = None) -> pd.S
     s = pd.Series({pd.Timestamp(k): v for k, v in navs.items()}).sort_index()
     m = s.resample("ME").last()
     m = m[m.index < pd.Timestamp(today).replace(day=1)]              # complete months only
-    return m.pct_change().dropna()
+    return m.pct_change(fill_method=None).dropna()
 
 
 def frame(navs_by_asset: dict[str, dict[str, float]], today: date | None = None) -> pd.DataFrame:
