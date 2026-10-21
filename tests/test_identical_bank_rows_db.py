@@ -147,6 +147,21 @@ class IdenticalBankRows(unittest.TestCase):
         c = consistency.bank_balances_chain(self.db)
         self.assertFalse(c["ok"]); self.assertIn("1 alert(s) show a net debit of ₹400.00, the break is a net debit of ₹500.00", c["detail"])
 
+    def test_a_month_the_owner_confirmed_never_existed_is_not_a_warning(self):
+        import json, os, tempfile
+        from unittest import mock
+        from app import consistency
+        self._october_gap()
+        self.assertFalse(consistency.bank_balances_chain(self.db)["ok"])
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"ACCEPTED_GAPS_FILE": f"{d}/g.json"}):
+            open(f"{d}/g.json", "w").write(json.dumps([{"owner": "wife", "account": "SBI 9132", "month": "2024-10", "note": "never issued"}]))
+            c = consistency.bank_balances_chain(self.db)
+            self.assertTrue(c["ok"]); self.assertEqual(c["values"]["accepted"][0]["month"], "2024-10")
+            open(f"{d}/g.json", "w").write(json.dumps([{"owner": "wife", "account": "SBI 9132", "month": "2024-09"}]))     # another month: still a warning
+            self.assertFalse(consistency.bank_balances_chain(self.db)["ok"])
+            open(f"{d}/g.json", "w").write("not json")                                                                     # unreadable: nothing is accepted
+            self.assertFalse(consistency.bank_balances_chain(self.db)["ok"])
+
     def test_an_explained_month_is_not_a_warning(self):
         from app import consistency
         self._october_gap()

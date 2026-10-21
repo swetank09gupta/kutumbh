@@ -37,3 +37,4 @@ postgres_data/
 
 # Private figures baseline (net worth, returns): see scripts/figures.py
 data/figures_baseline.json
+config/accepted_gaps.json

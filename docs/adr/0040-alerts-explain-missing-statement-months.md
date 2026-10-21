@@ -13,6 +13,7 @@ Three bank accounts have a month with no statement (SBI 8660 Oct 2024, SBI 9132 
 
 - **Alert status `gap`**: an alert inside the statements' range whose month has no statement at all (no row, no balance for that owner and bank) is not a lost statement row, so it no longer counts as `unmatched`. It stays evidence.
 - **Old alerts do not outrank newer facts**: a deposit alert older than the Manual Asset's statement is ignored in the alert-versus-asset comparison, and a deposit account silent for 135 days (interest mails at least quarterly) is treated as closed, not as "money we do not record". Found when the alert history from Oct 2024 was first loaded.
+- **Accepted gaps** (`app/txn/accepted_gaps.py`, private `config/accepted_gaps.json`): a month the owner has confirmed the bank never issued (SBI 8660 Oct 2024, SBI 9132 Aug 2025) is listed there and stops warning; the check reports it under `accepted`. Nothing is filled in: the balance today is the newest statement or alert, which does not depend on the missing month. Only an exact (owner, account, month) entry counts; an unreadable file accepts nothing.
 
 ## Consequences
 Tests: `tests/test_bank_alert.py` (real wordings, names removed), `test_identical_bank_rows_db` (explained / partial / copies not counted). Newer Axis and SBI alerts after the last statement now show as pending and, for named UPI payees, as provisional spending under ADR-0037's rules.

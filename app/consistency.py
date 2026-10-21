@@ -415,9 +415,14 @@ def bank_balances_chain(db: Session) -> dict:
     from app.txn.continuity import account_breaks
     cutoff = date.today().replace(year=date.today().year - 2)           # older history is reported by the API, not warned on
     rows = [{**a, "breaks": [b for b in a["breaks"] if b["date"] >= cutoff]} for a in account_breaks(db)]
+    from app.txn.accepted_gaps import accepted
     explained = [{"account": a["account"], "owner": a["owner"], "month": b["gap"], "amount": float(b["missing"]), "alerts": b["alerts"]["count"]}
                  for a in rows for b in a["breaks"] if b.get("explained")]
-    rows = [{**a, "breaks": [b for b in a["breaks"] if not b.get("explained")]} for a in rows]
+    accepted_rows = [{"account": a["account"], "owner": a["owner"], "month": b["gap"], "amount": float(b["missing"]),
+                      "note": accepted(a["owner"], a["account"], b["gap"]).get("note")}
+                     for a in rows for b in a["breaks"] if b.get("gap") and not b.get("explained") and accepted(a["owner"], a["account"], b["gap"])]
+    done = {(r["owner"], r["account"], r["month"]) for r in accepted_rows}
+    rows = [{**a, "breaks": [b for b in a["breaks"] if not b.get("explained") and (a["owner"], a["account"], b.get("gap")) not in done]} for a in rows]
     bad = [a for a in rows if a["breaks"]]
     n = sum(len(a["breaks"]) for a in bad)
 
@@ -431,12 +436,13 @@ def bank_balances_chain(db: Session) -> dict:
         return f" [no statement for {b['gap']}{part}]"
     return _check("bank_balances_chain", not bad,
                   ("Every bank account's balance chains day to day (last 2 years)" +
-                   (f"; {len(explained)} missing statement month(s) are explained to the paisa by the bank's alert mails" if explained else ""))
+                   (f"; {len(explained)} missing statement month(s) are explained to the paisa by the bank's alert mails" if explained else "")
+                   + (f"; {len(accepted_rows)} confirmed as never issued by the bank" if accepted_rows else ""))
                   if not bad else
                   f"{n} day(s) in {len(bad)} account(s) where the printed balance is not explained by the rows we hold: "
                   + "; ".join(f"{a['account']} ({a['owner']}) {len(a['breaks'])}" + "".join(tag(b) for b in a["breaks"]) for a in bad)
                   + " — see /api/health/continuity",
-                  "warn", explained=explained,
+                  "warn", explained=explained, accepted=accepted_rows,
                   accounts=[{"account": a["account"], "owner": a["owner"],
                              "breaks": [{"date": str(b["date"]), "missing": float(b["missing"]),
                                          **({"gap": b["gap"], "alerts": {"count": b["alerts"]["count"], "net_debit": float(b["alerts"]["net_debit"])}}
