@@ -53,7 +53,7 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     *_load_employer_salary_rules(),
     (re.compile(r"salary|sal\s*credit|payroll|neft.*sal|sal.*neft|\bctc\b", re.I),
      Category("income", "salary")),
-    (re.compile(r"dividend|div\s*pay|int(erest)?\s*(credit|paid|earned)", re.I),
+    (re.compile(r"dividend|div\s*pay|int(erest)?\s*(credit|paid|earned)|\bint\.?\s*pd\b", re.I),   # "…:Int.Pd:01-07-2026 to 15-09-2026" is SBI's FD interest line
      Category("income", "interest_dividend")),
     # SBI FD internal interest transfers (INT TRF FRM <acct> TO <acct>)
     (re.compile(r"int\s+trf\s+frm\s+\d+\s+to\s+\d+", re.I),
@@ -169,7 +169,8 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     (re.compile(r"swiggy|zomato|dominos|mcdonald|pizza|kfc|subway|burger\s+king"
                 r"|restaurant|cafe|barbeque|dineout|eazydiner", re.I),
      Category("food", "dining_out")),
-    (re.compile(r"bigbasket|big\s+basket|amazon\s+fresh|dmart|d-mart|reliance\s+smart"
+    (re.compile(r"country\s*delight|countrydelight|milk\s*basket|milkbasket|mother\s*dairy|\bamul\b|akshayakalpa|\bnandini\b|heritage\s*fresh|\bdairy\b|\bmilk\b"
+                r"|bigbasket|big\s+basket|amazon\s+fresh|dmart|d-mart|reliance\s+smart"
                 r"|more\s+supermarket|grocery|zepto|blinkit|dunzo|swiggy\s+instamart"
                 r"|nature[''s]*\s+basket|licious|fresh\s+to\s+home"
                 r"|\bsafal\b|haldiram|bikaner\s*misthan|bikaner\s*sweets"
@@ -225,7 +226,8 @@ _RULES: list[tuple[re.Pattern, Category]] = [
      Category("medical", None)),
 
     # ── Shopping ─────────────────────────────────────────────────────────────
-    (re.compile(r"amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|tata\s*cliq"
+    (re.compile(r"shoppers\s*stop|shopperstop|westside|pantaloons|max\s*fashion|reliance\s*trends|lifestyle\s*stores|decathlon"
+                r"|amazon|flipkart|myntra|ajio|nykaa|meesho|snapdeal|tata\s*cliq"
                 r"|reliance\s*digital|croma|vijay\s*sales|ikea"
                 r"|caratlane|carat\s*lane|tanishq|kalyan\s*jewel|malabar\s*gold"
                 r"|royaloak|royal\s*oak|pepperfry|urban\s*ladder|home\s*centre"

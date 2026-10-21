@@ -26,6 +26,12 @@ def _owner_ids(db: Session, owner_id: Optional[str]) -> list[str] | None:
     return [owner_id]
 
 
+def _account_label(a: Account) -> str:
+    """"HDFC …1632 (user)": what a person recognises, not the row id."""
+    ref = (a.account_ref or "")[-4:]
+    return f"{a.institution or a.account_type}{' …' + ref if ref else ''} ({a.owner_id})"
+
+
 @router.get("/")
 def list_transactions(
     db:       Annotated[Session, Depends(get_db)],
@@ -36,7 +42,7 @@ def list_transactions(
     limit:     int = 200,
     offset:    int = 0,
 ):
-    q = db.query(Transaction).join(Account, Transaction.account_id == Account.id)
+    q = db.query(Transaction, Account).join(Account, Transaction.account_id == Account.id)
 
     ids = _owner_ids(db, owner_id)
     if ids:
@@ -57,8 +63,10 @@ def list_transactions(
             {
                 "id":               str(t.id),
                 "account_id":       str(t.account_id),
+                "account":          _account_label(a),
                 "date":             t.date,
                 "amount":           float(t.amount),
+                "is_units":         t.subcategory == "demat_movement",       # a share count from a depository alert, not rupees
                 "type":             t.transaction_type,
                 "description":      t.description,
                 "category":         t.category,
@@ -67,7 +75,7 @@ def list_transactions(
                 "needs_review":     bool(t.needs_review),
                 "balance_after":    float(t.balance_after) if t.balance_after else None,
             }
-            for t in rows
+            for t, a in rows
         ],
     }
 

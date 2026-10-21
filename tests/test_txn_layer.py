@@ -28,6 +28,15 @@ class PayeeKey(unittest.TestCase):
         self.assertIsNone(payee_key("IN22606125428144"))
         self.assertIsNone(payee_key(None))
 
+    def test_the_other_upi_narration_formats_have_a_payee_too(self):
+        """A format that is not read can never be labelled or reviewed: these sat in 'other' for ever."""
+        self.assertEqual(payee_key("UPIAR/104130365739/DR/BEEJAP UR/HDFC/countrydelight"), "BEEJAPUR|COUNTRYDEL")
+        self.assertEqual(payee_key("UPIAB/608522443359/CR/SUSHIL D/KKBK/9718800084@kot"), "SUSHILD")
+        self.assertEqual(payee_key("UPI/P2A/854119355796/P M MOHAN/ICIC/Payment/"), "PMMOHAN")
+        self.assertEqual(payee_key("UPI/P2M/110335753600/KRMANG /bill/ICICI Bank"), "KRMANG")
+        self.assertEqual(payee_key("IN22535102998556 UPI-MOHD YASEEN-7889279538@AXL-SBIN0013"), "MOHDYASEEN")
+        self.assertIsNone(payee_key("UPI/REF/102870082421/CR"))
+
     def test_imps_and_neft(self):
         self.assertEqual(payee_key("IMPS-623008893516-INNOFINSOLUTIONSPRIVATELIMITED-xx"), "INNOFINSOLUTIONSPRIVATELIMITED")
         self.assertEqual(payee_key("NEFT CR-UTIB0001394-INNOFIN SOLUTIONS PRIVATE LI"), "INNOFINSOLUTIONSPRIVATELI")
@@ -158,6 +167,12 @@ class MerchantRules(unittest.TestCase):
         self.assertEqual(self.cat("UPI/DR/1/GROFERS /utib/grofersind/Pay")[0], "food")
         self.assertEqual(self.cat("UPI/DR/1/Central /SBIN/incometax./MOPS")[0], "taxes")
         self.assertEqual(self.cat("UPI/DR/1/Urban Co/YESB/paytm-urba/Pay")[0], "housing")
+
+    def test_milk_interest_and_department_stores(self):
+        self.assertEqual(self.cat("UPIAR/104130365739/DR/BEEJAP UR/HDFC/countrydelight"), ("food", "groceries"))
+        self.assertEqual(self.cat("UPI/DR/1/Milkbasket/YESB/milkbasket@/Pay")[0], "food")
+        self.assertEqual(self.cat("352702010716026:Int.Pd:01-07- 2026 to 15-09-2026"), ("income", "interest_dividend"))   # SBI FD interest, was 'other'
+        self.assertEqual(self.cat("UPIAR/655950598885/DR/Shopper s/YESB/shopperstophar")[0], "shopping")
 
     def test_regular_emi_is_the_ach_mandate_and_other_loan_payments_are_prepayments(self):
         self.assertEqual(self.cat("ACHD-HDFCBANKLTD-456408135"), ("emi", "emi_regular"))

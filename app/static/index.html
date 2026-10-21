@@ -1720,9 +1720,11 @@ function renderTxPage() {
     return `<tr>
       <td style="color:#64748b;white-space:nowrap">${fmtDate(t.date)}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.description}">${t.description}</td>
-      <td>${catBadge(t.category)}</td>
-      <td style="color:#475569;font-size:12px">${t.account_id||'—'}</td>
-      <td style="text-align:right;font-family:monospace;font-weight:600;color:${debit?'#f87171':'#4ade80'}">${debit?'−':'+'} ₹${fmt(Math.abs(t.amount))}</td>
+      <td>${catBadge(t.category)}${t.subcategory && !t.is_units ? `<span style="color:#64748b;font-size:11px;margin-left:6px">${t.subcategory}</span>` : ''}${t.needs_review ? '<span title="Guessed: label this payee above" style="color:#f59e0b;font-size:11px;margin-left:6px">?</span>' : ''}</td>
+      <td style="color:#475569;font-size:12px;white-space:nowrap">${t.account||'—'}</td>
+      ${t.is_units
+        ? `<td style="text-align:right;font-family:monospace;color:#94a3b8" title="Shares credited to the demat account: a count, not money">${debit?'−':'+'} ${fmt(Math.abs(t.amount))} shares</td>`
+        : `<td style="text-align:right;font-family:monospace;font-weight:600;color:${debit?'#f87171':'#4ade80'}">${debit?'−':'+'} ₹${fmt(Math.abs(t.amount))}</td>`}
     </tr>`;
   }).join('') : `<tr class="empty-row"><td colspan="5">No transactions found</td></tr>`;
 

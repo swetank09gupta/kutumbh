@@ -8,8 +8,13 @@ from typing import Iterable, Optional
 # what tells "Bank Acc" payees or "DRAVIT G" apart, so it is part of the key when it has letters.
 _SBI_UPI = re.compile(r"^UPI/(?:DR|CR)/\d+/([^/]+)/[^/]*/([^/]*)/", re.I)
 
+# HDFC prints "UPIAR/<utr>/DR/<PAYEE>/<bank>/<vpa>/<note>" (and UPIAB/…/CR/… for credits); SBI also prints "UPI/P2A|P2M|P2P/<utr>/<PAYEE>/<bank>/<note>".
+# The payee is what a label is remembered by, so a format that is not read here can never be labelled or reviewed. A leading "IN<digits> " is a reference.
+_HDFC_UPIA = re.compile(r"^UPIA[RB]/\d+/(?:DR|CR)/([^/]+)/[^/]*/([^/]*)", re.I)
+_SBI_UPI_KIND = re.compile(r"^UPI/(?:P2A|P2M|P2P)/\d+/([^/]+)/", re.I)
+
 _PAYEE_PATTERNS = [
-    re.compile(r"^UPI-([^-]+)-", re.I),                              # HDFC: UPI-<PAYEE>-<vpa>-<ifsc>-<utr>
+    re.compile(r"^(?:IN\d+\s+)?UPI-([^-]+)-", re.I),                # HDFC: UPI-<PAYEE>-<vpa>-<ifsc>-<utr>
     re.compile(r"^IMPS[-/](?:P2A|P2P|P2M)?/?-?\d+[-/]([^-/]+)", re.I),
     re.compile(r"^NEFT\s*(?:CR|DR)?-?[A-Z0-9]+-([^-]+)", re.I),
 ]
@@ -30,6 +35,19 @@ def payee_key(description: Optional[str]) -> Optional[str]:
         handle = re.sub(r"[^A-Z]", "", m.group(2).split("@")[0].upper())[:10]
         if len(name) >= 4 and name.count("X") < len(name) / 2:
             return (name + ("|" + handle if len(handle) >= 4 else ""))[:60]
+        return None
+    m = _HDFC_UPIA.search(d)
+    if m:
+        name = re.sub(r"[^A-Z]", "", m.group(1).upper())
+        handle = re.sub(r"[^A-Z]", "", m.group(2).split("@")[0].upper())[:10]
+        if len(name) >= 4 and name.count("X") < len(name) / 2:
+            return (name + ("|" + handle if len(handle) >= 4 else ""))[:60]
+        return None
+    m = _SBI_UPI_KIND.search(d)
+    if m:
+        name = re.sub(r"[^A-Z]", "", m.group(1).upper())
+        if len(name) >= 4 and name.count("X") < len(name) / 2:
+            return name[:40]
         return None
     for pat in _PAYEE_PATTERNS:
         m = pat.search(d)
