@@ -92,7 +92,9 @@ def _emergency_fund_check(db: Session, owner_id: str) -> list[Recommendation]:
     monthly_exp = _monthly_expenses(db, "family")
     goal = (db.query(Goal).filter(Goal.goal_type.in_(["emergency", "emergency_fund"])).first())
     if goal is not None:
-        liquid, target = float(goal.current_corpus or 0), float(goal.target_amount or 0)
+        proj = next((p for p in project_all_goals(db) if p.goal_id == str(goal.id)), None)
+        liquid = float(goal.current_corpus or 0)
+        target = float(proj.inflation_adj_target) if proj is not None else float(goal.target_amount or 0)   # derived: months of spending
     else:
         nw = _latest_networth(db, "family")
         liquid = float((nw.bank_balance if nw else ZERO) or ZERO)
@@ -174,18 +176,29 @@ def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
 
     equity_pct = float((nw.equity_value + nw.mf_value) / financial * 100)
     debt_pct   = float((nw.ppf_value + nw.fd_value) / financial * 100)
+    rec = _equity_share_for_goals(db, owner_id)            # what the goals' horizons suggest (docs/PLANNING.md), in percent
+    lo, hi = max(0.0, rec - 10), rec + 10
 
     recs = []
-    if equity_pct < 40:
+    if equity_pct < lo:
         recs.append(Recommendation(
             priority="medium",
             category="investment",
             title="Low Equity Allocation",
             detail=(f"Equity and funds are {equity_pct:.0f}% of financial assets "
-                    f"(bank, equity, MF, PPF, FD; real estate excluded). Ideal: 50–70% for long-term goals."),
+                    f"(bank, equity, MF, PPF, FD; real estate excluded). Your goals' horizons suggest about {rec:.0f}% "
+                    f"(emergency money 0%, goals 10+ years away 75%, nearer ones less)."),
             action="Increase equity SIPs gradually. Consider index funds for low-cost exposure.",
         ))
-    if debt_pct > 60:
+    if equity_pct > hi:
+        recs.append(Recommendation(
+            priority="medium",
+            category="investment",
+            title="High Equity Allocation for Your Horizons",
+            detail=f"Equity and funds are {equity_pct:.0f}% of financial assets; your goals' horizons suggest about {rec:.0f}%.",
+            action="Direct new savings to debt/PPF for the nearer goals, or rebalance when a goal is within five years.",
+        ))
+    if debt_pct > max(60.0, 100 - rec + 20):
         recs.append(Recommendation(
             priority="low",
             category="investment",
@@ -194,6 +207,15 @@ def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
             action="Rebalance: shift some FD maturity proceeds to equity mutual funds.",
         ))
     return recs
+
+
+def _equity_share_for_goals(db: Session, owner_id: str) -> float:
+    """Percent of equity the goals' horizons call for (app.planning.allocation.goals_equity_share), for the household's risk appetite."""
+    from app.models.schemas import Owner
+    from app.planning import allocation
+    risk = next((o.risk_appetite for o in db.query(Owner).filter(Owner.id == "user")), None)
+    items = [(float(p.current_corpus or 0), p.months_to_goal / 12, p.goal_type) for p in project_all_goals(db, owner_id)]
+    return round(allocation.goals_equity_share(items, risk) * 100, 1)
 
 
 def _emi_burden_check(db: Session, owner_id: str) -> list[Recommendation]:
@@ -598,38 +620,20 @@ def _direct_equity_fragmentation_check(db: Session, owner_id: str) -> list[Recom
 
 
 def _retirement_target_sanity_check(db: Session, owner_id: str) -> list[Recommendation]:
-    """
-    Compare retirement goal target_amount to (annual lifestyle expense × 25).
-    If goal is < 70% of rule-of-thumb need → flag as under-targeted.
-    """
-    annual_exp = _annual_lifestyle_expense(db, months=6)
-    if annual_exp <= 0:
+    """Only when the target in use is YOUR figure (not the derived one): flag it if it is well below what the household's spending,
+    inflation and longevity need (docs/PLANNING.md). The derived target is already what the goal uses."""
+    proj = next((p for p in project_all_goals(db) if p.goal_type == "retirement"), None)
+    if proj is None or proj.ideal_target_today is None or proj.target_source != "typed":
         return []
-    rule_of_thumb = annual_exp * Decimal(25)
-
-    # Sum all household retirement goal target_amounts (today's money)
-    ret_goals = db.query(Goal).filter(Goal.goal_type == "retirement").all()
-    if not ret_goals:
+    if (proj.typed_target_today or 0) >= 0.8 * proj.ideal_target_today:
         return []
-    target_sum = sum((Decimal(str(g.target_amount or 0)) for g in ret_goals), Decimal(0))
-
-    if target_sum >= rule_of_thumb * Decimal("0.7"):
-        return []
-    gap = rule_of_thumb - target_sum
     return [Recommendation(
         priority="medium",
         category="goal",
-        title="Retirement Target Under-Funded vs Current Expenses",
-        detail=(
-            f"Household retirement target is ₹{float(target_sum):,.0f} (today's money), "
-            f"but at your current ₹{float(annual_exp)/100000:.1f}L/yr lifestyle, the "
-            f"25× rule of thumb suggests ₹{float(rule_of_thumb):,.0f}. "
-            f"Shortfall: ₹{float(gap):,.0f}."
-        ),
-        action=(
-            "Bump retirement goal target_amount in config/accounts.yml. "
-            "Either increase your own target, or split between you + spouse."
-        ),
+        title="Retirement Target Under-Funded vs What Your Spending Needs",
+        detail=(f"Your retirement figure is ₹{proj.typed_target_today:,.0f} (today's money). From your spending, inflation and lifespan the "
+                f"planner derives ₹{proj.ideal_target_today:,.0f} for an 80% chance the money lasts."),
+        action="Untick 'use my figures' on the goal to plan on the derived target, or raise your own.",
     )]
 
 

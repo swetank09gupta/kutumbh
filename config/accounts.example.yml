@@ -147,3 +147,7 @@ goals:
     target_date:          "2040-01-01"
     expected_return_rate: 8.0
     notes:                "Covers parents' senior care + major medical events"
+
+# Family members whose money moves in or out of the household accounts (parents etc.): labelled transfer / family, never income or spending.
+family_names: []
+#  - "Parent Full Name"

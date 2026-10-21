@@ -53,6 +53,13 @@ class GoalUpdate(BaseModel):
     notes:                Optional[str]   = None
 
 
+def _plan_fields(p) -> dict:
+    """What the planner adds to a projection (docs/PLANNING.md): the chance, the derived target beside the typed one, the inflation used."""
+    return {"chance": p.chance, "sip_for_90": p.sip_for_90, "ideal_target_today": p.ideal_target_today,
+            "typed_target_today": p.typed_target_today, "target_source": p.target_source,
+            "inflation_used_pct": p.inflation_used_pct, "plan_note": p.plan_note}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 @router.get("/")
 def list_goals(
@@ -79,6 +86,7 @@ def list_goals(
                 "on_track":             p.on_track,
                 "current_monthly_sip":  p.current_monthly_sip,
                 "effective_return_pct": p.effective_return_pct,
+                **_plan_fields(p),
             })
         out.append(d)
     return out
@@ -173,6 +181,7 @@ def goal_projections(
             "sip_stepup_source":    p.sip_stepup_source,
             "glide_active":         p.glide_active,
             "blended_components":   p.blended_components,
+            **_plan_fields(p),
         }
         for p in projections
     ]
@@ -221,53 +230,27 @@ def goal_scenarios(
     db:      Annotated[Session, Depends(get_db)],
 ):
     """
-    Side-by-side projections for a single goal under four scenarios:
-      base        — step-up + glide as configured
-      no_stepup   — step-up forced to 0
-      no_glide    — glide path disabled
-      flat        — both off (textbook flat-SIP, flat-return projection)
+    Side-by-side projections for a single goal under four market assumptions (docs/PLANNING.md):
+      base        — live market data (bond yield, valuation, inflation), savings rise 8% a year
+      cautious    — weaker returns, higher inflation
+      hopeful     — stronger returns, lower inflation
+      no_stepup   — base market, savings flat (no yearly rise)
     """
-    from copy import copy
-    from app.engine.goals import _scope, project_goal
-    from app.engine.networth import real_owners
-    from app.engine.sip import sip_stepup_pct
-
+    from app.planning import goal_plan
     goal = db.query(Goal).filter_by(id=goal_id).first()
     if not goal:
         raise HTTPException(404, "Goal not found")
-
-    owner_ids = _scope(goal, [o.id for o in real_owners(db)])
-    detected = sip_stepup_pct(db, owner_ids)
-    # the scenarios vary step-up and glide path for the SIP the household really makes today
-    current_sip = next((p.current_monthly_sip for p in project_all_goals(db) if p.goal_id == str(goal.id)), 0.0)
-
-    def _variant(disable_stepup: bool, disable_glide: bool):
-        g = copy(goal)
-        if disable_stepup:
-            g.sip_stepup_pct = 0
-        if disable_glide:
-            g.glide_enabled = False
-        p = project_goal(g, current_sip, db, owner_ids=owner_ids,
-                         detected_stepup_pct=None if disable_stepup else detected)
-        return {
-            "monthly_sip_needed":   p.monthly_sip_needed,
-            "projected_corpus":     p.projected_corpus,
-            "inflation_adj_target": p.inflation_adj_target,
-            "effective_return_pct": p.effective_return_pct,
-            "sip_stepup_pct":       p.sip_stepup_pct,
-            "glide_active":         p.glide_active,
-        }
-
-    return {
-        "goal_id":    str(goal.id),
-        "name":       goal.name,
-        "scenarios": {
-            "base":       _variant(False, False),
-            "no_stepup":  _variant(True,  False),
-            "no_glide":   _variant(False, True),
-            "flat":       _variant(True,  True),
-        },
-    }
+    variants = {"base": ("base", goal_plan.DEFAULT_STEPUP), "cautious": ("cautious", goal_plan.DEFAULT_STEPUP),
+                "hopeful": ("hopeful", goal_plan.DEFAULT_STEPUP), "no_stepup": ("base", 0.0)}
+    out = {}
+    for key, (scenario, stepup) in variants.items():
+        p = next((x for x in project_all_goals(db, scenario=scenario, stepup=stepup) if x.goal_id == str(goal.id)), None)
+        if p is None:
+            raise HTTPException(404, "Goal not found")
+        out[key] = {"monthly_sip_needed": p.monthly_sip_needed, "projected_corpus": p.projected_corpus,
+                    "inflation_adj_target": p.inflation_adj_target, "effective_return_pct": p.effective_return_pct,
+                    "sip_stepup_pct": round(stepup * 100, 1), "chance": p.chance, "inflation_used_pct": p.inflation_used_pct}
+    return {"goal_id": str(goal.id), "goal_name": goal.name, "scenarios": out}
 
 
 @router.post("/refresh-corpus")

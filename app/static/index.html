@@ -756,24 +756,6 @@
         <div class="skel-card"><span class="skel" style="width:50%;height:14px"></span><span class="skel" style="width:100%;height:8px"></span><span class="skel" style="width:35%"></span></div>
       </div>
 
-      <div class="card" id="plan-card" style="padding:0;margin-bottom:16px">
-        <div style="padding:16px 20px 12px;border-bottom:1px solid #1e2738;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <div>
-            <div style="font-weight:600;color:#f1f5f9">Plan — what your goals really need <span id="plan-sub" style="font-size:12px;color:#64748b;font-weight:400"></span></div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px">Derived from your spending and 15–20 years of real market history (simulated, 5,000 paths). Ranges and odds, not promises. <a href="https://github.com/swetank09gupta/kutumbh/blob/master/docs/PLANNING.md" target="_blank" style="color:#a5b4fc">Method and sources</a></div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:#94a3b8">
-            Market
-            <select id="plan-scenario" onchange="loadPlan()" style="background:#0f1117;color:#e2e8f0;border:1px solid #1e2738;border-radius:6px;padding:4px 6px">
-              <option value="cautious">cautious</option><option value="base" selected>base</option><option value="hopeful">hopeful</option></select>
-            Yearly SIP rise
-            <select id="plan-stepup" onchange="loadPlan()" style="background:#0f1117;color:#e2e8f0;border:1px solid #1e2738;border-radius:6px;padding:4px 6px">
-              <option value="0">0%</option><option value="0.05">5%</option><option value="0.08" selected>8%</option><option value="0.10">10%</option></select>
-          </div>
-        </div>
-        <div id="plan-body" style="padding:14px 20px;font-size:13px;color:#94a3b8">Loading the plan… (the first run reads market history and takes a few seconds)</div>
-      </div>
-
       <div class="card" style="padding:0;margin-bottom:16px">
         <div style="padding:16px 20px 12px;border-bottom:1px solid #1e2738">
           <div class="card-title" style="margin-bottom:0">SIP Projections</div>
@@ -787,8 +769,8 @@
                 <th style="text-align:right">Inflation-Adj Target</th>
                 <th>Target Date</th>
                 <th style="text-align:right">SIP Needed / mo</th>
-                <th style="text-align:right" title="Effective return used in projection (blended XIRR of tagged holdings, or manual override)">Eff. Return</th>
-                <th>On Track</th>
+                <th style="text-align:right" title="Expected yearly return of the goal's mix after tax, from live bond yield, market valuation and each holder's tax regime (or your own figure if 'use my figures' is ticked)">Exp. Return</th>
+                <th title="Share of 3,000 simulated futures (real market history) in which today's saving covers the goal">Chance</th>
                 <th style="text-align:right">Gap</th>
               </tr>
             </thead>
@@ -1008,7 +990,7 @@
       </div>
       <div class="field full" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="goal-use-manual" style="width:auto;margin:0"/>
-        <label for="goal-use-manual" style="margin:0;font-weight:500">Use manual return (else auto-blend XIRR of tagged holdings, capped at category benchmark)</label>
+        <label for="goal-use-manual" style="margin:0;font-weight:500">Use my figures (target and return) instead of the derived ones — derived = from your spending, live market data, inflation and tax</label>
       </div>
       <div class="field">
         <label>SIP Step-up % / yr <span style="font-size:10px;color:#64748b">(blank = auto-detect)</span></label>
@@ -1329,7 +1311,7 @@ function nav(id, opts = {}) {
   if (id === 'sync')         { loadSyncStatus(); updateSyncRangeLabel(); }
   if (id === 'transactions') { loadMonthlySummary(); initExpPreset(); refreshGrafana('transactions'); loadReview(); loadAlerts(); }
   if (id === 'investments')  { loadHoldings(); loadPortfolioReturns(); refreshGrafana('investments'); }
-  if (id === 'goals')        { loadGoals(); loadPlan(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
+  if (id === 'goals')        { loadGoals(); loadProjections(); loadRecommendations(); loadRecoChanges(); loadCpi(); loadMarketSignals(); refreshGrafana('goals'); }
   if (id === 'accounts')     { loadAccounts(); }
   if (id === 'manual')       { loadMetalPrices(); loadMetalHistory().then(loadManualAssets); }
 }
@@ -2115,11 +2097,12 @@ async function loadGoals() {
   try {
     const goals = await apiFetch('/api/goals/');
     $('goals-grid').innerHTML = goals.length ? goals.map(g => {
-      const pct = g.target_amount > 0 ? Math.min(100, g.current_corpus / g.target_amount * 100) : 0;
+      const tgt = g.ideal_target_today != null ? g.ideal_target_today : g.target_amount;      // derived from spending, inflation and the date; yours stays visible
+      const pct = tgt > 0 ? Math.min(100, g.current_corpus / tgt * 100) : 0;
       const barColor = pct >= 80 ? '#22c55e' : pct >= 40 ? '#6366f1' : '#f59e0b';
       const sip = g.monthly_sip_needed > 0 ? `₹${fmt(g.monthly_sip_needed)}/mo` : (g.on_track ? 'none needed' : '—');
       const nowSip = g.current_monthly_sip != null ? `₹${fmt(g.current_monthly_sip)}/mo` : '—';
-      const trackBadge = g.on_track == null ? '' : `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.on_track ? '#052e16' : '#450a0a'};color:${g.on_track ? '#86efac' : '#fca5a5'}">${g.on_track ? 'on track' : 'behind'}</span>`;
+      const trackBadge = g.chance != null ? `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.chance>=0.8?'#052e16':g.chance>=0.5?'#422006':'#450a0a'};color:${g.chance>=0.8?'#86efac':g.chance>=0.5?'#fcd34d':'#fca5a5'}" title="Share of simulated futures in which today's saving covers this goal">${Math.round(g.chance*100)}% chance</span>` : g.on_track == null ? '' : `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.on_track ? '#052e16' : '#450a0a'};color:${g.on_track ? '#86efac' : '#fca5a5'}">${g.on_track ? 'on track' : 'behind'}</span>`;
       return `<div class="goal-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
           <div>
@@ -2132,89 +2115,38 @@ async function loadGoals() {
           </div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;margin-bottom:6px">
-          <span>₹${fmtCr(g.current_corpus)} / ₹${fmtCr(g.target_amount)}</span>
+          <span>₹${fmtCr(g.current_corpus)} / ₹${fmtCr(tgt)}</span>
           <span style="font-weight:600;color:${barColor}">${pct.toFixed(1)}%</span>
         </div>
         <div class="progress-track" style="margin-bottom:12px">
           <div class="progress-fill" style="width:${pct}%;background:${barColor}"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px">
-          <span style="color:#64748b">SIP needed: <span style="color:#a5b4fc;font-weight:600">${sip}</span></span>
+          <span style="color:#64748b" title="Monthly amount that gives an 80% chance across simulated futures">SIP for 80% chance: <span style="color:#a5b4fc;font-weight:600">${sip}</span></span>
           <span style="color:#475569">${g.target_date ? 'by ' + fmtDate(g.target_date) : 'keep topped up'}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:6px">
           <span style="color:#64748b">Investing now: <span style="color:#cbd5e1;font-weight:600">${nowSip}</span></span>
           ${trackBadge}
         </div>
-        ${g.inflation_adj_target ? `<div style="font-size:11px;color:#475569;margin-top:6px">Needs ₹${fmtCr(g.inflation_adj_target)} in future money (target above is today's money)</div>` : ''}
+        ${g.inflation_adj_target ? `<div style="font-size:11px;color:#475569;margin-top:6px">Needs ₹${fmtCr(g.inflation_adj_target)} when spending starts (target above is today's money${g.inflation_used_pct ? `, prices rising ${g.inflation_used_pct}% a year` : ''})</div>` : ''}
+        ${g.target_source === 'derived' && g.typed_target_today && Math.abs(g.typed_target_today - tgt) > 0.05 * tgt ? `<div style="font-size:11px;color:#64748b;margin-top:4px">Derived from your spending, inflation and dates · your figure was ₹${fmtCr(g.typed_target_today)}</div>` : ''}
+        ${g.plan_note ? `<div style="font-size:11px;color:#475569;margin-top:4px">${_esc(g.plan_note)}</div>` : ''}
       </div>`;
     }).join('') : `<div class="goal-card" style="color:#475569;font-style:italic">No goals yet. Add one above or check config/accounts.yml.</div>`;
   } catch (e) { $('goals-grid').innerHTML = `<div class="goal-card" style="color:#fca5a5">${e.message}</div>`; }
-}
-
-/* ── plan: goal numbers from real spending, real history and simulation (docs/PLANNING.md) ── */
-async function loadPlan() {
-  const body = $('plan-body');
-  if (!body) return;
-  const sc = $('plan-scenario').value, st = $('plan-stepup').value;
-  body.style.opacity = '0.6';
-  try {
-    const d = await apiFetch(`/api/plan/?scenario=${sc}&stepup=${st}`);
-    const f = d.facts, c = d.capacity, h = d.household_retirement, sp = f.spending;
-    const L = v => '₹' + (v / 100000).toFixed(1) + ' L', Cr = v => '₹' + (v / 10000000).toFixed(2) + ' cr';
-    const pct = x => (x * 100).toFixed(0) + '%';
-    const chance = x => `<b style="color:${x >= 0.8 ? '#4ade80' : x >= 0.5 ? '#fbbf24' : '#f87171'}">${pct(x)}</b>`;
-    const k = v => v == null ? '—' : '₹' + fmt(Math.round(v / 100) * 100);
-    $('plan-sub').textContent = `· ${sc} market · history ${d.history.from.slice(0, 7)} → ${d.history.to.slice(0, 7)}${d.history.stale ? ' (stale cache)' : ''}`;
-    const goalRows = d.goals.filter(g => g.type !== 'emergency').map(g => {
-      const a = g.at_your_plan, o = g.options || [];
-      return `<tr><td style="padding:6px 8px"><div style="color:#e2e8f0;font-weight:500">${_esc(g.name)}</div><div style="font-size:11px;color:#64748b">${fmtDate(g.target_date)} · ${g.years} yrs · mix ${Object.entries(g.mix_now).map(([x, v]) => x + ' ' + pct(v)).join(', ')}</div></td>
-        <td style="text-align:right;padding:6px 8px">${Cr(g.target_today)}<div style="font-size:11px;color:#64748b">today's money</div></td>
-        <td style="text-align:right;padding:6px 8px">${k(g.sip_now)}<div style="font-size:11px;color:#64748b">now / month</div></td>
-        <td style="text-align:right;padding:6px 8px">${chance(a.probability)}</td>
-        <td style="text-align:right;padding:6px 8px">${k(a.sip_for_confidence['80'])}<div style="font-size:11px;color:#64748b">80% · 90%: ${k(a.sip_for_confidence['90'])}</div></td></tr>
-        <tr><td colspan="5" style="padding:0 8px 8px"><details style="font-size:12px"><summary style="cursor:pointer;color:#a5b4fc">What if the target were different? (public cost ladders)</summary>
-          <table style="width:100%;margin-top:6px;font-size:12px">${o.map(x => `<tr><td style="padding:2px 6px">${_esc(x.label)}</td><td style="text-align:right">${Cr(x.target_today)}</td><td style="text-align:right">chance ${chance(x.probability_at_current)}</td><td style="text-align:right">SIP for 80%: <b>${k(x.sip_for_80)}</b></td></tr>`).join('')}</table>
-          <div style="color:#64748b;margin-top:4px">Inflation: yours ${g.inflation_yours_pct}% vs data ${g.inflation_data_pct}%${g.with_data_inflation ? ` → chance at the data rate ${pct(g.with_data_inflation.probability)}` : ''}.</div></details></td></tr>`;
-    }).join('');
-    const em = d.goals.find(g => g.type === 'emergency');
-    const retRows = h.scenarios.map(s => `<tr><td style="padding:4px 8px">Retire at ${s.retire_at_age}, money to ${s.to_age}</td>
-        <td style="text-align:right">${chance(s.probability)}</td>
-        <td style="text-align:right">${Cr(s.required_corpus_today_money['80'])} · ${Cr(s.required_corpus_today_money['90'])} · ${Cr(s.required_corpus_today_money['95'])}</td>
-        <td style="text-align:right">${k(s.sip_for_confidence['90'])}</td></tr>`).join('');
-    const pay = (c.loan ? c.loan.payoff : []).map(p => `<span style="margin-right:12px">+${k(p.extra_prepay_month)}/mo → <b>${(p.months / 12).toFixed(1)} yrs</b>, interest ${L(p.interest)}</span>`).join('');
-    const pv = (d.prepay_vs_invest || []).map(r => `<tr><td style="padding:2px 8px">${r.years} years</td>${Object.entries(r.mixes).map(([m, v]) => `<td style="text-align:right;padding:2px 8px">${m}: beats ${r.rate_pct}% in <b>${pct(v.beats_loan)}</b> (worst 1-in-10 ${(v.cagr_p10 * 100).toFixed(1)}%/yr)</td>`).join('')}</tr>`).join('');
-    const byMkt = Object.entries(h.by_market || {}).map(([m, rows]) => `<span style="margin-right:14px"><b style="color:#cbd5e1">${m}</b>: ${rows.map(r => `retire ${r.retire_at_age} → need ${Cr(r.required_today_money_90)}, SIP ${k(r.sip_for_90)}`).join('; ')}</span>`).join('');
-    body.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:14px">
-        <div><div style="font-size:11px;color:#64748b">Last 12 months</div>Income <b>${L(f.income_12m)}</b> · spent <b>${L(f.spending_12m)}</b> · saved ${f.savings_rate != null ? pct(f.savings_rate) : '—'}</div>
-        <div><div style="font-size:11px;color:#64748b">Recurring monthly surplus</div><b>${k(c.surplus_before_loan_prepay_month)}</b>${c.loan ? ` · after the loan ends <b>${k(c.loan.surplus_after_loan_month)}</b>` : ''}</div>
-        <div><div style="font-size:11px;color:#64748b">Cost of living in retirement</div><b>${L(sp.retirement_core)}</b>/yr <span style="color:#64748b">(spending minus loan EMI, term premium, child costs, family support)</span></div>
-        ${em ? `<div><div style="font-size:11px;color:#64748b">Emergency money</div><b>${em.months_covered.toFixed(1)} months</b> of spending (${L(em.corpus_now)}; 6 months = ${L(em.target_months_6)})</div>` : ''}
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:#64748b;font-size:11px;text-align:right"><th style="text-align:left;padding:4px 8px">Goal</th><th>Target</th><th>Saving now</th><th>Chance at today's plan</th><th>Monthly SIP for 80% chance</th></tr></thead><tbody>${goalRows}</tbody></table>
-      <div style="font-weight:600;color:#e2e8f0;margin:16px 0 4px">Household retirement <span style="font-size:11px;color:#64748b;font-weight:400">— your pool ${L(h.corpus_now)} + SIP ${k(h.sip_now)}/mo against ${L(h.spend_today)}/yr of living costs; targets you set sum to ${Cr(h.targets_you_set_sum_today)}</span></div>
-      <table style="width:100%;font-size:12px"><thead><tr style="color:#64748b;font-size:11px;text-align:right"><th style="text-align:left;padding:4px 8px"></th><th>Chance now</th><th>Corpus needed (today's money) at 80% · 90% · 95%</th><th>SIP for 90%</th></tr></thead><tbody>${retRows}</tbody></table>
-      <div style="font-size:12px;color:#94a3b8;margin-top:6px">${byMkt}</div>
-      ${c.loan ? `<div style="font-weight:600;color:#e2e8f0;margin:16px 0 4px">The loan: prepay or invest? <span style="font-size:11px;color:#64748b;font-weight:400">— ${L(c.loan.outstanding)} at ${c.loan.rate_pct}%, EMI ${k(c.loan.emi)}</span></div>
-      <div style="font-size:12px;margin-bottom:6px">${pay}</div>
-      <table style="width:100%;font-size:12px">${pv}</table>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">Prepaying earns ${c.loan.rate_pct}% for certain (and the repo rate is rising). Markets beat it roughly two times in three after tax, with real downside, so it is a risk choice, not a free win.</div>` : ''}
-      <div style="font-size:11px;color:#475569;margin-top:12px">${_esc(c.note)} History: ${d.history.months} months joint, ${d.history.equity_months} months equity. Not investment advice.</div>`;
-  } catch (e) {
-    body.innerHTML = `<span style="color:#fca5a5">${_esc(e.message || 'Plan unavailable')}</span>`;
-  }
-  body.style.opacity = '1';
 }
 
 async function loadProjections() {
   try {
     const rows = await apiFetch('/api/goals/projections');
     $('proj-tbody').innerHTML = rows.length ? rows.map(p => {
-      const srcLabel = p.return_source === 'blended' ? 'auto'
+      const srcLabel = p.return_source === 'market' ? 'market'
+                     : p.return_source === 'blended' ? 'auto'
                      : p.return_source === 'manual'  ? 'manual'
                      : 'default';
-      const srcColor = p.return_source === 'blended' ? '#86efac'
+      const srcColor = p.return_source === 'market' ? '#86efac'
+                     : p.return_source === 'blended' ? '#86efac'
                      : p.return_source === 'manual'  ? '#fcd34d'
                      : '#94a3b8';
       const retCell = p.effective_return_pct != null
@@ -2223,11 +2155,11 @@ async function loadProjections() {
         : '—';
       const chips = [];
       if (p.sip_stepup_pct && p.sip_stepup_pct > 0) {
-        const stepLbl = p.sip_stepup_source === 'auto' ? 'auto' : 'set';
+        const stepLbl = p.sip_stepup_source === 'auto' ? 'auto' : p.sip_stepup_source === 'assumed' ? 'assumed salary growth' : 'set';
         chips.push(`<span title="SIP step-up applied (${stepLbl})" style="font-size:10px;color:#a5b4fc;background:#1e1b4b;padding:1px 6px;border-radius:8px">↑ ${p.sip_stepup_pct.toFixed(1)}%</span>`);
       }
       if (p.glide_active) {
-        chips.push(`<span title="Glide path active — return tapers near goal date" style="font-size:10px;color:#fcd34d;background:#422006;padding:1px 6px;border-radius:8px">glide</span>`);
+        chips.push(`<span title="Moves to the safer mix as the first payment nears" style="font-size:10px;color:#fcd34d;background:#422006;padding:1px 6px;border-radius:8px">glide</span>`);
       }
       const nameCell = `<div style="font-weight:500">${p.name}</div>${chips.length?`<div style="display:flex;gap:4px;margin-top:3px">${chips.join('')}</div>`:''}`;
       const nameLink = `<a href="javascript:void(0)" onclick="openScenarios('${p.goal_id}','${(p.name||'').replace(/'/g,"\\'")}')" style="color:#a5b4fc;text-decoration:none;font-weight:500" title="See side-by-side scenarios">${p.name}</a>`;
@@ -2239,8 +2171,8 @@ async function loadProjections() {
         <td style="color:#64748b">${fmtDate(p.target_date)}</td>
         <td style="text-align:right;font-weight:600;color:#a5b4fc">${p.monthly_sip_needed!=null?'₹'+fmt(p.monthly_sip_needed):'—'}</td>
         <td style="text-align:right">${retCell}</td>
-        <td><span class="badge" style="background:${p.on_track?'#052e16':'#450a0a'};color:${p.on_track?'#86efac':'#fca5a5'}">${p.on_track?'✓ Yes':'✗ No'}</span></td>
-        <td style="text-align:right;font-family:monospace;color:${p.gap>0?'#f87171':'#4ade80'}">${p.gap!=null?(p.gap>0?'−':'+')+' ₹'+fmtCr(Math.abs(p.gap)):'—'}</td>
+        <td>${p.chance != null ? `<span class="badge" style="background:${p.chance>=0.8?'#052e16':p.chance>=0.5?'#422006':'#450a0a'};color:${p.chance>=0.8?'#86efac':p.chance>=0.5?'#fcd34d':'#fca5a5'}" title="${_esc(p.plan_note||'')}">${Math.round(p.chance*100)}%</span>` : `<span class="badge" style="background:${p.on_track?'#052e16':'#450a0a'};color:${p.on_track?'#86efac':'#fca5a5'}">${p.on_track?'✓ Yes':'✗ No'}</span>`}</td>
+        <td style="text-align:right;font-family:monospace;color:${p.gap<0?'#f87171':'#4ade80'}">${p.gap!=null?(p.gap<0?'−':'+')+' ₹'+fmtCr(Math.abs(p.gap)):'—'}</td>
       </tr>`;
     }).join('') : `<tr class="empty-row"><td colspan="8">No projections</td></tr>`;
   } catch (e) { $('proj-tbody').innerHTML = `<tr class="empty-row"><td colspan="8" style="color:#f87171">${e.message}</td></tr>`; }
@@ -2891,18 +2823,18 @@ async function openScenarios(goalId, name) {
     const data = await apiFetch(`/api/goals/scenarios/${goalId}`);
     const s = data.scenarios;
     const labels = {
-      base:      ['Base',            'step-up + glide as configured'],
-      no_stepup: ['No step-up',      'flat SIP each year'],
-      no_glide:  ['No glide',        'return stays flat till goal date'],
-      flat:      ['Flat (textbook)', 'no step-up, no glide'],
+      base:      ['Base',     'live bond yield, valuation and inflation; savings rise 8% a year'],
+      cautious:  ['Cautious', 'weaker returns, higher inflation'],
+      hopeful:   ['Hopeful',  'stronger returns, lower inflation'],
+      no_stepup: ['No yearly rise', 'base market, flat SIP'],
     };
-    const order = ['base','no_stepup','no_glide','flat'];
+    const order = ['base','cautious','hopeful','no_stepup'];
     const target = s.base.inflation_adj_target;
     const cells = order.map(k => {
       const v   = s[k];
       const lbl = labels[k];
       const stepBadge  = v.sip_stepup_pct > 0 ? `<span style="font-size:10px;color:#a5b4fc;background:#1e1b4b;padding:1px 6px;border-radius:8px;margin-right:4px">↑ ${v.sip_stepup_pct}%</span>` : '';
-      const glideBadge = v.glide_active ? `<span style="font-size:10px;color:#fcd34d;background:#422006;padding:1px 6px;border-radius:8px">glide</span>` : '';
+      const glideBadge = v.chance != null ? `<span style="font-size:10px;color:#cbd5e1;background:#1e2738;padding:1px 6px;border-radius:8px">${Math.round(v.chance * 100)}% chance today</span>` : '';
       const covers = v.projected_corpus >= target;
       return `<div style="background:#0f1923;border:1px solid ${k==='base'?'#6366f1':'#1e2738'};border-radius:10px;padding:14px">
         <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">${lbl[0]}</div>
@@ -2921,7 +2853,7 @@ async function openScenarios(goalId, name) {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">${cells}</div>
       <div style="margin-top:14px;font-size:11.5px;color:#475569;line-height:1.5">
-        Step-up grows your monthly SIP each year. Glide path tapers the return rate toward 8% over the last 3 years before the goal date — a conservative de-risking assumption.
+        SIP needed is the monthly amount that gives an 80% chance across 3,000 simulated futures built from real market history; the chance shown is what today's SIP gives. Returns, inflation and tax are derived from live data and each holder's regime (see docs/PLANNING.md).
       </div>`;
   } catch (e) {
     $('scenarios-body').innerHTML = `<div style="color:#f87171">${e.message}</div>`;
@@ -3126,6 +3058,7 @@ async function loadLoan() {
       <div style="font-size:13px;margin-bottom:6px"><b>₹${fmt(L.principal)}</b> outstanding on ${fmtDate(L.as_of)} · ${L.rate}% · EMI ₹${fmt(L.emi)} · ${L.emis_left_now} EMIs left${p ? ` → ends ${mon(p.ends)}, ${lakh(p.interest_remaining)} interest still to pay` : ''}
         <span style="color:#64748b"> (HDFC's letter says ${L.anchor.emis_left} left on ${fmtDate(L.anchor.as_on)}${p && p.matches_letter ? '; the schedule agrees' : '; the schedule DISAGREES'})</span></div>
       <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Since ${mon(s.first_letter)}: ${lakh(s.prepaid_total)} prepaid; the loan was due to end ${mon(s.ended_then)}, now ${mon(s.ends_now)}.</div>
+      ${L.invest_comparison ? (() => { const c = L.invest_comparison, m = c.mixes, pc = v => Math.round(v * 100) + '%'; return `<div style="font-size:12px;color:#94a3b8;margin-bottom:8px"><b style="color:#cbd5e1">Prepay or invest?</b> Prepaying earns ${c.loan_rate_pct}% for certain. After tax, debt funds/FDs earn about ${c.debt_after_tax_pct}% (you pay ${c.borrower_debt_tax_pct}% on that), so prepaying beats them. A 60/40 mix beat the loan in ${pc(m['60/40 equity/debt'].beats_loan)} of ${c.years}-year simulated futures and all-equity in ${pc(m['all equity'].beats_loan)}, with a 1-in-10 bad case of ${m['60/40 equity/debt'].p10_pct.toFixed(1)}% a year: a risk choice, not a free win.</div>`; })() : ''}
       ${f ? `<div style="font-size:12px;border:1px dashed #475569;border-radius:8px;padding:8px 10px;margin-bottom:8px"><b style="color:#fcd34d">Forecast</b> — RBI repo is ${f.repo_now}%; this loan has followed repo + ${f.spread}% in all ${L.repo.letters.length} letters, so expect <b>${f.rate_expected}%</b> (now ${f.rate_now}%) at the next reset${L.reset_lag_evidence.length ? `. Last time the rate changed with the instalment ${L.reset_lag_evidence[0].days} days after the repo move` : ''}.
         ${f.if_emi_unchanged ? `EMI unchanged: end month ${f.if_emi_unchanged.extra_instalments ? `moves ${f.if_emi_unchanged.extra_instalments} EMIs later (${mon(f.if_emi_unchanged.ends)})` : 'stays'}, ₹${fmt(f.if_emi_unchanged.extra_interest)} more interest over the rest of the loan.` : ''}
         ${f.if_end_date_unchanged ? `The EMI that keeps the end month: ₹${fmt(f.if_end_date_unchanged.emi)} (now ₹${fmt(f.if_end_date_unchanged.emi_now)}).` : ''}</div>` : ''}

@@ -43,13 +43,15 @@ DEFAULT_RETURN_PCT = 12.0
 
 def goal_tags(goal) -> list[str]:
     """
-    The holding goal_tag(s) that fund a goal. "Your Retirement" (tag retirement) and "Wife's
-    Retirement" (tag wife_retirement) draw on different holdings; every other goal uses its type.
+    The holding goal_tag(s) that fund a goal. A family retirement goal draws on both retirement tags (retirement and
+    wife_retirement); a personal one on its own; every other goal uses its type.
     One definition for corpus, blended return and current SIP, so they cannot drift apart.
     """
     gt = (goal.goal_type or "").strip()
     owner = (goal.owner_id or "").lower()
     if gt == "retirement":
+        if owner in ("", "family"):
+            return ["retirement", "wife_retirement"]                    # one household retirement draws on everything tagged for it
         if owner in ("wife", "spouse", "partner") or "wife" in (goal.name or "").lower():
             return ["wife_retirement"]
         return ["retirement"]

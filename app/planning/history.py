@@ -77,7 +77,8 @@ def load(refresh: bool = False, today: date | None = None) -> dict:
             stale = True
     joint = frame(cached["navs"], today)
     equity_long = month_end_returns(cached["navs"]["equity"], today)
-    return {"joint": joint, "equity_long": equity_long,
+    debt_long = month_end_returns(cached["navs"]["debt"], today)
+    return {"joint": joint, "equity_long": equity_long, "debt_long": debt_long,
             "meta": {"fetched_on": cached["fetched_on"], "stale": stale, "months": len(joint),
                      "from": joint.index[0].date().isoformat(), "to": joint.index[-1].date().isoformat(),
                      "equity_months": len(equity_long), "equity_from": equity_long.index[0].date().isoformat(),

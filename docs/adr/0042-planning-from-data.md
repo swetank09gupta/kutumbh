@@ -1,6 +1,6 @@
 # ADR-0042: Goal numbers are derived from spending, real history and simulation; yours are shown beside them
 
-**Status:** Accepted
+**Status:** Accepted; the separate Plan card and `/api/plan` it describes were replaced by feeding the one goal calculator (ADR-0043)
 **Date:** 2026-10
 
 ## Context

@@ -1,0 +1,51 @@
+# Public parameters the planner turns into expectations (docs/PLANNING.md). Each has a value, a source and the day it was read there.
+# `judgement: true` marks a value that is the planner's reading, not a published figure (kept few, and named in the screen's notes).
+# Costs are in today's money (INR). Replace a value by adding a newer dated entry in the same list; the latest verified one is used.
+inflation:
+  cpi_latest_yoy:
+    - {value: 4.82, as_of: "2026-08", verified_on: 2026-10-21, source: "https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/"}
+  rbi_cpi_projection_fy27:
+    - {value: 5.2, as_of: "2026-10-07", verified_on: 2026-10-21, source: "https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/"}
+  medical_spread_pp:                       # medical trend over headline CPI: Aon 2026 trend 11.5%; Milliman 12% (2024), 13% (2025) vs general 4.2%
+    - {value: 6.0, verified_on: 2026-10-21, note: "moderated from the observed 7-9 points for a long horizon", source: "https://www.milliman.com/en/insight/measuring-medical-inflation-in-india"}
+  education_domestic_spread_pp:            # 10-12% (RetireWise) and an 8% modelling assumption (Basunivesh) over ~4.8% CPI
+    - {value: 4.0, verified_on: 2026-10-21, source: "https://www.retirewise.in/?p=5782"}
+  us_tuition_inflation:                    # College Board 2025-26 published prices: public in-state +2.9%, out-of-state +3.4%, private +4.0%
+    - {value: 3.5, verified_on: 2026-10-21, source: "https://research.collegeboard.org/media/pdf/Trends-in-College-Pricing-and-Student-Aid-2025-final_0.pdf"}
+  wedding_spread_pp:
+    - {value: 2.0, judgement: true, verified_on: 2026-10-21, note: "no published index; lifestyle spending runs ahead of CPI"}
+  retirement_medical_weight:
+    - {value: 0.15, judgement: true, verified_on: 2026-10-21, note: "share of a retiree's spending that inflates at the medical rate"}
+earnings:
+  salary_growth_pct:                       # Aon 2026 India projection 9.0-9.1%
+    - {value: 9.0, verified_on: 2026-10-21, source: "https://www.aon.com/apac/in-the-press/asia-newsroom/2025/salaries-in-india-projected-to-increase-by-nine-percent-in-2026-aon-study"}
+  income_haircut:                          # how much of a working spouse's present income to count in the future (job and career risk)
+    - {value: 0.8, judgement: true, verified_on: 2026-10-21}
+returns:
+  fund_cost_pp:                            # regular-plan debt fund cost deducted from the 10-year yield
+    - {value: 0.3, judgement: true, verified_on: 2026-10-21}
+  gold_real_haircut:                       # share of gold's 15-year real return (above CPI) expected to continue; the sample holds a 2025-26 spike
+    - {value: 0.5, judgement: true, verified_on: 2026-10-21}
+  gold_real_cap_pp:
+    - {value: 2.0, judgement: true, verified_on: 2026-10-21}
+  equity_premium_floor_pp:
+    - {value: 1.5, judgement: true, verified_on: 2026-10-21}
+tax:
+  surcharge:                               # on income tax, both regimes (new regime capped at 25%): taxable income above -> rate %
+    - {above: 5000000, rate: 10, verified_on: 2026-10-21, source: "https://www.bankbazaar.com/tax/surcharge-on-income-tax.html"}
+    - {above: 10000000, rate: 15, verified_on: 2026-10-21, source: "https://www.bankbazaar.com/tax/surcharge-on-income-tax.html"}
+    - {above: 20000000, rate: 25, verified_on: 2026-10-21, source: "https://www.bankbazaar.com/tax/surcharge-on-income-tax.html"}
+costs_today:
+  education_abroad_ug_total:               # RetireWise 2026: engineering abroad 40-80 lakh over four years
+    - {value: 6000000, years: 4, age: 18, low: 4000000, high: 8000000, verified_on: 2026-10-21, source: "https://www.retirewise.in/?p=5782"}
+  education_abroad_pg_total:               # MBA abroad 75 lakh - 1.5 crore (2 years)
+    - {value: 11000000, years: 2, age: 24, low: 7500000, high: 15000000, verified_on: 2026-10-21, source: "https://www.retirewise.in/?p=5782"}
+  education_india_ug_total:                # private 8-25 lakh, IIT/NIT 6-14 lakh
+    - {value: 2000000, years: 4, age: 18, low: 800000, high: 2500000, verified_on: 2026-10-21, source: "https://www.retirewise.in/?p=5782"}
+  education_india_pg_total:                # IIM 25-28 lakh
+    - {value: 2700000, years: 2, age: 24, low: 2500000, high: 2800000, verified_on: 2026-10-21, source: "https://www.retirewise.in/?p=5782"}
+emergency:
+  months_single_income_with_loan:          # sources converge on 9-12 months for a single-income family; EMIs count as essential
+    - {value: 9, verified_on: 2026-10-21, source: "https://www.kotaklife.com/insurance-guide/savingstax/how-to-build-emergency-fund-in-india"}
+  months_floor:
+    - {value: 6, verified_on: 2026-10-21, source: "https://kuvera.in/blog/emergency-fund-guide-complete-guide-for-indians-with-examples-tips-faqs/"}

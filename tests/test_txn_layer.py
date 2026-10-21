@@ -170,5 +170,25 @@ class MerchantRules(unittest.TestCase):
         self.assertEqual(self.cat("UPI/DR/1/DEEPIKA /SBIN/deepika.ju/pho")[0], "other")
 
 
+class FamilyPayee(unittest.TestCase):
+    """Real narrations (names as in the owner's private config): a parent's cheque deposits funded most of a year's loan prepayments and
+    were counted as 'other income'; family money in or out is a transfer."""
+    NAMES = ["Pradeep Kumar Gupta"]
+
+    def test_cheque_deposit_and_rtgs_both_match(self):
+        from app.txn.normalize import is_family_payee
+        self.assertTrue(is_family_payee("CHQ DEP - CTS CLG1 - RAMPURUP: PRADEEP KUMAR GUPTA DAYA GUPTA :IDBI BANK", self.NAMES))
+        self.assertTrue(is_family_payee("RTGS CR-IBKL0001049-PRADEEP KUMAR GUPTA-SWETANK GUPTA-IBKLR9202606060007719", self.NAMES))
+        self.assertTrue(is_family_payee("CHQDEP-CTSCLG1-RAMPURUP:PRADEEPKUMARGUPTADAYAGUPTA", self.NAMES))
+
+    def test_a_stranger_with_a_shared_name_part_does_not(self):
+        from app.txn.normalize import is_family_payee
+        self.assertFalse(is_family_payee("UPI-PRADEEP KUMAR-9999@OKAXIS", self.NAMES))
+        self.assertFalse(is_family_payee("UPI-SWETANK GUPTA-SWETANK@OKHDFC", self.NAMES))
+        self.assertFalse(is_family_payee("anything", []))
+        self.assertFalse(is_family_payee(None, self.NAMES))
+        self.assertFalse(is_family_payee("PRADEEP KUMAR GUPTA", ["Al"]))                  # a name too short to be a safe key is ignored
+
+
 if __name__ == "__main__":
     unittest.main()

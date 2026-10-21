@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.etl.categorizer import categorise
 from app.llm import categorise as llm_cat
 from app.models.schemas import Account, InstrumentTrade, PayeeMemory, Transaction
-from app.txn.normalize import is_own_payee, payee_key
+from app.txn.normalize import is_family_payee, is_own_payee, payee_key
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +71,19 @@ def _owner_names() -> list[str]:
         return []
 
 
+def _family_names() -> list[str]:
+    """Private list in config/accounts.yml (`family_names`): parents etc. Their money in or out is a transfer, not income or spending."""
+    try:
+        from app.config import settings
+        return [n for n in (settings.get_accounts_config().get("family_names") or []) if n]
+    except Exception:
+        return []
+
+
 def _apply_rules_and_memory(db: Session, memory: dict[str, PayeeMemory]) -> dict[str, int]:
     stats = defaultdict(int)
     names = _owner_names()
+    family = _family_names()
     q = (db.query(Transaction).join(Account, Transaction.account_id == Account.id)
          .filter(Account.account_type == "bank"))
     for t in q:
@@ -85,6 +95,8 @@ def _apply_rules_and_memory(db: Session, memory: dict[str, PayeeMemory]) -> dict
         category, sub = cat.category, cat.subcategory
         if category not in ("investment", "income", "emi", "insurance") and is_own_payee(t.raw_description or desc, names):
             category, sub = "transfer", "own_account"
+        elif category not in ("investment", "income", "emi", "insurance") and is_family_payee(t.raw_description or desc, family):
+            category, sub = "transfer", "family"
         elif category == "other":
             key = payee_key(t.raw_description or desc)
             mem = memory.get(key) if key else None

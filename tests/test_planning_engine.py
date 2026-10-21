@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from app.planning import history, simulate
-from app.planning.assumptions import Assumptions, scenario
+from app.planning.assumptions import Assumptions
 
 IDX = pd.date_range("2011-10-31", periods=181, freq="ME")
 
@@ -81,8 +81,8 @@ class Properties(unittest.TestCase):
         self.assertLess(p[0], 0.2); self.assertGreater(p[-1], 0.8)
 
     def test_a_cautious_world_needs_more_saving_than_a_hopeful_one(self):
-        lo = self.run_goal(0, a=replace(scenario("hopeful"), n_paths=800))["sip_for_confidence"]["80"]
-        hi = self.run_goal(0, a=replace(scenario("cautious"), n_paths=800))["sip_for_confidence"]["80"]
+        lo = self.run_goal(0, a=replace(Assumptions(), equity=0.12, gold=0.08, debt=0.075, n_paths=800))["sip_for_confidence"]["80"]
+        hi = self.run_goal(0, a=replace(Assumptions(), equity=0.085, gold=0.055, debt=0.065, n_paths=800))["sip_for_confidence"]["80"]
         self.assertGreater(hi, lo)
 
     def test_higher_confidence_costs_more(self):

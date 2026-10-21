@@ -324,7 +324,6 @@ Default login: `admin` / password from `.env` (`GRAFANA_PASSWORD`)
 | `/api/goals/recommendations` | GET | Actionable recommendations (market-aware; snapshots silently for memory) |
 | `/api/goals/recommendations/changes` | GET | Diff vs prior snapshot: new / resolved / persisting + metric trends |
 | `/api/goals/market-signals` | GET | Current Nifty 50 / Midcap 150 / Smallcap 250 P/Es + zones + USD/INR (12-hr cached) |
-| `/api/plan/` | GET | Goal planning from real history: chance per goal, SIP for 80/90% confidence, re-based target options, household retirement by age and market, capacity, prepay-vs-invest (ADR-0042; `scenario`, `stepup`, `spend`) |
 | `/api/health/continuity` | GET | Each bank account's printed balance chained day to day: date and amount of every break (ADR-0037) |
 | `/api/health/alerts` | GET | Bank alert e-mails vs statements: pending since last statement, unmatched, `gap` (month with no statement), accounts without statements (ADR-0025, 0040) |
 | `/api/health/consistency` | GET | Do all pages agree? fail = bug, warn = data gap (also a banner in the UI after every sync) |

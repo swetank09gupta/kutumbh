@@ -64,6 +64,18 @@ def share_utr(a: Iterable[Optional[str]], b: Iterable[Optional[str]]) -> bool:
     return bool(utr_prefixes(*a) & utr_prefixes(*b))
 
 
+def is_family_payee(description: Optional[str], family_names: Iterable[str]) -> bool:
+    """True when the narration names a family member whose money moves through the household accounts (parents: cheque deposits,
+    RTGS/NEFT). Matched on the whole name with everything but letters removed, so "CHQ DEP … PRADEEP KUMAR GUPTA DAYA GUPTA" and
+    "NEFT-PRADEEPKUMARGUPTA" both match and a stranger sharing a first name or the surname does not."""
+    text = re.sub(r"[^A-Z]", "", (description or "").upper())
+    for name in family_names:
+        key = re.sub(r"[^A-Z]", "", (name or "").upper())
+        if len(key) >= 8 and key in text:
+            return True
+    return False
+
+
 def is_own_payee(description: Optional[str], owner_names: Iterable[str]) -> bool:
     """
     True when the counterparty is one of the household's own names ("UPI-SWETANK GUPTA-…",

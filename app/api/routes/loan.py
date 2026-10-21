@@ -19,5 +19,15 @@ def get_loans(db: Annotated[Session, Depends(get_db)]):
     for (owner_id,) in db.query(LoanAnchor.owner_id).distinct().all():
         rep = loan_report.report(db, owner_id)
         if rep:
-            out.append({**rep, "tax": loan_report.tax(db, owner_id)})
+            out.append({**rep, "tax": loan_report.tax(db, owner_id), "invest_comparison": _invest_comparison(db, owner_id, rep)})
     return {"loans": out}
+
+
+def _invest_comparison(db, owner_id: str, rep: dict):
+    """Prepay or invest, on the real history and the borrower's own tax (app/planning/prepay.py); None while planning is unavailable."""
+    try:
+        from app.planning import goal_plan, prepay
+        ctx = goal_plan.get_context(db)
+        return prepay.compare(ctx, float(rep["rate"]), owner_id) if ctx else None
+    except Exception:
+        return None

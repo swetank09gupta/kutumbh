@@ -43,6 +43,12 @@ cp config/accounts.example.yml config/accounts.yml
 
 ---
 
+## `family_names` in `config/accounts.yml`
+
+Parents or other family whose money moves through your accounts (cheque deposits, RTGS/NEFT): `family_names: ["Full Name"]`. A narration containing the whole name is labelled transfer / family, never income or spending (ADR-0043).
+
+---
+
 ## `config/accepted_gaps.json` (private, git-ignored, optional)
 
 A statement month the bank never issued cannot be filled and nothing is invented; the balance today is the newest statement or alert. List it here and the balance-chain check stops warning about it (ADR-0040). Only an exact owner + account + month counts:

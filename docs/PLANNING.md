@@ -1,75 +1,79 @@
 # Planning: how goal numbers are derived
 
-Written 21 Oct 2026, before the code (`app/planning/`). It replaces "a target I typed months ago" with numbers derived from what you
-actually spend, what history says each asset did, and what rising inflation does to costs. It gives **ranges and probabilities, never a
-promise**: history of 15–20 years includes one strong decade and cannot see a regime change. Nothing here is investment advice.
+There is **one calculator** for goals (`app.engine.goals.project_all_goals`). The goal cards, the projections table, the scenarios window, the stored
+SIP, the recommendations and Grafana all read it. It runs a simulation (`app/planning/`) and fills the *existing* projection fields: the target,
+the SIP needed, the projected corpus, the chance, the return, the inflation. There is no separate planning page.
 
-## 1. Method
+It gives **ranges and probabilities, never a promise**: 15–20 years of history is one regime and cannot see a change of regime. Not investment advice.
 
-1. **Today's facts, from the app** (never retyped): spending by category over the last 12 months (`v_cashflow`), income, net worth,
-   liquid assets, the home loan (rate, EMI, balance), each goal's tagged holdings, current SIP, and ages (`owners`).
-2. **Real history, pulled live and cached 30 days** (`app/planning/history.py`): month-end NAVs from AMFI via mfapi.in for
-   equity = UTI Nifty 50 Index Fund Regular (2006→), gold = SBI Gold Fund Regular (2011→), debt = UTI Gilt Fund Regular (2006→);
-   India CPI from the World Bank (already in the app). These are **net of fund costs**, i.e. what an investor received.
-3. **Simulation** (`app/planning/simulate.py`): 5,000 paths, joint monthly returns of the three assets resampled in 6-month blocks
-   from the real history (keeps crashes, recoveries and the equity/gold/debt co-movement), **re-centred** on the forward-looking
-   means below and with equity volatility scaled to the 20-year sample. Inflation is drawn per year around the means below.
-   Fixed seed: the same inputs always give the same answer.
-4. **Outputs per goal:** probability of reaching the (inflated) target at the current plan; the 10th/50th/90th-percentile outcome;
-   the monthly SIP that gives 50/80/90% confidence; the recommended equity share for the horizon and the drift from it.
-5. **Retirement is not a fixed corpus.** It is "does the money last": the corpus needed at retirement is the present value, at the
-   returns each path actually delivers, of the spending that follows. Reported at 80/90/95% confidence, for several retirement ages.
+## 1. What is derived and what is yours
 
-## 2. Assumptions (base case) and where they come from
-
-| Assumption | Base | Basis (source, date) |
+| Goal | Target | Basis |
 |---|---|---|
-| Equity return, before tax | **10.5%** | Net-of-cost index fund: 10.05% a year over 20 years (2006–26) and 11.5% over 15 (computed from AMFI NAVs, 21 Oct 2026). Index TRI (gross) 13.4% over 10 yrs, 12.4% over 20 (Bajaj AMC, May 2026, [source](https://www.bajajamc.com/knowledge-centre/nifty-50-historical-returns)); rolling 15-year average ~14%, range 9–19% ([FundsIndia, Sep 2026](https://fundsindia.com/blog/wp-content/uploads/2026/09/202609-FundsIndia-Wealth-Conversations.pdf)). Set between the net samples because valuation is fair, not cheap (Nifty 50 P/E ~20–24 vs a 20–22 long-run range, [Wright Research](https://www.wrightresearch.in/blog/nifty-pe-ratio-2026/)) and the 10-year yield (7.1–7.4%, [Trading Economics](https://tradingeconomics.com/india/government-bond-yield/news/591417)) leaves a thin equity premium. |
-| Gold return | **7.0%** | The 15-year sample is 10.6% but includes the 2025–26 spike (3-year CAGR 37%, app's metal history); long-run is taken as inflation plus about 1.5 points. |
-| Debt (gilt/bond funds, FDs) | **7.0%** | The 10-year G-sec yield today, 7.1–7.4%; the gilt fund sample is 7.8% (AMFI NAVs). |
-| PPF | **7.1%**, no volatility | Declared rate, unchanged for Oct–Dec 2026 ([Business Today](https://www.businesstoday.in/personal-finance/story/small-savings-scheme-interest-rates-unchanged-for-q3-fy27-check-ppf-scss-ssy-rates-558892-2026-09-30)). |
-| Tax drag on return | saving years: equity −0.6, gold −0.5, debt −1.8, PPF 0 (points a year); retired: about half (−0.3, −0.3, −0.9, 0) | Equity LTCG 12.5% above ₹1.25 lakh at exit; debt funds/FDs taxed at slab (old regime, 30% + cess for you) during saving; PPF is tax-free. Rates from the app's rule registry. Retirement income is lower (a lower slab) and the yearly LTCG exemption covers more, so the drag is about half. Found necessary: the full drag made the retirement need unrealistically high. |
-| Volatility, correlation | from history | Monthly 2011–26; equity volatility scaled ×1.26 to match the 20-year equity sample (20.3% vs 16.1%) because the shorter joint window misses 2008 (equity fell 59.7% peak to trough). |
-| General inflation | **5.5%**, σ 1.8 | 10-year CPI average 4.74% (World Bank); CPI 4.82% in Aug 2026, RBI FY27 projection 5.2%, Nomura sees ~6.3% in Q4 ([SCC Online](https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/), [Outlook Money](https://www.outlookmoney.com/banking/nomura-sees-rbi-repo-rate-rising-to-575-per-cent-with-two-25-bps-hikes)). |
-| Medical inflation | **11.5%** | Aon 2026 medical trend 11.5% ([Aon](https://www.aon.com/apac/in-the-press/asia-newsroom/2025/india-outpaces-global-average-with-2026-medical-trend-at-11-5-percent-aon-reports)); Milliman 12% (2024), 13% (2025) vs general 4.2% ([Milliman](https://www.milliman.com/en/insight/measuring-medical-inflation-in-india)). |
-| Education inflation | **9%** (range 8–12) | Sources disagree: 10–12% ([RetireWise](https://www.retirewise.in/?p=5782)), an 8% modelling assumption ([Basunivesh](https://www.basunivesh.com/cost-of-education-in-india-2025-2040-fees-living-projections/)). No official series found. |
-| Retirement spending basket | 85% general + 15% medical → about 6.4% | Retirees spend more on health; a basket weight, not a forecast. |
-| Withdrawal rule of thumb | **not assumed** | Practitioners quote 3–3.5% for India ([Basunivesh](https://www.basunivesh.com/safe-withdrawal-rate-india/)); none is backtested on Indian data. The simulation derives the supportable rate from the data instead. |
-| Life horizon | **to age 95** (85 shown too) | Longevity risk is the larger error; family history (below) should adjust it. |
+| Family retirement (one goal) | **derived**: the corpus that lasts with 80% chance | spending, inflation, ages, spouse income |
+| Child higher education | **derived**: abroad undergraduate + postgraduate, paid by the child's age | cost ladder, education inflation + rupee |
+| Emergency fund | **derived**: months of spending (9 with one earner and a loan, else 6) | spending |
+| Child marriage, Health & senior care | **your figure**, grown at a derived inflation | no data to derive from |
 
-A goal's own inflation or return typed in the app overrides these for that goal and is shown next to the data-based value.
+Tick **"use my figures"** on a goal to plan on the target (and return) you typed; the derived value is still shown beside it. Your typed target, date,
+retirement age, risk appetite and tax regime are never overwritten.
 
-## 3. What is *derived* and what is *yours*
+## 2. Inputs, all from the app
 
-- **Derived:** spending, retirement spending (core living cost: total spending minus loan EMI, term-insurance premium, child costs and
-  family support, which end or are funded by other goals), probabilities, SIP needed, allocation drift.
-- **Yours (we never overwrite):** the target date, the retirement age, the target amount, risk appetite. The app shows the *derived*
-  value beside yours so the difference is visible.
-- **Needed from you, not in any data:** family history (parents' longevity and health, hereditary conditions), the child's age,
-  other retirement assets (EPF, NPS, property income), whether education is in India or abroad.
+- **Spending** (last 12 complete months, `v_cashflow`). Retirement living cost = spending minus loan EMI, term-insurance premium, child costs and family support
+  (they end, or other goals fund them). Family money (parents) is a transfer, never income or spending: names in `config/accounts.yml` → `family_names`.
+- **People** (`owners`, `config/accounts.yml`): dates of birth, retirement ages (you 50, your wife 60), risk appetite, tax regime; the child's date of birth.
+- **Holdings tagged to a goal**, by owner (mix of equity / gold / debt / PPF, and whose money it is); each person's **SIP**; the **loan**.
+- **Earnings**: each person's salary credits (a working spouse offsets spending until their own retirement).
 
-## 4. Limits (read before trusting a number)
+## 3. Derived assumptions
 
-- 15–20 years of history is one regime: falling inflation, a long bull phase, a rising rupee-gold. Probabilities are *conditional on
-  that history repeating in distribution*. The model re-centres returns on cautious means to avoid projecting the past's luck.
-- Tax is a flat drag, not a per-person computation. Sequence of withdrawals and tax in retirement are simplified.
-- Inflation is independent of returns in the draws (in reality high inflation often hurts bonds and valuations): a mild optimism.
-- The loan, salary growth, and job risk are inputs you control, not predicted.
-- Rates are moving (repo raised to 5.50% on 7 Oct 2026); re-run when the cycle turns. Assumptions carry a date and are re-checked
-  monthly with the history refresh.
+Public parameters (each with a source and the day it was read) are in `app/planning/params.yml`; live inputs come from the app's market signals,
+CPI module and FRED. Scenarios shift the market together: *cautious* (equity −2, gold −1, debt −0.5 points; inflation +1), *hopeful* (+1.5, +0.5, +0.5; −0.5).
 
-## 5. What the screen shows (Goals → Plan)
+| Quantity | Derived as |
+|---|---|
+| General inflation | mean of the 10-year CPI average (World Bank), the latest year-on-year print and the RBI's own projection ([SCC Online](https://www.scconline.com/blog/post/2026/10/09/rbi-hikes-repo-rate-to-5-50-percent-october-2026/)) |
+| Medical inflation | general + 6 points (Aon 2026 medical trend 11.5%; Milliman 12–13% vs general 4.2%, [Milliman](https://www.milliman.com/en/insight/measuring-medical-inflation-in-india)) |
+| Education, India | general + 4 points (10–12% in [RetireWise](https://www.retirewise.in/?p=5782); an 8% modelling assumption elsewhere) |
+| Education, abroad | US tuition inflation 3.5% (College Board 2025-26: +2.9 to +4.0%, [report](https://research.collegeboard.org/media/pdf/Trends-in-College-Pricing-and-Student-Aid-2025-final_0.pdf)) + the rupee's 10-year fall against the dollar (FRED USD/INR, live) |
+| Wedding | general + 2 points (judgement: no published index) |
+| Retirement spending | 85% general, 15% medical (judgement) |
+| Debt return | 10-year G-sec yield (live) less 0.3 fund cost |
+| Equity return | debt + the **net equity premium** the real history paid over gilts (about 20 years, from AMFI NAVs), scaled by valuation ((long-run P/E ÷ today's P/E)^0.5, between 0.7 and 1.25), at least 1.5 points |
+| Gold return | general inflation + half of gold's real return since 2011, capped at 2 points (the sample holds the 2025-26 spike) |
+| PPF | the declared rate (`small_savings.ppf_rate_on`) |
+| Salary growth (yearly SIP rise) | 9% (Aon 2026 India projection, [Aon](https://www.aon.com/apac/in-the-press/asia-newsroom/2025/salaries-in-india-projected-to-increase-by-nine-percent-in-2026-aon-study)); a rise typed on the goal wins |
+| Spouse income counted | 80% of the last 12 months' salary (job and career risk), growing with salary |
+| Retirement horizon | until the **younger spouse is 95** (family history, when known, should adjust this) |
+| Retirement mix | 40% equity, 5% gold, 55% debt; each goal glides to its horizon's mix (equity 75% at 10+ years, 60/45/30/10% nearer; emergency 0%; risk appetite ±10) |
 
-Per goal: target, what you save now, the **chance** the plan reaches the inflated target, and the monthly SIP for an 80% (and 90%) chance, with a
-step-up you choose (default 8% a year, a stated assumption). Each goal expands to **re-based target options** from public cost ladders
-(RetireWise 2026: India IIT/IIM/private ≈ ₹28 L, abroad undergraduate ≈ ₹60 L, abroad MBA ≈ ₹1.1 cr), shown beside your own target; nothing is applied
-automatically. **Household retirement** pools both retirement goals and shows, for retiring at 50/55/60 and money lasting to 85/95, the chance now, the corpus needed
-(today's money) at 80/90/95% and the SIP for 90%, under a cautious, base and hopeful market. **Capacity** is recurring income minus spending
-(unlabelled credits are not counted) and what it becomes when the loan ends. **Loan**: payoff time at extra prepayments, and how often a portfolio
-beats the loan rate after tax on the real history (prepaying earns the rate for certain).
+**Tax is per person** (`app/planning/taxes.py`), not a flat drag. Debt income is taxed at the holder's **own** marginal rate: the band of the highest annualised taxable income
+of the last three years (their regime, from the tax view; salary is as credited, so it is a floor), plus surcharge and 4% cess. Surcharge above ₹50 L / ₹1 cr / ₹2 cr is 10 / 15 / 25%
+([BankBazaar](https://www.bankbazaar.com/tax/surcharge-on-income-tax.html); the new regime is capped at 25%; one page conflicts on the lowest band). Equity pays LTCG (12.5% + cess, the rule
+registry) once at the end, so the yearly cost falls the longer it compounds; gold pays half of that (the SGB part is exempt at maturity); PPF pays none. In retirement debt is taxed at the new-regime
+rate on a retiree's income and equity on the gain share of each withdrawal. A goal funded by both of you is weighted by whose money is in it.
 
-## 6. Phases
+## 4. The simulation (`app/planning/simulate.py`)
 
-Status is in ROADMAP.md. Built: engine, per-goal odds and SIP, retirement by age, capacity and loan, prepay-vs-invest, the Plan card.
+Real month-end NAVs from AMFI (UTI Nifty 50 Index, SBI Gold, UTI Gilt; regular plans, net of costs) are resampled in 6-month blocks, so crashes, recoveries and the co-movement
+of the three assets are real. Each path's average is re-centred on the derived expectations above and equity volatility is scaled to the 20-year sample (it includes 2008).
+Inflation is drawn once a year per path (categories move together). 3,000 paths, fixed seed.
 
+A goal is contributions (a SIP shape, each person's SIP ending at their own retirement) and outflows (a cost on a date, tuition at the child's age 18–21 and 24–25, or a lifetime of spending net of a
+spouse's income). Discounting at each path's realised returns, the plan survives on a path iff `corpus + scale × PV(contributions) ≥ PV(outflows)` at every month, so the smallest workable scale per
+path is closed-form and the **SIP for p-confidence is its p-quantile**: no search, the same answer every run. The card shows the SIP for an 80% chance, and the target is what gives 80%.
 
+## 5. Limits
+
+- History is one regime (falling inflation, a long bull phase); probabilities are conditional on it repeating in distribution. Returns are re-centred on cautious means for that reason.
+- Inflation is independent of returns in the draws (high inflation often hurts both): mildly optimistic.
+- The primary earner's taxable income is a floor (salary credited is after TDS); surcharge probably applies and is not counted until the credited figure shows it.
+- Education costs are today's published ranges (undergraduate abroad ₹60 L, postgraduate abroad ₹1.1 cr, India ₹20 L + ₹27 L); `params.yml` holds them with their ranges.
+- Family history (parents' longevity, health) is not in any data: the horizon defaults to 95.
+- Spending in retirement is flat in real terms (no fall at 80, no extra for travel); a spouse dying is not modelled.
+
+## 6. Keeping it current
+
+`params.yml` entries carry `verified_on`; replace a value by adding a newer dated entry. Market inputs refresh with the app (market signals 12 h, CPI 24 h, USD/INR 7 days, AMFI history 30 days).
+When the repo rate, CPI or a cost range moves, re-read its source and add the dated entry; the planner picks the latest.

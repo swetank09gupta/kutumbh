@@ -61,3 +61,13 @@ def split_for(equity: float, goal_type: str = "") -> dict[str, float]:
     """Full mix for a target equity share: the rest in debt, with a little gold for long horizons only."""
     gold = 0.05 if equity >= 0.45 else 0.0
     return {"equity": equity, "gold": gold, "debt": max(0.0, 1.0 - equity - gold)}
+
+
+def goals_equity_share(items: list[tuple[float, float, str]], risk: str | None = "moderate", default: float = 0.60) -> float:
+    """Corpus-weighted equity share (0-1) a set of goals calls for: items are (corpus, years to the first payment, goal type)."""
+    num = den = 0.0
+    for corpus, years, goal_type in items:
+        if corpus > 0:
+            num += corpus * recommended_equity(max(0.0, years), risk, goal_type)
+            den += corpus
+    return num / den if den else default

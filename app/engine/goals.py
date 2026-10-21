@@ -39,6 +39,14 @@ class GoalProjection:
     sip_stepup_source:      str = "none"             # "manual" | "auto" | "none"
     glide_active:           bool = False             # glide path applied
     blended_components:     Optional[list] = None    # for tooltip in UI
+    # ── From the planner (app/planning): chance, derived target, inflation used. None while market history is unavailable.
+    chance:                 Optional[float] = None   # share of simulated futures in which the plan covers the goal
+    sip_for_90:             Optional[float] = None
+    ideal_target_today:     Optional[float] = None   # derived from spending, inflation and the date (today's money)
+    typed_target_today:     Optional[float] = None   # the figure typed in the app
+    target_source:          Optional[str] = None     # "derived" | "typed"
+    inflation_used_pct:     Optional[float] = None
+    plan_note:              Optional[str] = None
 
 
 def _months_between(start: date, end: date) -> int:
@@ -98,6 +106,11 @@ def _age_target_date(goal: Goal, db: Session) -> date:
 
     stored = goal.target_date
     gt = (goal.goal_type or "").lower()
+
+    if gt == "retirement" and (goal.owner_id in (None, "", "family")):
+        dates = [_add_years(o.birth_date, int(o.retirement_age)) for o in db.query(Owner).filter(Owner.id != "family").all()
+                 if o.birth_date and o.retirement_age]
+        return min(dates) if dates else stored                       # one household retirement: it starts when the first earner stops
 
     if gt == "retirement":
         owner = db.get(Owner, goal.owner_id) if goal.owner_id else None
@@ -533,7 +546,7 @@ def _scope(goal: Goal, all_owner_ids: list[str]) -> list[str]:
     return list(all_owner_ids) if (goal.owner_id in (None, "", "family")) else [goal.owner_id]
 
 
-def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProjection]:
+def project_all_goals(db: Session, owner_id: str | None = None, scenario: str = "base", stepup: float | None = None) -> list[GoalProjection]:
     """
     One projection per goal — the only calculator (the goal cards, the projections table, the
     stored SIP column and Grafana all read it).
@@ -563,6 +576,7 @@ def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProj
     tag_of = {(h.owner_id, h.isin): h.goal_tag
               for h in latest_holdings(db, owner_ids=all_owner_ids) if h.isin}
     actual: dict[str, float] = defaultdict(float)
+    by_owner: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))     # goal id -> owner -> monthly SIP
     untagged: dict[str, float] = defaultdict(float)
 
     def place(owner: str, tag: Optional[str], amount: float) -> None:
@@ -570,6 +584,7 @@ def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProj
             for g in investing:
                 if tag in goal_tags(g) and owner in _scope(g, all_owner_ids):
                     actual[str(g.id)] += amount
+                    by_owner[str(g.id)][owner] += amount
                     return
         untagged[owner] += amount
 
@@ -594,13 +609,28 @@ def project_all_goals(db: Session, owner_id: str | None = None) -> list[GoalProj
         for g in eligible:
             share = (float(g.target_amount or 0) / total_t) if total_t else 1 / len(eligible)
             actual[str(g.id)] += amount * share
+            by_owner[str(g.id)][owner] += amount * share
 
     out = []
+    ctx = None
+    try:
+        from app.planning import goal_plan
+        ctx = goal_plan.get_context(db, scenario, goal_plan.DEFAULT_STEPUP if stepup is None else stepup)
+    except Exception:                                   # planning must never take the goal page down
+        import logging
+        logging.getLogger(__name__).exception("planning unavailable")
     for g in goals:
         scope = _scope(g, all_owner_ids)
-        out.append(project_goal(
+        proj = project_goal(
             g, round(actual.get(str(g.id), 0.0), 2), db, owner_ids=scope,
-            detected_stepup_pct=sipmod.sip_stepup_pct(db, scope)))
+            detected_stepup_pct=sipmod.sip_stepup_pct(db, scope))
+        if ctx is not None:
+            try:
+                goal_plan.overlay(db, g, proj, dict(by_owner.get(str(g.id), {})), scope, ctx)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("plan for %s failed; keeping the deterministic projection", g.name)
+        out.append(proj)
     return out
 
 

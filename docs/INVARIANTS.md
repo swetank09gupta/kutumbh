@@ -63,7 +63,8 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | Each PPF year reconciles (opening + deposits + interest = closing); a deposit found only through its interest is flagged | `tests/test_deposit_flows.py`, `test_invariants_db::test_the_ppf_reconciliation_report…`, consistency `ppf_years_reconcile` |
 | Tax deducted at source is added back to a deposit's interest (returns are pre-tax) | `test_invariants_db::test_tax_deducted_at_source…`, `tests/test_bank_alert.py` |
 | Loan roll-forward reproduces the lender's next figure | `tests/test_loan.py` |
-| Inflation: one automatic app-wide rate (10-year CPI average); an override can be set and cleared; goals ignore their own rate | `tests/test_settings.py`, `tests/test_inflation.py` |
+| The app-wide inflation setting (10-year CPI average, overridable) feeds only the deterministic fallback; planned goals use per-category derived inflation (ADR-0043) | `tests/test_settings.py`, `tests/test_inflation.py`, `tests/test_planning_plan.py` |
+| Every goal's numbers come from one calculator (`project_all_goals`); the planner fills the existing fields and never overwrites a typed figure; family money is a transfer | `tests/test_planning_plan.py`, `tests/test_txn_layer.py` |
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |
 | Bank alerts are evidence, never cashflow; each gets exactly one status | `tests/test_alert_recon.py`, `tests/test_bank_alert.py` |
 | Every ledger trade with a cashflow link points at a cashflow row that exists (0 orphans after any re-key, re-read or duplicate removal); a contract note and its tradebook row dedupe to one trade and one cashflow | `tests/test_ledger_shared_cashflow_db.py` |
