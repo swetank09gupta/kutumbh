@@ -181,3 +181,13 @@ Read by column position (`axis_layout.py`); a statement is stored only if openin
 
 ## Zerodha contract notes: layouts
 2018: `<order#> <time> <trade#> <time> BEL B 5 133.15 133.1500 (665.75)` (no exchange token, no ISIN: resolved from the ticker in the ledger). 2020-21: table layout with ISIN on the next line. 2022: `LICI - EQ / B NSE 2 801.00 …` + ISIN line. 2024: `EMUDHRA-EQ/INE01QM01018 B NSE 3 …`. A new layout shows up as a note that parses to no trades: add a test with the new row.
+
+## Sender domains (what `app/ingestion/email_fetcher.py` accepts; banks change them, check here first when a statement stops arriving)
+| Bank | Statements / alerts come from |
+|---|---|
+| HDFC | `hdfcbank.com`, `hdfcbank.net`, `hdfcbank.bank.in` |
+| SBI | `sbi.co.in` addresses; since 2026 `alerts.sbi.bank.in` (consolidated statements, alerts) |
+| Union Bank | `unionbankofindia.com`, `unionbank.co.in`; since 2026 `ubi.bank.in` (`noreplyunionbank@ubi.bank.in`) |
+| Axis | `axisbank.com`; since 2026 `statements@axis.bank.in` (the exact address: `Straight2axis@axis.bank.in` sends payment advices) |
+| Zerodha / Coin / CAMS | see the list in the source (`reportsmailer.zerodha.net`, `qmailer.zerodha.net`, `camsonline.com`, …) |
+

@@ -40,6 +40,7 @@ def generate(db: Session, owner_id: str = "family") -> list[Recommendation]:
     recs += _goal_shortfall_check(db, owner_id)
     recs += _high_expense_check(db, owner_id)
     recs += _asset_allocation_check(db, owner_id)
+    recs += _speculative_holdings_check(db)
     recs += _emi_burden_check(db, owner_id)
     recs += _ppf_nudge(db, owner_id)
     # New portfolio-quality checks (added 2026-06)
@@ -207,6 +208,24 @@ def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
             action="Rebalance: shift some FD maturity proceeds to equity mutual funds.",
         ))
     return recs
+
+
+def _speculative_holdings_check(db: Session) -> list[Recommendation]:
+    """Holdings so volatile that no goal's horizon covers them (app.planning.matching.speculative): silver, in practice."""
+    try:
+        from app.planning import matching
+        rows = matching.speculative(db)
+    except Exception:
+        return []
+    if not rows:
+        return []
+    total = sum(r["value"] for r in rows)
+    names = ", ".join(sorted({r["name"].split(" - ")[0][:28] for r in rows})[:3])
+    return [Recommendation(
+        priority="medium", category="investment", title="Money that is a bet, not a plan",
+        detail=(f"₹{total / 100000:.1f} L sits in {names}: about {max(r['volatility_pct'] for r in rows)}% a year of volatility, so a loss over a goal's years is not a 1-in-20 event "
+                f"for them until roughly {min(r['needs_years'] for r in rows)}+ years. The planner's expected return for silver is gold's (no extra reward for the risk)."),
+        action="Treat it as speculative: do not count it toward a goal, do not add to it, and size it so a 35% fall changes nothing in the plan.")]
 
 
 def _equity_share_for_goals(db: Session, owner_id: str) -> float:

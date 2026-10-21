@@ -75,3 +75,50 @@ def drift_from_growth(growth_pct: float | None, general_pct: float, cap_pp: floa
     if growth_pct is None:
         return 0.0
     return min(max(growth_pct - general_pct, 0.0), cap_pp) / 100
+
+
+def capacity(db: Session, today: date | None = None, term_policies: list[dict] | None = None, loan: dict | None = None,
+             pay_from: dict[str, date] | None = None) -> dict:
+    """What the household can put toward goals each month, from its own cash flow: recurring income less what it spends.
+
+    Income: for an earner whose current pay started on a known date (`pay_from`, config `income`), the mean of their complete months of salary credits since
+    then times 12 (a new employer counts at once, not diluted by the old one's months or its one-off settlements); for everyone else the last 12 months of
+    salary credits. Plus the non-salary income of the last 12 months (interest, dividends). Spending is the last 12 months of the shared `expense`
+    definition (EMI and school included, prepayments and investing not). Money from family (a parent's share of the loan) is a transfer, in neither.
+    It rises when the home loan ends and when a fixed-term premium ends: both are dated so the plan can say when."""
+    today = today or date.today()
+    start, end = month_window(today)
+    pay_from = pay_from or {}
+    salary_yearly: dict[str, float] = {}
+    basis: dict[str, str] = {}
+    for owner in ("user", "wife"):
+        since = pay_from.get(owner)
+        rows = db.execute(text(
+            "SELECT month, SUM(amount) FROM v_cashflow WHERE flow = 'income' AND subcategory = 'salary' AND owner_id = :o AND month >= :s AND month < :e GROUP BY 1 ORDER BY 1"),
+            {"o": owner, "s": start, "e": end}).all()
+        if since:
+            full = [float(a) for m, a in rows if m > since.replace(day=1)]          # complete months after the month the new job began
+            if full:
+                salary_yearly[owner], basis[owner] = sum(full) / len(full) * 12, f"{len(full)} month(s) since {since.isoformat()}"
+                continue
+        salary_yearly[owner], basis[owner] = sum(float(a) for _m, a in rows), "last 12 months"
+    other = float(db.execute(text(
+        "SELECT COALESCE(SUM(amount), 0) FROM v_cashflow WHERE flow = 'income' AND COALESCE(subcategory, '') <> 'salary' AND month >= :s AND month < :e "
+        "AND owner_id IN ('user', 'wife')"), {"s": start, "e": end}).scalar() or 0)
+    spend = household_spending(db, today)["total"]
+    income_yearly = sum(salary_yearly.values()) + other
+    monthly = (income_yearly - spend) / 12
+    out = {"monthly": monthly, "income_yearly": income_yearly, "spending_yearly": spend, "salary_yearly": salary_yearly, "salary_basis": basis,
+           "other_income_yearly": other, "rises": []}
+    if loan and loan.get("emis_left") is not None:
+        y, m = today.year, today.month + int(loan["emis_left"])
+        y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
+        out["rises"].append({"what": "the home loan ends", "when": date(y, m, 1).isoformat(), "monthly": float(loan.get("emi") or 0)})
+    for t in term_policies or []:
+        first = db.execute(text("SELECT MIN(date), COALESCE(AVG(amount) FILTER (WHERE date >= :s), 0) FROM v_cashflow WHERE flow = 'expense' AND category = 'insurance' "
+                                "AND subcategory = 'term_insurance' AND owner_id = :o AND amount > 5000"), {"s": start, "o": t["owner"]}).first()
+        if first and first[0] and t.get("premium_term_years"):
+            fy = first[0].year + t["premium_term_years"]
+            out["rises"].append({"what": "the term-plan premium ends", "when": date(fy, first[0].month, 1).isoformat(), "monthly": float(first[1] or 0)})
+    out["rises"].sort(key=lambda r: r["when"])
+    return out

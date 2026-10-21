@@ -24,3 +24,9 @@ On the owner's holdings (21 Oct 2026, backup `pre_goal_matching_20261021`) the m
 the market-based run moves nothing further; the earlier bucket-based run's ten moves (gold bonds out of Child Marriage, FDs placed) stand and are consistent with it. Retirement's holdings need only about 2 years of a 15-year budget (mostly PPF and FDs): a
 reason for the recommendations to suggest more equity there. A bug found on the way: Yahoo stamps a monthly bar 00:00 India time on its first day, so reading it in UTC shifted every month back by one (stock betas near 0); dates are read in India time.
 Tests: `tests/test_planning_funds.py`, `tests/test_planning_matching.py`. Limits in docs/PLANNING.md §6.
+
+## Addendum (2026-10-21): the fund's own portfolio, and silver
+The first version read a fund's contents from its returns only. Funds publish their holdings monthly; Groww's public fund page carries the latest disclosure (every share, sector, weight) and AMFI publishes the official Large/Mid/Small list by ISIN every half year, so
+`funds.holdings_exposure` now places each share and the regression is the fallback and cross-check (an ETF is not on Groww: regression only). On the owner's funds: ICICI Large Cap 86% large, HDFC ELSS 80% large, Mid-cap funds 66-72% mid with 6-13% small, Large & Mid Cap 29/38/29,
+PPFAS 66% large with 28% debt and cash. Silver became its own factor (it had been read as gold; its volatility is about 34% a year against 16%): silver ETFs fit no goal (1-in-20 horizon about 65 years) and are reported as a bet. Also fixed: Yahoo's `range=max` thins daily data to monthly
+(use period1/period2), futures months with no bar, and gold-ETF unit splits (a month that doubles a NAV is dropped). Groww's endpoint is public but not a published API: it can change, so every use is optional and the output says which source stood (`source`).

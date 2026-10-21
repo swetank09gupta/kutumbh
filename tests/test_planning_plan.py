@@ -180,7 +180,7 @@ class GoalPlans(unittest.TestCase):
     def test_survivor_spending_and_the_life_table_lower_the_need_against_a_couple_to_95(self):
         full = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
         import app.planning.longevity as lg
-        with mock.patch.object(lg, "household_horizon", lambda dobs, today: {"end": date(2087, 3, 9), "step": None, "factor": 1.0, "chance": 0.0}):
+        with mock.patch.object(lg, "household_horizon", lambda dobs, today, shifts=None: {"end": date(2087, 3, 9), "step": None, "factor": 1.0, "chance": 0.0}):
             to95 = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
         self.assertLess(full["ideal_target_today"], to95["ideal_target_today"])
 
@@ -255,3 +255,47 @@ class PrepayVsInvest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PersonalFacts(unittest.TestCase):
+    def test_a_long_lived_family_moves_the_horizon_a_little_and_young_parents_say_nothing(self):
+        from app.planning import personal
+        shift = personal.family_shift_years([{"relation": "grandfather", "died_at": 85}, {"relation": "grandmother", "alive_at": 87},
+                                             {"relation": "father", "alive_at": 64}, {"relation": "mother", "alive_at": 61}])
+        self.assertAlmostEqual(shift, 0.25 * ((85 - 78.3) + (87 - 78.3)) / 2, places=6)          # about two years: the quarter of how far they outlived the average
+        self.assertEqual(personal.family_shift_years([{"relation": "father", "alive_at": 64}]), 0.0)
+        self.assertEqual(personal.family_shift_years(None), 0.0)
+        self.assertEqual(personal.family_shift_years([{"relation": "grandmother", "died_at": 120}]), 3.0)       # capped
+
+    def test_the_shift_lengthens_the_plan_and_changes_nothing_when_zero(self):
+        from app.planning import longevity
+        dobs = [date(1992, 3, 9), date(1991, 8, 28)]
+        base = longevity.household_horizon(dobs, date(2026, 10, 21))
+        none = longevity.household_horizon(dobs, date(2026, 10, 21), [0.0, 0.0])
+        longer = longevity.household_horizon(dobs, date(2026, 10, 21), [2.0, 0.0])
+        self.assertEqual(base["end"], none["end"])
+        self.assertGreaterEqual(longer["end"], base["end"])
+
+    def test_epf_and_a_return_of_premium_lower_what_must_be_saved(self):
+        base = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False, search=False)
+        c = context(epf={"user": {"balance": 1_600_000.0, "monthly": 70_000.0, "rate_pct": 8.25, "employee_monthly": 36_000.0}},
+                    term=[{"owner": "user", "premium_term_years": 10, "return_age": 72, "return_amount": 6_100_000.0}])
+        more = goal_plan.plan_retirement(None, c, None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False, search=False)
+        self.assertGreater(more["chance"], base["chance"])
+        self.assertLessEqual(more["sip_for_80"] or 0.0, base["sip_for_80"] or 1e18)
+        self.assertEqual(more["return_of_premium"][0]["age"], 72)
+
+    def test_the_epf_rate_is_taxed_only_on_contributions_above_the_limit(self):
+        below = goal_plan.epf_net_rate(context(epf={"user": {"balance": 1e6, "monthly": 40_000.0, "employee_monthly": 20_000.0}}))      # 2.4 L a year
+        above = goal_plan.epf_net_rate(context(epf={"user": {"balance": 1e6, "monthly": 80_000.0, "employee_monthly": 40_000.0}}))      # 4.8 L a year
+        self.assertAlmostEqual(below, 0.0825)
+        self.assertLess(above, below)
+
+    def test_funding_goes_to_the_emergency_fund_then_by_date_and_keeps_a_habit_that_works(self):
+        from types import SimpleNamespace as NS
+        mk = lambda t, d: (NS(goal_type=t, name=t, id=t), NS(target_date=d), {}, ())
+        order = [i[0].goal_type for i in goal_plan.funding_order([mk("child_marriage", date(2049, 1, 1)), mk("retirement", date(2042, 3, 9)),
+                                                                   mk("emergency", date(2025, 1, 1)), mk("child_education", date(2040, 4, 1)), mk("health", date(2042, 3, 9))])]
+        self.assertEqual(order, ["emergency", "child_education", "health", "retirement", "child_marriage"])
+        mine = [i[0].goal_type for i in goal_plan.funding_order([mk("child_marriage", date(2049, 1, 1)), mk("retirement", date(2042, 3, 9))], ["child_marriage", "retirement"])]
+        self.assertEqual(mine, ["child_marriage", "retirement"])                                # your own order wins

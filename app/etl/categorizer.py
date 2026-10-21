@@ -134,7 +134,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     (re.compile(r"policybazaar|policy\s*bazaar"
                 r"|nach\d+.*(?:life|ins|polic|aia|pru|term)", re.I),
      Category("insurance", "term_insurance")),
-    (re.compile(r"lic|life\s+ins|term\s+ins|health\s+ins|star\s+health|max\s+life"
+    (re.compile(r"policy\s*baza", re.I),                                   # the UPI narration cuts the name short ("policybaza"); a premium of some policy
+     Category("insurance", None)),
+    (re.compile(r"\blic\b|life\s+ins|term\s+ins|health\s+ins|star\s+health|max\s+life"      # \blic\b: a bare "lic" matched PUBLIC, POLICY, CLICK…
                 r"|hdfc\s+life|icici\s+pru|bajaj\s+allianz|tata\s+aia|sbi\s+life"
                 r"|kotak\s+life|reliance\s+life|new\s+india|national\s+insurance", re.I),
      Category("insurance", None)),
@@ -158,7 +160,8 @@ _RULES: list[tuple[re.Pattern, Category]] = [
      Category("investment", "fd_rd")),
 
     # ── Child expenses ────────────────────────────────────────────────────────
-    (re.compile(r"school\s+fee|tuition|coaching|daycare|creche|nursery|kindergarten"
+    (re.compile(r"public\s*school|\bschool\b|vidyalaya|dav\s*publ|davpublic|goenkapublic"
+                r"|school\s+fee|tuition|coaching|daycare|creche|nursery|kindergarten"
                 r"|playschool|kiddy|child\s+care|campus\s+fee|college\s+fee"
                 r"|education\s+fee|sswings|nopaperf|nopaper\s*form"
                 r"|biju\s*nit",          # recurring daycare/school vendor

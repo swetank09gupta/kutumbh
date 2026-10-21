@@ -57,7 +57,8 @@ def _plan_fields(p) -> dict:
     """What the planner adds to a projection (docs/PLANNING.md): the chance, the derived target beside the typed one, the inflation used."""
     return {"chance": p.chance, "sip_for_90": p.sip_for_90, "ideal_target_today": p.ideal_target_today,
             "typed_target_today": p.typed_target_today, "target_source": p.target_source,
-            "inflation_used_pct": p.inflation_used_pct, "plan_note": p.plan_note}
+            "inflation_used_pct": p.inflation_used_pct, "plan_note": p.plan_note, "funding_rank": p.funding_rank,
+            "suggested_sip": p.suggested_sip, "chance_at_suggested": p.chance_at_suggested}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

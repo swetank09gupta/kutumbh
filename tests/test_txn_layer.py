@@ -174,6 +174,13 @@ class MerchantRules(unittest.TestCase):
         self.assertEqual(self.cat("352702010716026:Int.Pd:01-07- 2026 to 15-09-2026"), ("income", "interest_dividend"))   # SBI FD interest, was 'other'
         self.assertEqual(self.cat("UPIAR/655950598885/DR/Shopper s/YESB/shopperstophar")[0], "shopping")
 
+    def test_a_bare_lic_no_longer_matches_public_policy_or_click(self):
+        self.assertEqual(self.cat("UPI-GDGOENKAPUBLICSCHOOL-GDGOENKAPUB")[0], "child_expenses")                  # was insurance
+        self.assertEqual(self.cat("UPI/DR/1/DAV PUBL/HDFC/davpublics/ATOM")[0], "child_expenses")
+        self.assertEqual(self.cat("UPI/DR/1/WWW POLI/HDFC/policybaza/Upi T")[0], "insurance")                    # a premium, by its cut-short name
+        self.assertNotEqual(self.cat("UPI/DR/1/Mega Mall/YESB/paytmqrlic/UPI")[0], "insurance")
+        self.assertEqual(self.cat("LIC OF INDIA PREMIUM")[0], "insurance")
+
     def test_regular_emi_is_the_ach_mandate_and_other_loan_payments_are_prepayments(self):
         self.assertEqual(self.cat("ACHD-HDFCBANKLTD-456408135"), ("emi", "emi_regular"))
         self.assertEqual(self.cat("ACH D- HDFC BANK LTD-475037270"), ("emi", "emi_regular"))

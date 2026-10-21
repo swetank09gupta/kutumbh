@@ -151,3 +151,15 @@ goals:
 # Family members whose money moves in or out of the household accounts (parents etc.): labelled transfer / family, never income or spending.
 family_names: []
 #  - "Parent Full Name"
+
+# ── Optional blocks the planner reads (all private, all optional) ───────────────────────────────────────────────────────────────────────
+# epf:                      # EPFO balance on a date and this month's contribution; rolled forward at the declared rate
+#   - {owner: user, as_of: 2026-01-31, balance: 0, employee_monthly: 0, employer_monthly: 0}
+# income:                   # current CTC, for the tax slab (bank credits are after TDS and EPF)
+#   user: {ctc_annual: 0, from: 2026-01-01, employer: ""}
+# family_history:           # ancestors only: died_at / alive_at ages; nudges the planning horizon a little (heritability of lifespan is about 25%)
+#   user: [{relation: grandfather, died_at: 85}]
+# term_insurance:           # return-of-premium plan: premium_term_years, the age the total is paid back, and the amount
+#   - {owner: user, premium_term_years: 10, return_age: 72, return_amount: 0}
+# goal_priority: [emergency, child_education, retirement, health, child_marriage]   # funding order; default is by date
+

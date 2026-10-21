@@ -26,6 +26,7 @@ retirement age, risk appetite and tax regime are never overwritten.
 - **Own spending trend**: core spending in the last three 12-month windows. If it grew faster than prices the excess (at most 3 points) is carried forward, otherwise nothing; a fall is never counted on.
   Only about two clean years of statements exist, so today it reads *falling* (₹22.7 L → ₹18.0 L → ₹18.6 L) and adds nothing. Family money (parents) is a transfer, never income or spending: names in `config/accounts.yml` → `family_names`.
 - **People** (`owners`, `config/accounts.yml`): dates of birth, retirement ages (you 50, your wife 60), risk appetite, tax regime; the child's date of birth.
+- **Personal facts** (`config/accounts.yml`, docs/CONFIGURATION.md): EPF balance and contributions, current pay (CTC), family history, a return-of-premium term plan. **EPF** (₹16.3 L, ₹71k a month employee + employer): rolled forward at the declared rate, counted in the retirement corpus, its contributions (at 80%, the job-risk haircut) as money that arrives whatever you save, interest above ₹2.5 L of employee contributions a year taxed. The term plan's premium is outside retirement living cost; its return (₹61 L at 72) arrives as a fixed sum.
 - **Holdings tagged to a goal**, by owner (mix of equity / gold / debt / PPF, and whose money it is); each person's **SIP**; the **loan**.
 - **Earnings**: each person's salary credits (a working spouse offsets spending until their own retirement).
 
@@ -48,13 +49,14 @@ CPI module and FRED. Scenarios shift the market together: *cautious* (equity −
 | Gold return | general inflation + half of gold's real return since 2011, capped at 2 points (the sample holds the 2025-26 spike) |
 | PPF | the declared rate (`small_savings.ppf_rate_on`) |
 | Salary growth (yearly SIP rise) | 9% (Aon 2026 India projection, [Aon](https://www.aon.com/apac/in-the-press/asia-newsroom/2025/salaries-in-india-projected-to-increase-by-nine-percent-in-2026-aon-study)); a rise typed on the goal wins |
+| Capacity | recurring income less spending, a month: an earner whose pay started on a known date counts at their mean full month since (a new employer is not diluted by the old one's settlements), others at the last 12 months; plus interest and dividends; less the last 12 months of spending (EMI and school in). It is dated to rise when the loan ends (about 2033) and a term premium ends |
 | Spouse income counted | 80% of the last 12 months' salary (job and career risk), growing with salary |
-| Retirement horizon | until the chance that **either of you is still alive** falls to 15%, from the SRS 2016-20 urban life table (female column for both, so no sex is assumed; Gompertz tail beyond 85). About 94 for the younger of you; once it is more likely than not that one has died (about 71), household spending is 75% (OECD scale gives 67%) |
+| Retirement horizon | until the chance that **either of you is still alive** falls to 15%, from the SRS 2016-20 urban life table (female column for both, so no sex is assumed; Gompertz tail beyond 85). About 94 for the younger of you; once it is more likely than not that one has died (about 71), household spending is 75% (OECD scale gives 67%). **Family history** moves a person along the table by a quarter (heritability of lifespan, Danish twin studies) of how far their ancestors who outlived 78.3 (60 + the table's life expectancy at 60) outlived it, at most 3 years: grandparents who lived to 85 and 87+ give about +1.9 years for you; parents of 64 and 61 say nothing yet |
 | Senior health cost | ₹45,000 a year per person for a ₹10 L individual policy (₹35-55 k, 60-70 years, metro) + 8.1% (NSS 2025, 60+) × ₹49,700 (LASI private out-of-pocket) of bills ≈ ₹49 k, at medical inflation |
 | Retirement mix | 40% equity, 5% gold, 55% debt; each goal glides to its horizon's mix (equity 75% at 10+ years, 60/45/30/10% nearer; emergency 0%; risk appetite ±10) |
 
 **Tax is per person** (`app/planning/taxes.py`), not a flat drag. Debt income is taxed at the holder's **own** marginal rate: the band of the highest annualised taxable income
-of the last three years (their regime, from the tax view; salary is as credited, so it is a floor), plus surcharge and 4% cess. Surcharge above ₹50 L / ₹1 cr / ₹2 cr is 10 / 15 / 25%
+of the last three years (their regime, from the tax view; salary is as credited, so it is a floor) or, where the current pay is configured (`income`), that pay less the employer's PF share and the standard deduction, whichever is higher (₹72 L CTC: about ₹67 L taxable, 34.3% with surcharge and cess), plus surcharge and 4% cess. Surcharge above ₹50 L / ₹1 cr / ₹2 cr is 10 / 15 / 25%
 ([BankBazaar](https://www.bankbazaar.com/tax/surcharge-on-income-tax.html); the new regime is capped at 25%; one page conflicts on the lowest band). Equity pays LTCG (12.5% + cess, the rule
 registry) once at the end, so the yearly cost falls the longer it compounds; gold pays half of that (the SGB part is exempt at maturity); PPF pays none. In retirement debt is taxed at the new-regime
 rate on a retiree's income and equity on the gain share of each withdrawal. A goal funded by both of you is weighted by whose money is in it.
@@ -73,7 +75,7 @@ path is closed-form and the **SIP for p-confidence is its p-quantile**: no searc
 
 - History is one regime (falling inflation, a long bull phase); probabilities are conditional on it repeating in distribution. Returns are re-centred on cautious means for that reason.
 - Inflation is independent of returns in the draws (high inflation often hurts both): mildly optimistic.
-- The primary earner's taxable income is a floor (salary credited is after TDS); surcharge probably applies and is not counted until the credited figure shows it.
+- A person without a configured pay has taxable income from salary credited (after TDS): a floor, surcharge not counted.
 - Education costs are today's published ranges (undergraduate abroad ₹60 L, postgraduate abroad ₹1.1 cr, India ₹20 L + ₹27 L); `params.yml` holds them with their ranges.
 - Family history (parents' and grandparents' ages at death, heart disease, diabetes, cancer, hypertension) is not in any data: the life table is the population's, for urban women, with no improvement in medicine. A long-lived family should lift it.
 - Spending in retirement is flat in real terms (no extra for travel) apart from the one step when a spouse is probably gone. Mortality of the two is treated as independent.
@@ -83,10 +85,11 @@ path is closed-form and the **SIP for p-confidence is its p-quantile**: no searc
 ## 6. Which holding serves which goal (`app/planning/matching.py`, `funds.py`, `risk.py`)
 
 Money already held counts toward the goal it is tagged to, and **the matcher chooses the tag from market data**, not from a fund list:
-- **What a holding is** (`funds.py`). Mutual funds: the SEBI category AMFI lists the scheme under (NAVAll.txt, daily) and what its own price history shows it holding: its last five years of monthly
-  returns (mfapi.in) regressed on real index series, with non-negative weights summing to 1 (Nifty 50, Nifty Midcap 150, Nifty Smallcap 250, gold, gilts), pulled gently toward the composition SEBI requires of its category
-  (mid and small caps move together, ~0.9). With under two years of history or a poor fit, the category's composition is used. Direct shares: beta to the Nifty and the volatility the market does not explain (Yahoo, found
-  by ISIN, with the sector). FDs, PPF and government bonds: debt; SGBs: gold. Silver ETFs have no gold-like fit and are read as gold.
+- **What a holding is** (`funds.py`). Mutual funds: the SEBI category AMFI lists the scheme under (NAVAll.txt, daily) and **the fund's own disclosed portfolio** (Groww's public fund page, from each AMC's monthly disclosure: every share held, with sector and weight),
+  each share placed in Large / Mid / Small Cap by **AMFI's own half-yearly list** (ISIN-level, SEBI circular of 6 Oct 2017), debt and cash as debt, futures netted against shares; shares not on the list take the matched mix, and fewer than 60% placed means the portfolio is not used.
+  What the portfolio does not explain is measured from the fund's own five years of returns (mfapi.in) against real index series (Nifty 50, Midcap 150, Smallcap 250, gold, **silver** in rupees, gilts), whose regression (non-negative weights summing to 1, pulled gently toward the category's required
+  composition) is the fallback and the cross-check. ETFs (gold, silver) are not on Groww: regression only. A month that doubles or halves a fund's NAV is a unit split, not a market move, and is dropped. Direct shares: beta to the Nifty and the volatility the market does not explain (Yahoo, found
+  by ISIN, with the sector). FDs, PPF and government bonds: debt; SGBs: gold. Silver is its own factor: about 34% a year of volatility against gold's 16%, and the planner expects no more from it than from gold, so silver ETFs fit no goal (their 1-in-20 horizon is about 65 years): the recommendations call them a bet, not goal money.
 - **What a goal can hold** (`risk.py`). A portfolio with expected return mu and volatility sigma has a loss over h years that is a 1-in-20 event after h = (1.645 σ / μ)² years. σ and the factor covariance are measured
   from the same real returns; μ is the planner's derived expected return (no extra premium for mid or small caps). A goal that is `years` away may hold a portfolio whose h is no larger. The **safe equity share by horizon**
   (the glide path, the recommendations) is the same calculation: the largest Nifty 50 share whose h fits (about 17% at 1 year, 45% at 3, 64% at 5, 81% at 7, the 85% cap from about 8); the old table is only a fallback.
@@ -97,10 +100,16 @@ Money already held counts toward the goal it is tagged to, and **the matcher cho
   a tag hands it back. Tags that predate the matcher count as automatic only if they equal the old fixed rule's answer.
 - **Real time.** Prices and catalogues are cached (a day for the catalogue, a week for prices); it runs after every sync (gaps only) and in the daily sweep (every automatic holding), so a sale, a purchase, a fund changing what it
   holds, or volatility moving changes the match with nobody there. Liquid FDs stay with the emergency fund; a home is not a corpus. With no market data the matcher does nothing and the old fixed rules fill gaps.
-- **Not available as open data:** a fund's list of shares (each AMC publishes a monthly spreadsheet in its own format; the style regression is what the price shows it holding), fund-level inflows and who invests (AMFI publishes category
-  flows and folios in a monthly PDF, nothing per fund). Flows and popularity are not used: they follow the market, they do not say whether a fund suits a goal.
+- **Used but not guaranteed:** Groww's page is a public web endpoint, not a published API: it can change or vanish (the regression then stands alone, flagged by `source` in the match output). **Not used:** fund-level inflows and who invests (AMFI publishes
+  category flows and age-wise folios, quarterly average AUM per scheme and risk parameters through its own site API; nothing that says whether a fund suits a goal; popularity follows the market). They are the next sources to add if a use is found.
 
-## 7. Keeping it current
+## 7. Funding order (the existing goal cards say it)
+
+Capacity (§3) is spread over the goals in the order money should reach them: the **emergency fund** first (a one-off top-up from savings), then by the **date money is first needed** (education, then health and retirement, then marriage; a tie goes to the
+smaller, more essential goal), or the order in `goal_priority`. **A saving that already works is kept** (each goal first gets what it is saving now, up to what it needs), then what is left tops goals up in order, each to the saving that gives it an
+80% chance. The card note says "Fund #2: ₹125k a month of your ₹167k → 80% chance", and when the home loan or the term premium ends (dated) the rest can follow. Fields: `funding_rank`, `suggested_sip`, `chance_at_suggested`.
+
+## 8. Keeping it current
 
 `params.yml` entries carry `verified_on`; replace a value by adding a newer dated entry. Market inputs refresh with the app (market signals 12 h, CPI 24 h, USD/INR 7 days, AMFI history 30 days).
 When the repo rate, CPI or a cost range moves, re-read its source and add the dated entry; the planner picks the latest.

@@ -171,6 +171,27 @@ def real_owners(db: Session):
     return db.query(Owner).filter(Owner.id != "family", ~Owner.id.like(".%")).all()
 
 
+def _is_home(asset) -> bool:
+    """The flat and its loan: the assets whose ownership is shared (`home_loan_share_pct` of each co-owner)."""
+    return asset.asset_type == "real_estate" or (asset.asset_type == "liability" and "home loan" in (asset.name or "").lower())
+
+
+def _manual_with_shares(db: Session, owner_id: str) -> list[tuple]:
+    """[(manual asset, the share of it that is this owner's)]. A home held jointly (config `home_loan_share_pct`, e.g. 33 / 34 and a parent's 33 that is
+    nobody's here) counts, with its loan, only for each co-owner's own share, whoever's name the asset sits under; everything else counts in full."""
+    from app.models.schemas import Owner
+    shares = {o.id: float(o.home_loan_share_pct or 0) for o in db.query(Owner).filter(Owner.id != "family").all()}
+    sharers = {o for o, s in shares.items() if s > 0}
+    out = []
+    for a in db.query(ManualAsset).filter(ManualAsset.owner_id == owner_id).all():
+        out.append((a, Decimal(str(shares[owner_id] / 100)) if (_is_home(a) and owner_id in sharers) else Decimal(1)))
+    if owner_id in sharers:
+        for a in db.query(ManualAsset).filter(ManualAsset.owner_id != owner_id).all():
+            if _is_home(a) and a.owner_id in sharers:
+                out.append((a, Decimal(str(shares[owner_id] / 100))))
+    return out
+
+
 def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None) -> dict:
     snap_date = snap_date or date.today()
     accounts  = db.query(Account).filter_by(owner_id=owner_id, is_active=True).all()
@@ -202,10 +223,10 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
 
     # Manual assets (PPF, FD, NPS, …) and liabilities (home loan, etc.)
     total_liabilities = ZERO
-    manual = db.query(ManualAsset).filter_by(owner_id=owner_id).all()
+    manual = _manual_with_shares(db, owner_id)
     from app.engine.deposits import deposit_history, is_live, table_date
     hist, newest = deposit_history(db)
-    for asset in manual:
+    for asset, share in manual:
         if not is_live(asset, hist, newest) and snap_date >= (table_date(newest, asset) or snap_date):
             continue                                   # the newest statement no longer lists this deposit: it is closed
         # History has no dated values for manual assets; at least do not show one before it existed.
@@ -220,6 +241,10 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
             then = principal_on(db, owner_id, snap_date, asset.invested_amount)
             if then is not None:
                 val = -then
+        if asset.asset_type == "epf":
+            from app.engine.epf import value_of
+            val = value_of(asset, snap_date)                       # the balance you shared, rolled forward
+        val = val * share                                          # a co-owned home and its loan count only the owner's own share
         if asset.asset_type == "liability" or val < ZERO:
             total_liabilities += abs(val)
         elif asset.asset_type == "ppf":
@@ -243,6 +268,11 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
 
 def snapshot_all(db: Session) -> list[dict]:
     """Compute and persist net-worth snapshots for all real owners + family aggregate."""
+    try:
+        from app.engine import epf as _epf
+        _epf.sync(db)                                      # an EPF balance shared in config/accounts.yml, before anything is summed
+    except Exception:
+        logger.exception("EPF sync failed")
     # Exclude the "family" pseudo-owner — it's computed as the sum below, not individually
     owners = real_owners(db)
     results = []

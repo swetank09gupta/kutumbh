@@ -15,7 +15,7 @@ def classify(name: str | None, holding_type: str | None, asset_type: str | None 
     n = name or ""
     if asset_type:
         a = asset_type.lower()
-        if a == "ppf":
+        if a in ("ppf", "epf"):                                    # both pay a rate declared each year, free of market risk
             return {"ppf": 1.0}
         if a in ("fd", "rd", "nps_debt", "insurance"):
             return {"debt": 1.0}

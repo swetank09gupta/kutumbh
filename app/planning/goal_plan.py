@@ -15,7 +15,7 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.planning import allocation, expectations, funds, history, longevity, macro, need, risk, simulate, taxes
+from app.planning import allocation, expectations, funds, history, longevity, macro, need, personal, risk, simulate, taxes
 from app.planning.assumptions import Assumptions, with_drags
 from app.planning.macro import param
 
@@ -44,6 +44,9 @@ class Context:
     stepup: float = DEFAULT_STEPUP
     risk_model: object = None                 # app.planning.risk.RiskModel: measured factor covariance + the derived expected returns
     factors: object = None                    # monthly factor returns (app.planning.funds.factor_frame)
+    epf: dict = field(default_factory=dict)   # {owner: {balance, monthly, rate_pct}} (app.engine.epf)
+    term: list = field(default_factory=list)  # return-of-premium plans (app.planning.personal)
+    family_shift: dict = field(default_factory=dict)   # {owner: years} the family's longevity moves the survival curve
 
 
 def _add_years(d: date, years: int) -> date:
@@ -89,10 +92,21 @@ def build_context(db: Session, today: date | None = None, scenario: str = "base"
             allocation.set_market_curve(lambda years, _m=model: risk.equity_share(_m, years))     # the safe equity share by horizon is measured, not tabled
     except Exception as exc:                                    # without it the goals keep the tabled share and matching waits
         logger.warning("market risk model unavailable: %s", exc)
-    return Context(today=today, macro=snap, data=data, base=base, why=why,
+    from app.engine import epf as epf_mod
+    cfg = personal.config()
+    try:
+        epf_now = epf_mod.holders(db, list(owners), today)
+    except Exception as exc:
+        logger.warning("EPF not read: %s", exc)
+        epf_now = {}
+    for e in personal.epf_entries(cfg):                         # the employee's share decides how much EPF interest is taxable
+        if e["owner"] in epf_now:
+            epf_now[e["owner"]]["employee_monthly"] = e["employee_monthly"]
+    shift = {o: personal.family_shift_years((cfg.get("family_history") or {}).get(o)) for o in owners}
+    return Context(today=today, macro=snap, data=data, base=base, why=why, epf=epf_now, term=personal.term_policies(cfg), family_shift=shift,
                    profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
                    spending=spending, owners=owners, salary=sal,
-                   loan={"outstanding": float(loan.principal_after), "emi": float(loan.emi), "rate_pct": float(loan.rate)} if loan else None,
+                   loan={"outstanding": float(loan.principal_after), "emi": float(loan.emi), "rate_pct": float(loan.rate), "emis_left": int(loan.emis_left)} if loan else None,
                    stepup=stepup, risk_model=model, factors=factors)
 
 
@@ -122,14 +136,37 @@ def holdings_by_owner(db: Session, tags: list[str], scope: list[str]) -> list[tu
     for h in latest_holdings(db, owner_ids=scope):
         if h.goal_tag in tags and float(h.current_value or 0) > 0:
             out.append((h.owner_id, float(h.current_value), allocation.classify(h.instrument_name, h.holding_type)))
-    for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(scope), ManualAsset.goal_tag.in_(tags), ManualAsset.is_liquid == True).all():  # noqa: E712  (a home you live in is not a corpus: the goal's own corpus leaves it out too)
-        if float(m.current_value or 0) > 0:
-            out.append((m.owner_id, float(m.current_value), allocation.classify(m.name, None, m.asset_type)))
+    from app.engine import epf as epf_mod
+    not_a_corpus = ("real_estate", "liability", "insurance", "other")          # a home you live in is not money you can spend
+    for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(scope), ManualAsset.goal_tag.in_(tags), ManualAsset.asset_type.notin_(not_a_corpus)).all():
+        v = float(epf_mod.value_of(m, date.today())) if m.asset_type == "epf" else float(m.current_value or 0)
+        if v > 0:
+            out.append((m.owner_id, v, allocation.classify(m.name, None, m.asset_type)))
     return out
 
 
-def _goal_assumptions(ctx: Context, items: list, years: float, retire_income_today: float | None = None) -> tuple[Assumptions, dict]:
-    """Assumptions with the tax drags of this goal's holders; the mix and owner weights come from what is tagged to it."""
+EPF_TAX_FREE_CONTRIBUTION = 250000        # interest on the employee's contributions above this a year is taxable (Finance Act 2021)
+
+
+def epf_net_rate(ctx: Context) -> float:
+    """The declared EPF rate after tax on the interest of contributions above ₹2.5 lakh a year (at each holder's own marginal rate), balance-weighted."""
+    from app.knowledge import rules
+    rate = float(rules.value("epf.interest_rate", ctx.today)) / 100
+    tot = sum(e["balance"] for e in ctx.epf.values())
+    if tot <= 0:
+        return rate
+    net = 0.0
+    for o, e in ctx.epf.items():
+        yearly = e.get("employee_monthly", 0.0) * 12
+        taxable_share = max(0.0, 1 - EPF_TAX_FREE_CONTRIBUTION / yearly) if yearly > 0 else 0.0
+        tax = ctx.profiles.get(o, {}).get("marginal_rate", 0.0)
+        net += e["balance"] * rate * (1 - taxable_share * tax)
+    return net / tot
+
+
+def _goal_assumptions(ctx: Context, items: list, years: float, retire_income_today: float | None = None, epf_value: float = 0.0) -> tuple[Assumptions, dict]:
+    """Assumptions with the tax drags of this goal's holders; the mix and owner weights come from what is tagged to it. The fixed-rate bucket (PPF and EPF,
+    both a rate declared each year) earns the value-weighted mean of the two declared rates."""
     by_owner: dict[str, float] = {}
     for o, v, _w in items:
         by_owner[o] = by_owner.get(o, 0.0) + v
@@ -137,7 +174,12 @@ def _goal_assumptions(ctx: Context, items: list, years: float, retire_income_tod
     fy = next(iter(ctx.profiles.values()))["fy"] if ctx.profiles else "2026-27"
     income = retire_income_today if retire_income_today is not None else ctx.spending["retirement_core"] / 2
     saving, retired = taxes.drags(ctx.base, years, debt_rate, income, ctx.today, fy)
-    return with_drags(ctx.base, saving, retired), {"debt_rate_pct": round(debt_rate * 100, 1), "owners": by_owner}
+    base = ctx.base
+    fixed_total = sum(v * w.get("ppf", 0.0) for _o, v, w in items)
+    if epf_value > 0 and fixed_total > 0:
+        share = min(1.0, epf_value / fixed_total)
+        base = replace(base, ppf=base.ppf * (1 - share) + epf_net_rate(ctx) * share)
+    return with_drags(base, saving, retired), {"debt_rate_pct": round(debt_rate * 100, 1), "owners": by_owner}
 
 
 def _risk_shift(ctx: Context, owner_values: dict[str, float]) -> str:
@@ -147,13 +189,13 @@ def _risk_shift(ctx: Context, owner_values: dict[str, float]) -> str:
 
 
 def _result(ctx, a, res, shape, scale_now, corpus0, first_out: int, outflow_nom_p50: float, ideal_today: float, basis: str, infl_used: float,
-            years: float, weights, extra: dict | None = None) -> dict:
+            years: float, weights, extra: dict | None = None, fixed_in: np.ndarray | None = None) -> dict:
     """Common shape of a goal's plan result. 'required' is the corpus needed when spending starts, at CONFIDENCE; 'projected' the median."""
     D = res["D"]
     O_at_start = None
     need_ = res["need"]
     B_start = np.cumsum(shape[None, :] * D, axis=1)[:, first_out]
-    corpus_start = (corpus0 + scale_now * B_start) / D[:, first_out]
+    corpus_start = (corpus0 + scale_now * B_start + _fixed_pv(fixed_in, D, first_out)) / D[:, first_out]
     out = {"chance": res["probability"], "sip_for_80": res["scale_for_confidence"].get("80"), "sip_for_90": res["scale_for_confidence"].get("90"),
            "sip_for_50": res["scale_for_confidence"].get("50"), "ideal_target_today": ideal_today, "target_basis": basis,
            "inflation_used_pct": round(infl_used * 100, 2), "corpus_at_start_p50": float(np.median(corpus_start)),
@@ -161,6 +203,13 @@ def _result(ctx, a, res, shape, scale_now, corpus0, first_out: int, outflow_nom_
            "years": round(years, 1), "scenario": ctx.why.get("scenario")}
     out.update(extra or {})
     return out
+
+
+def _fixed_pv(fixed_in: np.ndarray | None, D: np.ndarray, upto: int):
+    """Present value (per path) of money that comes in whatever you do (EPF contributions, a return of premium) up to month `upto`."""
+    if fixed_in is None:
+        return 0.0
+    return (fixed_in[None, : upto + 1] * D[:, : upto + 1]).sum(axis=1)
 
 
 def _expected(a: Assumptions, mix: dict) -> float:
@@ -185,7 +234,8 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
     ret_dates = {o: _add_years(v["dob"], v["retirement_age"]) for o, v in owners.items()}
     first = min(ret_dates, key=lambda o: ret_dates[o])
     start_date = ret_dates[first]
-    life = longevity.household_horizon([v["dob"] for v in ctx.owners.values() if v["dob"]], today)
+    dated = [(o, v["dob"]) for o, v in ctx.owners.items() if v["dob"]]
+    life = longevity.household_horizon([d for _o, d in dated], today, [ctx.family_shift.get(o, 0.0) for o, _d in dated])
     horizon_end = life["end"]
     n_acc, n = _months(today, start_date), _months(today, horizon_end)
     if n <= n_acc:
@@ -193,7 +243,8 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
     step_m = _months(today, life["step"]) if life["step"] else n + 1
     years = n_acc / 12
     spend_today = ctx.spending["retirement_core"]
-    a, tax_note = _goal_assumptions(ctx, items, years)
+    epf = {o: e for o, e in ctx.epf.items() if o in ret_dates}
+    a, tax_note = _goal_assumptions(ctx, items, years, epf_value=sum(e["balance"] for e in epf.values()))
     mix_vals = allocation.blend([(v, w) for _o, v, w in items])
     start = mix_vals or {"equity": 0.7, "debt": 0.3}
     glide = min(10.0, years)
@@ -222,17 +273,33 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
             offset[mm] += inc_m * (1 + a.salary_growth) ** (mm / 12)
 
     household = np.where(np.arange(n + 1) < step_m, 1.0, life["factor"])
+    # money that arrives whatever you save: EPF contributions (employee + employer share, rising with salary) until each person stops working,
+    # and a return-of-premium term plan paid back at its age (a fixed sum: it does not grow with prices)
+    fixed_in = np.zeros(n + 1)
+    haircut_own = float(param("earnings", "income_haircut")["value"])          # the same job-risk haircut as a spouse's pay: contributions stop if the job does
+    for o, e in epf.items():
+        m_end = min(_months(today, ret_dates[o]), n)
+        mm = np.arange(1, m_end)
+        fixed_in[mm] += e["monthly"] * haircut_own * (1 + a.salary_growth) ** (mm // 12)
+    rop = []
+    for t in ctx.term:
+        v = ctx.owners.get(t["owner"])
+        if v and v["dob"] and t["return_age"] and t["return_amount"] > 0:
+            m_pay = _months(today, _add_years(v["dob"], t["return_age"]))
+            if m_pay < n:
+                fixed_in[m_pay] += t["return_amount"]
+                rop.append({"owner": t["owner"], "age": t["return_age"], "amount": t["return_amount"]})
 
     def outflow(infl, n_paths):
         o = np.zeros((n_paths, n + 1))
         o[:, n_acc:n] = np.maximum(spend_today / 12 * household[None, n_acc:n] * infl["basket"][:, n_acc:n] - offset[None, n_acc:n], 0.0)
-        return o
+        return o - fixed_in[None, :]
 
     res = simulate.simulate_plan(corpus0=corpus0, n_months=n, shape=shape, scale_now=total_sip, outflow_fn=outflow, weights=w,
                                  retire_month=n_acc, data=ctx.data, a=a, confidences=(0.5, CONFIDENCE, 0.9))
     D = res["D"]
     o_nom = outflow(res["infl"], a.n_paths)
-    req = (o_nom[:, n_acc:n] * D[:, n_acc:n] / D[:, n_acc:n_acc + 1]).sum(axis=1)
+    req = (o_nom[:, n_acc:n] * D[:, n_acc:n] / D[:, n_acc:n_acc + 1]).sum(axis=1)               # what living costs when you stop, less what still arrives later (a return of premium)
     deflate = (1 + a.inflation_general) ** years
     req80 = _quantile(req, CONFIDENCE)
     ideal_today = req80 / deflate
@@ -241,11 +308,12 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
              "spend_today": spend_today, "spouse_offset_today_monthly": {o: ctx.salary.get(o, 0.0) * haircut / 12 for o in owners if o != first},
              "tax": tax_note, "first_retiree": first, "retire_dates": {o: d.isoformat() for o, d in ret_dates.items()},
              "mix_start": {k: round(v, 3) for k, v in start.items()}, "step_date": life["step"].isoformat() if life["step"] else None,
-             "step_factor": life["factor"], "survivor_chance": life["chance"]}
+             "step_factor": life["factor"], "survivor_chance": life["chance"], "epf": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in epf.items()},
+             "return_of_premium": rop, "family_shift": {o: round(ctx.family_shift.get(o, 0.0), 1) for o, _d in dated if ctx.family_shift.get(o, 0.0)}}
     out = _result(ctx, a, res, shape, total_sip, corpus0, n_acc, req80, ideal_today, "typed" if use_typed else "derived",
-                  a.retirement_inflation, years, w, extra)
+                  a.retirement_inflation, years, w, extra, fixed_in)
     if use_typed:                                           # chance against the typed corpus rather than the derived need
-        c_start = (corpus0 + total_sip * np.cumsum(shape[None, :] * D, axis=1)[:, n_acc]) / D[:, n_acc]
+        c_start = (corpus0 + total_sip * np.cumsum(shape[None, :] * D, axis=1)[:, n_acc] + _fixed_pv(fixed_in, D, n_acc)) / D[:, n_acc]
         out["chance"] = float((c_start >= typed_today * deflate).mean())
     if search and out["chance"] is not None and out["chance"] < CONFIDENCE and total_sip > 0:
         out["age_for_80"] = _retire_age_for_chance(db, ctx, goal, corpus0, sip_now_by_owner, items, typed_today, use_typed, owners[first]["retirement_age"], first)
@@ -338,10 +406,10 @@ def health_schedule(ctx: Context) -> list[tuple[date, float, str]]:
     p = lambda k: float(param("health", k)["value"])
     per_year = p("senior_premium_per_person") + p("senior_hospitalisation_rate") * p("out_of_pocket_per_hospitalisation")
     out = []
-    for o in ctx.owners.values():
+    for oid, o in ctx.owners.items():
         if not o["dob"] or not o["retirement_age"]:
             continue
-        start, end = _add_years(o["dob"], o["retirement_age"]), longevity.person_end(o["dob"], ctx.today)
+        start, end = _add_years(o["dob"], o["retirement_age"]), longevity.person_end(o["dob"], ctx.today, ctx.family_shift.get(oid, 0.0))
         d = start
         while d < end:
             out.append((d, per_year, "medical"))
@@ -393,6 +461,15 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
                f"{res['survivor_chance'] * 100:.0f}%, official life table)" + (f", spending {int((1 - res['step_factor']) * 100)}% lower from {res['step_date'][:4]}" if res.get("step_date") else "")
                + f". Living cost ₹{res['spend_today'] / 100000:.1f} L/yr (today's money, health is in its own goal)"
                + (f"; a working spouse's income (₹{sum(off.values()) / 1000:.0f}k/mo after a job-risk haircut) offsets it until their own retirement." if off else "."))
+        parts = []
+        for o, e in (res.get("epf") or {}).items():
+            parts.append(f"EPF ₹{e['balance'] / 100000:.1f} L now, ₹{e['monthly'] / 1000:.0f}k a month until you stop (counted at 80% for job risk; interest above ₹2.5 L of contributions taxed)")
+        for r in res.get("return_of_premium") or []:
+            parts.append(f"term plan returns ₹{r['amount'] / 100000:.0f} L at {r['age']}")
+        for o, y in (res.get("family_shift") or {}).items():
+            parts.append(f"a long-lived family adds {y:+.1f} years to the horizon")
+        if parts:
+            txt += " Counted: " + "; ".join(parts) + ". Not counted: the other spouse's EPF/NPS and PF held by exempted employers (no data)."
         if res.get("age_for_80"):
             txt += f" At today's saving an 80% chance needs retiring at {res['age_for_80']}."
         elif res.get("chance") is not None and res["chance"] < CONFIDENCE and "age_for_80" in res:
@@ -495,3 +572,73 @@ def overlay(db: Session, goal, proj, sip_by_owner: dict[str, float], scope: list
         proj.glide_active = True                             # every plan moves to the safer mix as its date nears
     proj.plan_note = _note(res, "retirement" if gt == "retirement" else gt, ctx)
     return True
+
+
+# ── funding order ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+TYPE_RANK = {"emergency": 0, "emergency_fund": 0, "child_education": 1, "health": 2, "retirement": 3, "child_marriage": 4}
+
+
+def funding_order(planned: list, priority: list[str] | None = None) -> list:
+    """The goals in the order money should reach them: the emergency fund, then by the date money is first needed (education, then health and
+    retirement, then marriage); a tie goes to the smaller, more essential one (health). `priority` (config goal_priority: goal types) overrides it."""
+    def key(item):
+        g, proj = item[0], item[1]
+        t = (g.goal_type or "").lower()
+        if priority and t in priority:
+            return (0, priority.index(t), 0)
+        return (1 if priority else 0, proj.target_date.toordinal() if (proj.target_date and TYPE_RANK.get(t, 9) > 0) else 0, TYPE_RANK.get(t, 9))
+    return sorted(planned, key=key)
+
+
+def apply_funding(db: Session, ctx: Context, planned: list) -> dict | None:
+    """Spread the household's monthly capacity over the goals in funding order, each up to the saving that gives it an 80% chance, and say what the last
+    ones get and what chance that leaves them. `planned`: [(goal row, projection, saving by owner, scope)]. Fills the projections' funding fields and notes."""
+    from dataclasses import replace as _rep
+    pay_from = {o: personal.income(o)["from"] for o in ctx.owners if personal.income(o) and personal.income(o).get("from")}
+    cap = need.capacity(db, ctx.today, ctx.term, ctx.loan, pay_from)
+    remaining = max(0.0, cap["monthly"])
+    out = {"capacity_monthly": round(cap["monthly"]), "rises": cap["rises"], "order": []}
+    ordered = funding_order(planned, personal.goal_priority())
+    monthly = [(g, proj, by_owner, scope) for g, proj, by_owner, scope in ordered if (g.goal_type or "").lower() not in ("emergency", "emergency_fund")]
+    # first what each goal already gets (up to what it needs), in order: a habit that works is not taken away; then the rest of the capacity tops up in order
+    alloc = {}
+    for g, proj, by_owner, _s in monthly:
+        keep = min(sum(by_owner.values()), float(proj.monthly_sip_needed or 0), remaining)
+        alloc[str(g.id)] = keep
+        remaining -= keep
+    for g, proj, by_owner, _s in monthly:
+        top = min(max(0.0, float(proj.monthly_sip_needed or 0) - alloc[str(g.id)]), remaining)
+        alloc[str(g.id)] += top
+        remaining -= top
+    for rank, (g, proj, by_owner, scope) in enumerate(ordered, 1):
+        t = (g.goal_type or "").lower()
+        proj.funding_rank = rank
+        if t in ("emergency", "emergency_fund"):
+            gap = max(0.0, proj.inflation_adj_target - proj.current_corpus)
+            proj.plan_note = (proj.plan_note or "") + (f" Fund first: top up ₹{gap / 100000:.1f} L now from savings." if gap > 0 else " Fund first: already covered.")
+            out["order"].append({"goal": g.name, "rank": rank, "oneoff_topup": round(gap)})
+            continue
+        want = float(proj.monthly_sip_needed or 0)
+        a_i = alloc[str(g.id)]
+        chance = proj.chance
+        if a_i + 1 < want and want > 0:
+            cur = sum(by_owner.values())
+            new = {o: v * a_i / cur for o, v in by_owner.items()} if cur > 0 else {"user": a_i}
+            probe = _rep(proj)
+            try:
+                if overlay(db, g, probe, new, scope, ctx):
+                    chance = probe.chance
+            except Exception as exc:
+                logger.warning("funding probe failed for %s: %s", g.name, exc)
+        elif want > 0:
+            chance = CONFIDENCE
+        proj.suggested_sip, proj.chance_at_suggested = round(a_i, 2), (round(chance, 3) if chance is not None else None)
+        line = f" Fund #{rank}: ₹{a_i / 1000:.0f}k a month of your ₹{cap['monthly'] / 1000:.0f}k"
+        line += f" → {chance * 100:.0f}% chance." if chance is not None else "."
+        if a_i + 1 < want and cap["rises"]:
+            r = cap["rises"][0]
+            line += f" The rest can follow when {r['what']} (about {r['when'][:4]}, ₹{r['monthly'] / 1000:.0f}k a month freed)."
+        proj.plan_note = (proj.plan_note or "") + line
+        out["order"].append({"goal": g.name, "rank": rank, "wanted": round(want), "suggested": round(a_i), "chance": None if chance is None else round(chance, 3)})
+    return out

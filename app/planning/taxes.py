@@ -52,9 +52,13 @@ def terminal_drag(gross: float, years: float, rate: float) -> float:
 
 
 def person_profiles(db, today: date) -> dict[str, dict]:
-    """{owner: {regime, taxable_income, marginal_rate}}: the highest annualised taxable income of the last three years (past earnings, a floor:
-    salary is as credited, after the employer's TDS) taxed at today's slabs in the owner's own regime."""
+    """{owner: {regime, taxable_income, marginal_rate, source}}: the highest annualised taxable income of the last three years (past earnings: salary is as
+    credited, after the employer's TDS, so a floor) or, where config/accounts.yml gives the current pay (`income`), that pay less the employer's PF share and the
+    standard deduction, whichever is higher; taxed at today's slabs in the owner's own regime."""
     from app.engine import tax_view
+    from app.planning import personal
+    cfg = personal.config()
+    employer_pf = {e["owner"]: e["employer_monthly"] * 12 for e in personal.epf_entries(cfg)}
     out = {}
     try:
         built = tax_view.build(db, today)
@@ -69,7 +73,14 @@ def person_profiles(db, today: date) -> dict[str, dict]:
             months = max(1, int(e.get("salary_months_seen") or 12))
             ann = float(e["taxable_ordinary_income"]) * (12 / months if months < 12 else 1.0)
             best = max(best, ann)
-        out[owner] = {"regime": v["regime"], "taxable_income": best, "marginal_rate": marginal_rate(best, fy, v["regime"]), "fy": fy}
+        pay = personal.income(owner, cfg)
+        src = "credits"
+        if pay:                                              # the headline pay is what the slab sees, not the bank credit after TDS and EPF
+            std = float(tax_slabs.standard_deduction(fy, v["regime"]) or 0)
+            est = max(0.0, pay["ctc_annual"] - employer_pf.get(owner, 0.0) - std)          # the employer's PF share is not taxed
+            if est > best:
+                best, src = est, "ctc"
+        out[owner] = {"regime": v["regime"], "taxable_income": best, "marginal_rate": marginal_rate(best, fy, v["regime"]), "fy": fy, "source": src}
     return out
 
 

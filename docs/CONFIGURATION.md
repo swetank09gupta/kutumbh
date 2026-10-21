@@ -49,6 +49,16 @@ Parents or other family whose money moves through your accounts (cheque deposits
 
 ---
 
+## Personal facts the planner reads (`config/accounts.yml`, all optional; shapes in `accounts.example.yml`)
+| Key | What | Used for |
+|---|---|---|
+| `epf` | owner, `as_of`, `balance`, `employee_monthly`, `employer_monthly` (the share that reaches EPF; the pension share goes to EPS) | the EPF Manual Asset: net worth, retirement corpus, contributions in the retirement plan; share a new balance about yearly (warning after 13 months) |
+| `income.<owner>` | `ctc_annual`, `from`, `employer` | the tax slab (CTC less the employer's PF share and the standard deduction beats the after-TDS bank credit) and the capacity (a new employer counts from its first full month) |
+| `family_history.<owner>` | ancestors: `relation`, `died_at` / `alive_at`, `note` | nudges that person's planning horizon (heritability of lifespan ≈ 0.25; only ancestors who outlived 78 count) |
+| `term_insurance` | `owner`, `premium_term_years`, `return_age`, `return_amount` | a return-of-premium plan: the sum comes back at that age (counted in retirement) and the premium's end frees cash flow |
+| `goal_priority` | goal types in funding order | overrides the default order (emergency, then by date) |
+| `owners[].home_loan_share_pct` | each co-owner's share of the flat and its loan (33 / 34; a parent's 33 belongs to nobody here) | net worth counts the flat and the loan at each owner's share |
+
 ## `config/accepted_gaps.json` (private, git-ignored, optional)
 
 A statement month the bank never issued cannot be filled and nothing is invented; the balance today is the newest statement or alert. List it here and the balance-chain check stops warning about it (ADR-0040). Only an exact owner + account + month counts:

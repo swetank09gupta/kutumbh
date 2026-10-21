@@ -42,7 +42,7 @@ def horizon(mu: float, sigma: float, z: float = Z) -> float:
 def build(factors, assumptions) -> RiskModel:
     """From the factor return frame (monthly) and the planner's derived expected returns."""
     cov = np.cov(factors[list(FACTORS)].to_numpy().T, ddof=1) * 12
-    mu = np.array([assumptions.equity, assumptions.equity, assumptions.equity, assumptions.gold, assumptions.debt])
+    mu = np.array([assumptions.equity, assumptions.equity, assumptions.equity, assumptions.gold, assumptions.gold, assumptions.debt])          # no extra premium for silver, mid or small caps
     return RiskModel(cov, mu)
 
 

@@ -54,22 +54,23 @@ def survival_from_birth(age: float) -> float:
     return lx[ages[-1]] / lx[0] * math.exp(-h0 * (math.exp(slope * t) - 1) / slope)
 
 
-def survives(age_now: float, age_then: float) -> float:
-    """Chance someone aged `age_now` is alive at `age_then` (a later age)."""
+def survives(age_now: float, age_then: float, shift: float = 0.0) -> float:
+    """Chance someone aged `age_now` is alive at `age_then` (a later age). `shift` years moves the person along the table (a long-lived family: +)."""
     if age_then <= age_now:
         return 1.0
-    return survival_from_birth(age_then) / survival_from_birth(age_now)
+    return survival_from_birth(age_then - shift) / survival_from_birth(age_now - shift)
 
 
 def _age(dob: date, on: date) -> float:
     return (on - dob).days / 365.25
 
 
-def years_until(dobs: list[date], today: date, chance: float, kind: str) -> float:
+def years_until(dobs: list[date], today: date, chance: float, kind: str, shifts: list[float] | None = None) -> float:
     """Years from today until P(anyone alive) ('any') or P(everyone alive) ('both') falls to `chance`, for people born on `dobs`."""
+    shifts = shifts or [0.0] * len(dobs)
     for k in range(0, int(MAX_AGE * 4)):
         y = k / 4
-        alive = [survives(_age(d, today), _age(d, today) + y) for d in dobs]
+        alive = [survives(_age(d, today), _age(d, today) + y, sh) for d, sh in zip(dobs, shifts)]
         p = 1 - math.prod(1 - s for s in alive) if kind == "any" else math.prod(alive)
         if p <= chance:
             return y
@@ -81,16 +82,16 @@ def _add_years(d: date, years: float) -> date:
     return date.fromordinal(d.toordinal() + days)
 
 
-def household_horizon(dobs: list[date], today: date) -> dict:
+def household_horizon(dobs: list[date], today: date, shifts: list[float] | None = None) -> dict:
     """{'end': last day money must last, 'step': date after which spending is scaled, 'factor': that scale, 'chance': plan chance}."""
     chance = float(param("longevity", "plan_until_survivor_chance")["value"])
     factor = float(param("longevity", "survivor_spending_factor")["value"])
-    end = _add_years(today, years_until(dobs, today, chance, "any"))
-    step = _add_years(today, years_until(dobs, today, 0.5, "both")) if len(dobs) > 1 else None
+    end = _add_years(today, years_until(dobs, today, chance, "any", shifts))
+    step = _add_years(today, years_until(dobs, today, 0.5, "both", shifts)) if len(dobs) > 1 else None
     return {"end": end, "step": step, "factor": factor if step else 1.0, "chance": chance}
 
 
-def person_end(dob: date, today: date) -> date:
+def person_end(dob: date, today: date, shift: float = 0.0) -> date:
     """Last day one person's own cost (their health cover) runs: until their own survival chance falls to `plan_until_survivor_chance`."""
     chance = float(param("longevity", "plan_until_survivor_chance")["value"])
-    return _add_years(today, years_until([dob], today, chance, "any"))
+    return _add_years(today, years_until([dob], today, chance, "any", [shift]))

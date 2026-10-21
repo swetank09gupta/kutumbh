@@ -163,6 +163,15 @@ def goal_corpus_matches_holdings(db: Session) -> dict:
                   "Goal corpus is stale versus tagged holdings", differences=bad)
 
 
+def epf_balance_is_current(db: Session) -> dict:
+    """An EPF balance shared in config/accounts.yml is rolled forward by the app; after a year the roll-forward is only a guess. Warn so a new balance is shared."""
+    from app.engine import epf
+    old = epf.stale(db)
+    return _check("epf_balance_is_current", not old,
+                  "The EPF balance you shared is under a year old" if not old else
+                  f"The EPF balance for {', '.join(old)} is over a year old: share a newer one (config/accounts.yml → epf)", severity="warn", owners=old)
+
+
 def expense_definitions_agree(db: Session) -> dict:
     """Overview chart, Transactions summary, breakdown donut and Grafana read one definition."""
     start = (date.today().replace(day=1) - timedelta(days=90)).replace(day=1)   # whole months only
@@ -507,6 +516,7 @@ def deadlines_have_a_basis(db: Session) -> dict:
 
 
 CHECKS: list[Callable[[Session], dict]] = [
+    epf_balance_is_current,
     family_equals_members, networth_matches_holdings, returns_match_holdings, goals_are_one_story,
     goal_corpus_matches_holdings, expense_definitions_agree, no_duplicate_bank_rows,
     no_unpaired_own_transfers, trades_are_investments, no_phantom_owners, ledger_reconciliation,

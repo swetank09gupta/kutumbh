@@ -47,6 +47,9 @@ class GoalProjection:
     target_source:          Optional[str] = None     # "derived" | "typed"
     inflation_used_pct:     Optional[float] = None
     plan_note:              Optional[str] = None
+    funding_rank:           Optional[int] = None     # the order money should reach the goals (emergency fund, then by date)
+    suggested_sip:          Optional[float] = None   # what that order gives this goal out of the household's monthly capacity
+    chance_at_suggested:    Optional[float] = None   # the chance of meeting it at that saving
 
 
 def _months_between(start: date, end: date) -> int:
@@ -441,6 +444,11 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
         nwr = per_owner_nw.get(owner)
         return float(nwr.ppf_value or 0) if nwr else 0.0
 
+    def _epf_for(owner: str) -> float:
+        """The Provident Fund balance behind a retirement goal (rolled forward from the balance you shared; app/engine/epf.py)."""
+        from app.engine import epf as _epf
+        return _epf.total_for(db, all_owner_ids if owner in ("family", "", None) else [owner])
+
     # When owner_id is "family" we want all individual owners, not just rows
     # literally tagged "family" (which don't exist on the accounts table).
     # Expand "family" → every owner id that exists.
@@ -518,12 +526,12 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
             if gt == "retirement":
                 # Per-owner PPF — your retirement gets your PPF, wife's gets
                 # hers. If goal is family-owned (uncommon), use family total.
-                base += _ppf_for(g.owner_id or "family")
+                base += _ppf_for(g.owner_id or "family") + _epf_for(g.owner_id or "family")
             new_corpus = Decimal(str(round(base, 2)))
         elif gt in ("retirement", "child_education", "child_marriage"):
             base = _untagged_share(g)
             if gt == "retirement":
-                base += _ppf_for(g.owner_id or "family")
+                base += _ppf_for(g.owner_id or "family") + _epf_for(g.owner_id or "family")
             new_corpus = Decimal(str(round(base, 2)))
         elif gt in ("emergency_fund", "emergency"):
             new_corpus = Decimal(str(round(bank + liquid_extra, 2)))
@@ -612,6 +620,7 @@ def project_all_goals(db: Session, owner_id: str | None = None, scenario: str = 
             by_owner[str(g.id)][owner] += amount * share
 
     out = []
+    funded: list = []
     ctx = None
     try:
         from app.planning import goal_plan
@@ -628,12 +637,20 @@ def project_all_goals(db: Session, owner_id: str | None = None, scenario: str = 
         if ctx is not None:
             try:
                 planned = goal_plan.overlay(db, g, proj, dict(by_owner.get(str(g.id), {})), scope, ctx)
+                if planned:
+                    funded.append((g, proj, dict(by_owner.get(str(g.id), {})), scope))
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception("plan for %s failed; keeping the deterministic projection", g.name)
         if not planned and (g.goal_type or "").lower() not in ("custom", ""):
             proj.plan_note = "Simple projection on your typed return (the market plan is not available for this goal right now)."
         out.append(proj)
+    if ctx is not None and funded:
+        try:
+            goal_plan.apply_funding(db, ctx, funded)            # the order and size of what each goal should get from the monthly capacity
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("funding order failed")
     return out
 
 
@@ -643,6 +660,12 @@ def refresh_goals(db: Session) -> dict:
     stored monthly_sip_needed from the single projection. Run after the ledger refresh and the
     net-worth snapshot so corpus, SIP and the cards always describe the same portfolio.
     """
+    try:
+        from app.engine import epf as _epf
+        _epf.sync(db)                                      # a balance shared in config/accounts.yml becomes (or updates) the EPF asset
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("EPF sync failed")
     corpus = refresh_corpus_from_networth(db, "family")
     stored = 0
     for p in project_all_goals(db):

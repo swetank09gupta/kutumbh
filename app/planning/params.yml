@@ -52,6 +52,12 @@ longevity:
   # 100,000 births at each exact age; e85 = life expectancy at 85.
   table_urban_female_srs_2016_20:
     - {lx: {0: 100000, 1: 97516, 5: 97263, 10: 97083, 15: 96928, 20: 96676, 25: 96339, 30: 95959, 35: 95485, 40: 94857, 45: 93922, 50: 92398, 55: 90015, 60: 85827, 65: 79977, 70: 70937, 75: 59393, 80: 44771, 85: 29266}, e85: 6.5, verified_on: 2026-10-21, source: "https://censusindia.gov.in/nada/index.php/catalog/44377/download/48050/SRS-Abridged_Life_Tables_2016-2020.pdf"}
+  reference_age:                           # the age a 60-year-old India reaches on average: 60 + SRS 2016-20 life expectancy at 60 (18.3)
+    - {value: 78.3, verified_on: 2026-10-21, source: "https://censusindia.gov.in/nada/index.php/catalog/44377/download/48050/SRS-Abridged_Life_Tables_2016-2020.pdf"}
+  heritability:                            # share of the variation in human lifespan that runs in families (Danish twin studies: about 0.25)
+    - {value: 0.25, verified_on: 2026-10-21, source: "https://pubmed.ncbi.nlm.nih.gov/8666367/", note: "Herskind et al. 1996, Human Genetics"}
+  family_shift_cap_years:
+    - {value: 3.0, judgement: true, verified_on: 2026-10-21}
   old_age_hazard_slope:                    # beyond 85 the table stops: deaths per year rise by this factor in the exponent (Gompertz; mortality roughly doubles every 7 years)
     - {value: 0.10, judgement: true, verified_on: 2026-10-21}
   plan_until_survivor_chance:              # money must last until the chance that anyone covered is still alive falls to this (1 in 7)

@@ -20,6 +20,7 @@ def factors(seed=3):
         "mid": base * 1.1 + rng.normal(0, 0.02, len(IDX)),
         "small": base * 1.2 + rng.normal(0, 0.03, len(IDX)),
         "gold": rng.normal(0.006, 0.04, len(IDX)),
+        "silver": rng.normal(0.006, 0.08, len(IDX)),
         "debt": rng.normal(0.005, 0.008, len(IDX)),
     }, index=IDX)[list(F)]
 
@@ -65,7 +66,7 @@ class Contents(unittest.TestCase):
         y = (0.2 * f["large"] + 0.6 * f["mid"] + 0.2 * f["small"]).to_numpy() + np.random.default_rng(2).normal(0, 0.01, len(f))
         prior = funds.category_prior("Equity Scheme - Mid Cap Fund")
         free, pulled = funds.simplex_ls(y, f.to_numpy()), funds.simplex_ls(y, f.to_numpy(), prior)
-        truth = np.array([0.2, 0.6, 0.2, 0, 0])
+        truth = np.array([0.2, 0.6, 0.2, 0, 0, 0])
         self.assertLessEqual(np.abs(pulled - truth).sum(), np.abs(free - truth).sum() + 1e-9)
 
     def test_a_fund_with_history_gets_its_own_profile_one_without_gets_its_category(self):
@@ -88,6 +89,7 @@ class Contents(unittest.TestCase):
         self.assertEqual(p("Equity Scheme - Small Cap Fund")[F.index("small")], 0.65)
         self.assertGreater(p("Equity Scheme - Large & Mid Cap Fund")[F.index("mid")], 0.4)          # not caught by the mid cap rule alone
         self.assertEqual(p("Other Scheme - Gold ETF")[F.index("gold")], 1.0)
+        self.assertEqual(p("Exchange Traded Funds (ETFs) - Equity", "Aditya Birla Sun Life Silver ETF")[F.index("silver")], 1.0)       # silver is not gold
         self.assertEqual(p("Debt Scheme - Liquid Fund")[F.index("debt")], 1.0)
         self.assertEqual(p("Other Scheme - Index Funds", "Nippon Nifty Smallcap 250 Index Fund")[F.index("small")], 0.65)
         self.assertIsNone(p("Nothing known"))
@@ -128,8 +130,8 @@ class Risk(unittest.TestCase):
 
     def test_diversifying_gold_needs_fewer_years_than_the_same_amount_of_equity(self):
         m = self.model()
-        eq = np.array([1.0, 0, 0, 0, 0])
-        mix = np.array([0.7, 0, 0, 0.3, 0])
+        eq = np.array([1.0, 0, 0, 0, 0, 0])
+        mix = np.array([0.7, 0, 0, 0.3, 0, 0])
         self.assertLess(risk.horizon(*[m.stats(mix, 0)[i] for i in (0, 1)]), risk.horizon(*[m.stats(eq, 0)[i] for i in (0, 1)]))
 
     def test_the_market_curve_replaces_the_table_when_set(self):

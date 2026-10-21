@@ -168,7 +168,12 @@ def _profile_for(h_isin: str, name: str | None, symbol: str | None, htype: str |
     if h_isin.startswith("INF"):
         c = cat.get(h_isin)
         rets = funds.fund_returns(c["code"], today) if c else None
-        return funds.fund_profile(key, rets, factors, c["category"] if c else None, name or (c or {}).get("name"))
+        held = None
+        try:                                                                 # the fund's own disclosed portfolio, when it can be had
+            held = funds.holdings_exposure(funds.groww_scheme(h_isin, (c or {}).get("name") or name), funds.amfi_caps())
+        except Exception as exc:
+            logger.warning("holdings for %s unavailable: %s", h_isin, exc)
+        return funds.fund_profile(key, rets, factors, c["category"] if c else None, name or (c or {}).get("name"), held)
     if h_isin.startswith("IN0"):                                            # bonds: sovereign gold bonds or government / corporate debt
         return funds.fixed_profile(key, "gold" if re.search(r"sgb|gold", name or "", re.I) else "debt")
     info = funds.stock_symbol(h_isin) or {}
@@ -219,7 +224,7 @@ def run(db, owner_id: str | None = None, apply: bool = True, only_untagged: bool
         if only_untagged and m.goal_tag is not None:
             managed = False
         at = (m.asset_type or "").lower()
-        kind_key = "gold" if at in ("gold", "silver", "sgb") else "nps" if at == "nps" else "debt"
+        kind_key = "gold" if at in ("gold", "sgb") else "silver" if at == "silver" else "nps" if at == "nps" else "debt"
         key = f"m:{m.id}"
         prof = funds.fixed_profile(key, kind_key)
         items.append(Item(key, m.owner_id, float(m.current_value), prof, "ppf" if at == "ppf" else "manual", m.goal_tag, managed))
@@ -271,3 +276,27 @@ def run(db, owner_id: str | None = None, apply: bool = True, only_untagged: bool
             "goals": [{"tag": g.tag, "years": round(g.years, 1), "need_today": round(g.pv_need), "held": round(g.value),
                        "needs_years": round(portfolio_horizon(model, g), 1)} for g in goals],
             "holdings": {meta[i.key]["name"]: meta[i.key]["profile"] for i in items}, "applied": apply}
+
+
+def speculative(db, limit_years: float = 40.0, min_value: float = 50000.0, today: date | None = None) -> list[dict]:
+    """Holdings whose own risk needs more years than any goal has (the 1-in-20 horizon beyond `limit_years`): money that is a bet, not goal money.
+    Silver is the usual one (about 35% a year of volatility and no premium over gold in the planner's expectations)."""
+    from app.engine.holdings_view import latest_holdings
+    from app.engine.networth import real_owners
+    from app.planning import goal_plan
+    today = today or date.today()
+    ctx = goal_plan.get_context(db)
+    if ctx is None or ctx.risk_model is None:
+        return []
+    cat = funds.catalog()
+    out = []
+    for h in latest_holdings(db, owner_ids=[o.id for o in real_owners(db)]):
+        v = float(h.current_value or 0)
+        if not h.isin or v < min_value:
+            continue
+        prof = _profile_for(h.isin, h.instrument_name, h.symbol, h.holding_type, cat, ctx.factors, today)
+        mu, sd = ctx.risk_model.stats(prof.exposure, prof.idio)
+        hz = risk.horizon(mu, sd)
+        if hz > limit_years and not (h.isin.startswith("INE") and hz < 60):
+            out.append({"name": h.instrument_name, "owner": h.owner_id, "value": v, "needs_years": round(hz), "volatility_pct": round(sd * 100), "category": prof.category})
+    return sorted(out, key=lambda r: -r["value"])

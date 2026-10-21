@@ -54,7 +54,7 @@ class Matching(unittest.TestCase):
 
     def test_gold_diversifies_so_a_goal_near_its_budget_still_takes_it(self):
         g = goal("education", 7, 10_000_000)
-        g.value, g.exposure = 2_000_000, 2_000_000 * np.array([1.0, 0, 0, 0, 0])      # already all large-cap
+        g.value, g.exposure = 2_000_000, 2_000_000 * np.array([1.0, 0, 0, 0, 0, 0])      # already all large-cap
         base = M.portfolio_horizon(MODEL, g)
         with_gold = M.portfolio_horizon(MODEL, g, item("g", 1_000_000, GOLD))
         self.assertLess(with_gold, base)
