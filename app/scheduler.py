@@ -123,6 +123,12 @@ def _holdings_autotag_job():
 
     db = SessionLocal()
     try:
+        try:                                                  # re-check every holding the matcher manages (sold, bought, a goal's date moved)
+            from app.planning import matching
+            logger.info("Holdings matching sweep: %d moved", len(matching.run(db)["moves"]))
+        except Exception as exc:
+            logger.warning("Holdings matching sweep failed (%s); filling gaps with the fixed rules", exc)
+            db.rollback()
         n = auto_tag_holdings(db)
         logger.info("Holdings auto-tag sweep: tagged %d", n)
         # Always refresh corpus, even if no new tags — net worth / holdings

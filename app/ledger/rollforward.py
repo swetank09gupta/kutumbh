@@ -43,13 +43,11 @@ def _q(v: Optional[Decimal], places: str) -> Optional[Decimal]:
 def build_rows(led: OwnerLedger, db: Session, today: date) -> list[dict]:
     """Pure-ish: one dict per open position (needs DB only for goal tags)."""
     rows: list[dict] = []
-    tags = {
-        isin: tag for isin, tag in (
-            db.query(Holding.isin, Holding.goal_tag)
-            .join(Account, Holding.account_id == Account.id)
-            .filter(Account.owner_id == led.owner_id, Holding.goal_tag.isnot(None)).distinct().all()
-        )
-    }
+    tag_rows = (db.query(Holding.isin, Holding.goal_tag, Holding.goal_tag_source)
+                .join(Account, Holding.account_id == Account.id)
+                .filter(Account.owner_id == led.owner_id, Holding.goal_tag.isnot(None)).distinct().all())
+    tags = {isin: tag for isin, tag, _s in tag_rows}
+    sources = {isin: src for isin, _t, src in tag_rows}
     with httpx.Client(timeout=5.0, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True) as client:
         for isin, st in sorted(led.states.items()):
             pos = st.position
@@ -79,6 +77,7 @@ def build_rows(led: OwnerLedger, db: Session, today: date) -> list[dict]:
                 "cost_basis_quality": pos.quality,
                 "price_source": src,
                 "goal_tag": tags.get(isin),
+                "goal_tag_source": sources.get(isin),
             })
     return rows
 

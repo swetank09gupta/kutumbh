@@ -39,6 +39,8 @@ def _migrate_db() -> None:
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS accrued_interest NUMERIC(15,2)",
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS is_liquid BOOLEAN DEFAULT FALSE",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag VARCHAR(30)",
+        "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag_source VARCHAR(10)",
+        "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS goal_tag_source VARCHAR(10)",
         # XIRR / returns tracking additions
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS isin VARCHAR(12)",
         "ALTER TABLE bank_alerts ADD COLUMN IF NOT EXISTS category VARCHAR(30)",
@@ -98,7 +100,7 @@ WITH latest_per_account AS (
     SELECT h.id, h.account_id, h.snapshot_date, h.symbol, h.isin,
            h.instrument_name, h.units, h.avg_cost_nav, h.current_nav,
            h.current_value, h.invested_value, h.gain_loss, h.gain_loss_pct,
-           h.holding_type, h.goal_tag, h.first_buy_date, h.source_file,
+           h.holding_type, h.goal_tag, h.goal_tag_source, h.first_buy_date, h.source_file,
            h.cost_basis_quality, h.price_source,
            a.owner_id, a.account_type, a.institution
     FROM holdings h
@@ -127,13 +129,13 @@ isin_deduped AS (
 )
 SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
        units, avg_cost_nav, current_nav, current_value, invested_value,
-       gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
+       gain_loss, gain_loss_pct, holding_type, goal_tag, goal_tag_source, first_buy_date,
        source_file, cost_basis_quality, price_source, owner_id, account_type, institution
 FROM isin_deduped WHERE rn = 1
 UNION ALL
 SELECT id, account_id, snapshot_date, symbol, isin, instrument_name,
        units, avg_cost_nav, current_nav, current_value, invested_value,
-       gain_loss, gain_loss_pct, holding_type, goal_tag, first_buy_date,
+       gain_loss, gain_loss_pct, holding_type, goal_tag, goal_tag_source, first_buy_date,
        source_file, cost_basis_quality, price_source, owner_id, account_type, institution
 FROM latest_per_account
 WHERE isin IS NULL""",

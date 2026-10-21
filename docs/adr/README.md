@@ -45,5 +45,6 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0039](0039-missed-jobs-and-stale-snapshot.md) | Missed jobs run once on wake; a stale snapshot is a warning, not a failure | Accepted |
 | [0040](0040-alerts-explain-missing-statement-months.md) | The bank's own alert mails explain a month whose statement never came | Accepted |
 | [0041](0041-tradebook-import-and-cashflow-links.md) | Console tradebooks fill what notes and mails miss; a trade's cashflow link must survive re-keying | Accepted |
+| [0044](0044-goal-matching.md) | Holdings are matched to goals from the goals' horizons and gaps | Accepted |
 | [0042](0042-planning-from-data.md) | Goal numbers are derived from spending, real history and simulation (superseded in form by 0043) | Accepted |
 | [0043](0043-one-calculator-derived-goals.md) | One goal calculator, derived targets, per-category inflation and per-person tax | Accepted |

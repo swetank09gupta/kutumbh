@@ -645,7 +645,7 @@
     <div class="page fade-up" id="page-investments">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <div class="page-title" style="margin-bottom:0">Investments</div>
-        <button class="btn btn-ghost" onclick="autoTagHoldings()" id="btn-autotag" style="font-size:12px" title="Auto-assign goals to untagged MF/equity holdings using ISIN database">✦ Auto-tag Goals</button>
+        <button class="btn btn-ghost" onclick="autoTagHoldings()" id="btn-autotag" style="font-size:12px" title="Match holdings and FDs to the goal that needs them (horizon, funding gap, asset type). Tags you set yourself are never moved. Runs daily too.">✦ Match to Goals</button>
       </div>
       <div class="page-sub">Everything you hold — stocks, funds, bonds, PPF and deposits</div>
 
@@ -1739,9 +1739,9 @@ function txPage(delta) {
 
 /* ── investments ───────────────────────────────────────────── */
 const GOAL_TAGS = [
-  { value: '',                label: '— untagged —' },
-  { value: 'retirement',      label: 'Your Retirement' },
-  { value: 'wife_retirement', label: "Wife's Retirement" },
+  { value: '',                label: '— let the app match —' },
+  { value: 'retirement',      label: 'Family Retirement' },
+  { value: 'wife_retirement', label: 'Family Retirement (hers)' },
   { value: 'child_education', label: 'Child Higher Education' },
   { value: 'child_marriage',  label: 'Child Marriage' },
   { value: 'health',          label: 'Health & Senior Care' },
@@ -1753,10 +1753,10 @@ async function autoTagHoldings() {
   btn.disabled = true; btn.textContent = '⏳ Tagging…';
   try {
     const d = await apiFetch('/api/accounts/holdings/auto-tag', { method: 'POST' });
-    toast(`Auto-tagged ${d.tagged} holding(s) — hit Sync Corpus to update goal progress`);
+    toast(d.tagged ? `Matched: moved ${d.tagged} holding(s) to the goal that needs them — hit Sync Corpus to update goal progress` : 'Every holding is already with the goal that needs it');
     loadHoldings();
   } catch (e) { toast('Auto-tag failed: ' + e.message, true); }
-  finally { btn.disabled = false; btn.textContent = '✦ Auto-tag Goals'; }
+  finally { btn.disabled = false; btn.textContent = '✦ Match to Goals'; }
 }
 
 async function setHoldingGoalTag(id, val) {
@@ -1766,6 +1766,7 @@ async function setHoldingGoalTag(id, val) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ goal_tag: val || null }),
     });
+    if (!val) loadHoldings();                                  // cleared: the app matches it again
   } catch (e) { toast('Goal tag update failed: ' + e.message, true); }
 }
 
@@ -1805,7 +1806,7 @@ function _holdingRow(h, returnsMap, isClosed) {
   const goalCell = isClosed
     ? `<td><span style="color:#64748b;font-size:11px">${h.goal_tag||'—'}</span></td>`
     : `<td><select style="background:${tagColor};border:1px solid #2d3f55;color:#94a3b8;font-size:11px;padding:2px 6px;border-radius:5px;cursor:pointer"
-            onchange="setHoldingGoalTag('${h.id}', this.value)">${goalOpts}</select></td>`;
+            onchange="setHoldingGoalTag('${h.id}', this.value)">${goalOpts}</select>${h.goal_tag && h.goal_tag_source==='auto' ? '<span style="font-size:10px;color:#475569;margin-left:4px" title="Matched by the app from the goals\' horizons and gaps; pick a goal to fix it yourself">auto</span>' : ''}</td>`;
   return `<tr style="${rowStyle}">
     <td>${nameCell}</td>
     <td><span class="badge" style="background:${h.holding_type==='equity'?'#1e3a5f':'#2e1065'};color:${h.holding_type==='equity'?'#93c5fd':'#d8b4fe'}">${h.holding_type||'—'}</span></td>

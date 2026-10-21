@@ -1,13 +1,12 @@
 """
 Auto-tag MF/equity holdings with the financial goal they serve.
 
-Priority:
-  1. ISIN_GOAL_MAP  — verified per-fund mapping (research-backed, see comments)
-  2. Pattern rules  — regex on instrument_name for future unknown ISINs
-  3. None           — leave untagged; user can set manually in the Holdings UI
+The match is made by app/planning/matching.py from each goal's horizon and funding gap (docs/PLANNING.md §6); `auto_tag_holdings` runs it for the
+holdings that have no tag yet (after every sync) and the daily sweep re-checks the ones it manages. This file keeps the OLD fixed rules below for two
+jobs only: recognising tags that predate the matcher (a tag equal to the old rule's answer counts as automatic, anything else as yours), and a fallback
+when the planner cannot run.
 
-Tagging is idempotent: holdings with an existing goal_tag are never overwritten,
-so manual overrides from the UI are always preserved.
+Tags you set in the Holdings UI are marked `manual` and are never moved.
 """
 from __future__ import annotations
 
@@ -140,17 +139,26 @@ def suggest_goal_tag(
 
 def auto_tag_holdings(db, owner_id: str | None = None) -> int:
     """
-    Set goal_tag on all holdings where it is currently NULL.
-    Holdings that already have a goal_tag (manually set by the user) are skipped.
+    Tag every holding that has no goal_tag. Matched to the goal that needs it (app/planning/matching.py); the fixed rules above only if matching fails.
     Returns the number of holdings updated.
     """
+    try:
+        from app.planning import matching
+        with db.begin_nested():                             # a failure undoes only the matching, never the caller's pending work
+            out = matching.run(db, owner_id, only_untagged=True, commit=False)
+        db.commit()
+        return len(out["moves"])
+    except Exception as exc:                                # tagging must never block a sync
+        logger.warning("goal matching failed (%s); using the fixed rules", exc)
+    return _auto_tag_by_fixed_rules(db, owner_id)
+
+
+def _auto_tag_by_fixed_rules(db, owner_id: str | None = None) -> int:
     from app.models.schemas import Account, Holding
-    from sqlalchemy import func
 
     q = db.query(Holding).join(Account, Holding.account_id == Account.id)
     if owner_id:
         q = q.filter(Account.owner_id == owner_id)
-    # Only touch untagged holdings
     q = q.filter(Holding.goal_tag.is_(None))
 
     updated = 0
@@ -158,9 +166,10 @@ def auto_tag_holdings(db, owner_id: str | None = None) -> int:
         tag = suggest_goal_tag(h.isin, h.instrument_name, h.holding_type)
         if tag is not None:           # explicit None means "leave untagged"
             h.goal_tag = tag
+            h.goal_tag_source = "auto"
             updated += 1
 
     if updated:
         db.commit()
-        logger.info("auto_tag_holdings: tagged %d holdings (owner=%s)", updated, owner_id or "all")
+        logger.info("fixed-rule tagging: tagged %d holdings (owner=%s)", updated, owner_id or "all")
     return updated

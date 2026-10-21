@@ -80,7 +80,19 @@ path is closed-form and the **SIP for p-confidence is its p-quantile**: no searc
 - Health: one flat cost per person-year from retirement (age bands within 50-85 are not modelled); a catastrophic uninsured illness is not in the number: keep part of the emergency fund for it.
 - Only the last ~2 years of spending are clean (statement coverage before 2024 is partial), so a five-year trend cannot be read from the data yet; it will be as years accumulate.
 
-## 6. Keeping it current
+## 6. Which holding serves which goal (`app/planning/matching.py`)
+
+Money already held counts toward the goal it is tagged to, and **the matcher chooses the tag**, from the goals' own numbers instead of a fixed fund-to-goal list:
+- Each goal has a need today (the planner's required corpus discounted to today; for the emergency fund its target) and a **mix it should hold at its horizon** (equity share by years left, §3; the emergency fund all debt).
+  A goal's bucket for each asset class is need × mix; what it already holds fills it.
+- A holding goes to the goal whose bucket for what it is made of (equity / gold / debt; PPF as debt; hybrids 60/40) is emptiest and can take it. A single company's shares only suit goals 10+ years away, PPF 5+, equity never the emergency fund.
+  Untagged debt holdings (FDs) first close the emergency fund's gap.
+- **A holding is moved only when its goal no longer wants it half as much as the best goal does**, so labels do not churn. A second run changes nothing.
+- **Tags you set in Holdings are `manual` and never moved**; the matcher's are `auto` (shown as "auto"); clearing a tag hands it back. Tags that predate the matcher count as automatic only if they equal the old fixed rule's answer.
+- It runs after every sync (gaps only) and in the daily sweep (every automatic holding): a sale shrinks a goal's holdings, a purchase lands where the gap is, a goal's date moving changes its mix. Liquid FDs stay with the emergency fund and a home is not a corpus.
+- Not measured: a fund's own volatility or category from AMFI (the asset class comes from its name/type), so a mid-cap and a large-cap count the same; single-stock risk is the one exception.
+
+## 7. Keeping it current
 
 `params.yml` entries carry `verified_on`; replace a value by adding a newer dated entry. Market inputs refresh with the app (market signals 12 h, CPI 24 h, USD/INR 7 days, AMFI history 30 days).
 When the repo rate, CPI or a cost range moves, re-read its source and add the dated entry; the planner picks the latest.

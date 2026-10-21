@@ -110,6 +110,7 @@ def latest_holdings(
             "price_source":    getattr(h, "price_source", None),
             "holding_type":    h.holding_type,
             "goal_tag":        h.goal_tag,
+            "goal_tag_source": getattr(h, "goal_tag_source", None),
             "id":              str(h.id),
         }
         for h in holdings
@@ -132,31 +133,46 @@ def set_holding_goal_tag(
     if not h:
         raise HTTPException(404, "Holding not found")
     new_tag = body.goal_tag or None
+    source = "manual" if new_tag else None                  # a tag you set is never moved; clearing it hands the holding back to the matcher
     if h.isin:
         updated = (
             db.query(Holding)
             .filter(Holding.isin == h.isin)
-            .update({"goal_tag": new_tag}, synchronize_session=False)
+            .update({"goal_tag": new_tag, "goal_tag_source": source}, synchronize_session=False)
         )
     else:
-        h.goal_tag = new_tag
+        h.goal_tag, h.goal_tag_source = new_tag, source
         updated = 1
     db.commit()
-    return {"id": holding_id, "goal_tag": new_tag, "rows_updated": updated}
+    if new_tag is None:
+        try:
+            from app.planning import matching
+            matching.run(db, only_untagged=True)
+            from app.engine.goals import refresh_goals
+            refresh_goals(db)
+            new_tag = db.query(Holding.goal_tag).filter_by(id=holding_id).scalar()
+        except Exception:
+            pass
+    return {"id": holding_id, "goal_tag": new_tag, "goal_tag_source": "auto" if (new_tag and not source) else source, "rows_updated": updated}
 
 
 @router.post("/holdings/auto-tag")
 def auto_tag_all_holdings(
     db:       Annotated[Session, Depends(get_db)],
     owner_id: Optional[str] = None,
+    dry_run:  bool = False,
 ):
     """
-    Auto-assign goal_tag to all untagged holdings using the ISIN map + fund-name rules.
-    Holdings that already have a manually-set goal_tag are never overwritten.
+    Match holdings to goals (app/planning/matching.py): untagged ones, and ones the matcher or the old rule tagged, are re-checked against each
+    goal's horizon and funding gap. Tags you set yourself are never moved. `dry_run` lists the moves without writing them.
     """
-    from app.engine.holding_tagger import auto_tag_holdings
-    tagged = auto_tag_holdings(db, owner_id)
-    return {"tagged": tagged, "message": f"Tagged {tagged} previously untagged holdings."}
+    from app.planning import matching
+    out = matching.run(db, owner_id, apply=not dry_run)
+    if out["moves"] and not dry_run:
+        from app.engine.goals import refresh_goals
+        refresh_goals(db)                                   # corpus and SIP per goal follow the new tags at once
+    return {"tagged": len(out["moves"]), "moves": out["moves"], "goals": out["goals"], "applied": out["applied"],
+            "message": f"{'Would move' if dry_run else 'Moved'} {len(out['moves'])} holding(s)."}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

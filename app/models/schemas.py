@@ -115,6 +115,7 @@ class Holding(Base):
     gain_loss_pct   = Column(Numeric(8, 4))
     holding_type    = Column(String(20))  # equity | mutual_fund
     goal_tag        = Column(String(30))  # retirement | child_education | child_marriage | etc.
+    goal_tag_source = Column(String(10))  # 'manual' (set by the owner: never moved) | 'auto' (matched by app/planning/matching.py) | NULL (legacy rule)
     first_buy_date  = Column(Date)        # earliest known purchase date for this position (CAGR denominator)
     source_file     = Column(String(300))   # 'ledger:rollforward' for rows derived by app.ledger
     cost_basis_quality = Column(String(10))  # exact | partial | None (statement rows carry no cost)
@@ -248,6 +249,7 @@ class ManualAsset(Base):
     source_statement_date = Column(Date)   # date of the statement this record came from
     accrued_interest     = Column(Numeric(15, 2))  # interest earned but not yet added to the principal, at that statement date
     goal_tag             = Column(String(30))  # emergency | retirement | child_education | child_marriage | health | wife_retirement
+    goal_tag_source      = Column(String(10))  # 'manual' | 'auto' | NULL (set before the matcher existed: kept as typed)
     last_updated         = Column(DateTime(timezone=True), server_default=func.now(),
                                   onupdate=func.now())
 
