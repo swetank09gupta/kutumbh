@@ -604,9 +604,3 @@ def _goals(positions: list[Position], today: date) -> list[dict]:
         })
     out.sort(key=lambda x: x["current"], reverse=True)
     return out
-
-
-# goal_returns.py blends per-instrument returns into a goal's expected return
-def _per_instrument_returns(db: Session, owner_ids: list[str], today: date) -> list[dict]:
-    positions, _ = build_positions(db, owner_ids, today)
-    return _instruments(positions, today)

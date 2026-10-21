@@ -893,7 +893,8 @@
       <!-- Assets table -->
       <div class="card" style="padding:0;margin-bottom:14px">
         <div style="padding:14px 20px 10px;border-bottom:1px solid #1e2738">
-          <div class="card-title" style="margin-bottom:0">Assets</div>
+          <div class="card-title" style="margin-bottom:0;display:flex;justify-content:space-between;align-items:center">Assets
+            <a href="#" id="toggle-closed" onclick="_showClosedAssets=!_showClosedAssets;loadManualAssets();return false" style="font-size:11px;font-weight:400;color:#a5b4fc;display:none"></a></div>
         </div>
         <div class="tbl-wrap">
           <table>
@@ -908,11 +909,10 @@
                 <th style="text-align:right">Invested</th>
                 <th style="text-align:right">Rate / Return</th>
                 <th>Maturity</th>
-                <th title="Liquid assets (MOD / sweep FDs) count toward Emergency Fund corpus">Liquid</th>
                 <th></th>
               </tr>
             </thead>
-            <tbody id="manual-tbody"><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="11"><span class="skel"></span></td></tr></tbody>
+            <tbody id="manual-tbody"><tr class="skel-row"><td colspan="10"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="10"><span class="skel"></span></td></tr><tr class="skel-row"><td colspan="10"><span class="skel"></span></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1743,7 +1743,6 @@ function txPage(delta) {
 const GOAL_TAGS = [
   { value: '',                label: '— let the app match —' },
   { value: 'retirement',      label: 'Family Retirement' },
-  { value: 'wife_retirement', label: 'Family Retirement (hers)' },
   { value: 'child_education', label: 'Child Higher Education' },
   { value: 'child_marriage',  label: 'Child Marriage' },
   { value: 'health',          label: 'Health & Senior Care' },
@@ -2103,14 +2102,15 @@ async function loadGoals() {
       const tgt = g.ideal_target_today != null ? g.ideal_target_today : g.target_amount;      // derived from spending, inflation and the date; yours stays visible
       const pct = tgt > 0 ? Math.min(100, g.current_corpus / tgt * 100) : 0;
       const barColor = pct >= 80 ? '#22c55e' : pct >= 40 ? '#6366f1' : '#f59e0b';
+      const isEm = /^emergency/.test(g.goal_type || '');
       const sip = g.monthly_sip_needed > 0 ? `₹${fmt(g.monthly_sip_needed)}/mo` : (g.on_track ? 'none needed' : '—');
       const nowSip = g.current_monthly_sip != null ? `₹${fmt(g.current_monthly_sip)}/mo` : '—';
-      const trackBadge = g.chance != null ? `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.chance>=0.8?'#052e16':g.chance>=0.5?'#422006':'#450a0a'};color:${g.chance>=0.8?'#86efac':g.chance>=0.5?'#fcd34d':'#fca5a5'}" title="Share of simulated futures in which today's saving covers this goal">${Math.round(g.chance*100)}% chance</span>` : g.on_track == null ? '' : `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.on_track ? '#052e16' : '#450a0a'};color:${g.on_track ? '#86efac' : '#fca5a5'}">${g.on_track ? 'on track' : 'behind'}</span>`;
+      const trackBadge = g.chance != null ? `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.chance>=0.8?'#052e16':g.chance>=0.5?'#422006':'#450a0a'};color:${g.chance>=0.8?'#86efac':g.chance>=0.5?'#fcd34d':'#fca5a5'}" title="Share of simulated futures in which today's saving covers this goal">${Math.round(g.chance*100)}% chance</span>` : g.on_track == null ? '' : `<span style="font-size:10px;padding:1px 7px;border-radius:8px;background:${g.on_track ? '#052e16' : '#450a0a'};color:${g.on_track ? '#86efac' : '#fca5a5'}">${g.on_track ? (isEm ? 'covered' : 'on track') : 'behind'}</span>`;
       return `<div class="goal-card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
           <div>
             <div style="font-weight:600;font-size:14px;color:#f1f5f9">${g.name}</div>
-            <div style="font-size:12px;color:#64748b;margin-top:2px;text-transform:capitalize">${g.goal_type} · ${g.owner_id}</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;text-transform:capitalize">${typeLabel(g.goal_type)} · ${g.owner_id}</div>
           </div>
           <div style="display:flex;gap:4px">
             <button class="btn btn-ghost btn-sm" onclick="editGoal('${g.id}')" title="Edit" style="padding:5px 8px">✎</button>
@@ -2132,9 +2132,9 @@ async function loadGoals() {
           <span style="color:#64748b">Investing now: <span style="color:#cbd5e1;font-weight:600">${nowSip}</span></span>
           ${trackBadge}
         </div>
-        ${g.inflation_adj_target ? `<div style="font-size:11px;color:#475569;margin-top:6px">Needs ₹${fmtCr(g.inflation_adj_target)} when spending starts (target above is today's money${g.inflation_used_pct ? `, prices rising ${g.inflation_used_pct}% a year` : ''})</div>` : ''}
+        ${g.inflation_adj_target && !isEm ? `<div style="font-size:11px;color:#475569;margin-top:6px">Needs ₹${fmtCr(g.inflation_adj_target)} when spending starts (target above is today's money${g.inflation_used_pct ? `, prices rising ${g.inflation_used_pct}% a year` : ''})</div>` : ''}
         ${g.target_source === 'derived' && g.typed_target_today && Math.abs(g.typed_target_today - tgt) > 0.05 * tgt ? `<div style="font-size:11px;color:#64748b;margin-top:4px">Derived from your spending, inflation and dates · your figure was ₹${fmtCr(g.typed_target_today)}</div>` : ''}
-        ${g.plan_note ? `<div style="font-size:11px;color:#475569;margin-top:4px">${_esc(g.plan_note)}</div>` : ''}
+        ${g.plan_note ? `<details style="font-size:11px;color:#475569;margin-top:6px"><summary style="cursor:pointer;color:#64748b">How this was worked out</summary><div style="margin-top:4px">${_esc(g.plan_note)}</div></details>` : ''}
       </div>`;
     }).join('') : `<div class="goal-card" style="color:#475569;font-style:italic">No goals yet. Add one above or check config/accounts.yml.</div>`;
   } catch (e) { $('goals-grid').innerHTML = `<div class="goal-card" style="color:#fca5a5">${e.message}</div>`; }
@@ -2144,14 +2144,8 @@ async function loadProjections() {
   try {
     const rows = await apiFetch('/api/goals/projections');
     $('proj-tbody').innerHTML = rows.length ? rows.map(p => {
-      const srcLabel = p.return_source === 'market' ? 'market'
-                     : p.return_source === 'blended' ? 'auto'
-                     : p.return_source === 'manual'  ? 'manual'
-                     : 'default';
-      const srcColor = p.return_source === 'market' ? '#86efac'
-                     : p.return_source === 'blended' ? '#86efac'
-                     : p.return_source === 'manual'  ? '#fcd34d'
-                     : '#94a3b8';
+      const srcLabel = p.return_source === 'market' ? 'market' : 'typed';
+      const srcColor = p.return_source === 'market' ? '#86efac' : '#fcd34d';
       const retCell = p.effective_return_pct != null
         ? `<div style="font-family:monospace">${p.effective_return_pct.toFixed(2)}%</div>
            <div style="font-size:10px;color:${srcColor};text-transform:uppercase;letter-spacing:0.5px">${srcLabel}</div>`
@@ -2169,7 +2163,7 @@ async function loadProjections() {
       const nameCellWithLink = `<div>${nameLink}</div>${chips.length?`<div style="display:flex;gap:4px;margin-top:3px">${chips.join('')}</div>`:''}`;
       return `<tr>
         <td>${nameCellWithLink}</td>
-        <td style="text-transform:capitalize;color:#64748b">${p.goal_type||'—'}</td>
+        <td style="text-transform:capitalize;color:#64748b">${p.goal_type ? typeLabel(p.goal_type) : '—'}</td>
         <td style="text-align:right;font-family:monospace">₹${fmtCr(p.inflation_adj_target)}</td>
         <td style="color:#64748b">${fmtDate(p.target_date)}</td>
         <td style="text-align:right;font-weight:600;color:#a5b4fc">${p.monthly_sip_needed!=null?'₹'+fmt(p.monthly_sip_needed):'—'}</td>
@@ -2419,10 +2413,14 @@ function assetReturnCell(a) {
   return `<div style="color:${color};font-weight:600">${primaryLabel}</div>${secondaryHtml}`;
 }
 
+let _showClosedAssets = false;
 async function loadManualAssets() {
   try {
     const all    = await apiFetch('/api/manual/assets');
-    const assets = all.filter(a => a.asset_type !== 'liability');
+    const closedN = all.filter(a => a.closed).length;
+    const tg = $('toggle-closed');
+    if (tg) { tg.style.display = closedN ? '' : 'none'; tg.textContent = _showClosedAssets ? `Hide closed (${closedN})` : `Show closed (${closedN})`; }
+    const assets = all.filter(a => a.asset_type !== 'liability' && (_showClosedAssets || !a.closed));
     const liabs  = all.filter(a => a.asset_type === 'liability');
 
     // ── Assets table ────────────────────────────────────────────
@@ -2447,17 +2445,12 @@ async function loadManualAssets() {
         <td style="text-align:right;color:#64748b">${a.invested_amount?'₹'+fmt(a.invested_amount):'—'}</td>
         <td style="text-align:right">${assetReturnCell(a)}</td>
         <td style="color:${matColor};font-size:12px">${a.maturity_date||'—'}</td>
-        <td style="text-align:center">
-          <input type="checkbox" ${a.is_liquid?'checked':''} title="Mark as liquid (counts toward Emergency Fund)"
-            onchange="toggleLiquid('${a.id}', this.checked)"
-            style="cursor:pointer;accent-color:#34d399;width:15px;height:15px">
-        </td>
         <td style="white-space:nowrap">
           ${contribBtn}<button class="btn btn-ghost btn-sm" onclick="editAsset('${a.id}')" style="padding:5px 10px;margin-right:4px">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteAsset('${a.id}','${a.name.replace(/'/g,"\\'")}')" style="padding:5px 10px">Del</button>
         </td>
       </tr>`;
-    }).join('') : `<tr class="empty-row"><td colspan="11">No manual assets yet. Add your PPF, FD, gold, SGB above.</td></tr>`;
+    }).join('') : `<tr class="empty-row"><td colspan="10">No manual assets yet. Add your PPF, FD, gold, SGB above.</td></tr>`;
 
     // ── Liabilities table ────────────────────────────────────────
     const liabCard = $('liabilities-card');
@@ -2514,7 +2507,7 @@ async function loadManualAssets() {
       <div style="font-size:18px;font-weight:700;color:${c.color}">₹${fmt(Math.abs(c.value))}</div>
     </div>`).join('');
 
-  } catch (e) { $('manual-tbody').innerHTML = `<tr class="empty-row"><td colspan="11" style="color:#f87171">${e.message}</td></tr>`; }
+  } catch (e) { $('manual-tbody').innerHTML = `<tr class="empty-row"><td colspan="10" style="color:#f87171">${e.message}</td></tr>`; }
 }
 
 function onAssetTypeChange() {
@@ -2631,17 +2624,6 @@ async function deleteAsset(id, name) {
   } catch (e) { toast(e.message, true); }
 }
 
-async function toggleLiquid(id, isLiquid) {
-  try {
-    await apiFetch(`/api/manual/assets/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_liquid: isLiquid }),
-    });
-    toast(isLiquid ? 'Marked as liquid — counts toward Emergency Fund' : 'Marked as non-liquid');
-  } catch (e) { toast('Update failed: ' + e.message, true); }
-}
-
 async function refreshMetals() {
   const btn = $('refresh-metals-btn');
   btn.disabled = true; btn.textContent = 'Fetching…';
@@ -2731,39 +2713,13 @@ async function saveProfiles() {
 }
 
 /* ── goals: CPI, corpus refresh, AI insights ───────────────── */
+function typeLabel(t) { return String(t || '').replace(/_/g, ' '); }
+
 async function loadCpi() {
   try {
     const d = await apiFetch('/api/goals/inflation');
-    const auto = d.mode === 'auto';
-    $('cpi-badge').innerHTML = `Inflation <b>${d.assumption.toFixed(1)}%</b> for every goal — `
-      + (auto ? `automatic: 10-year average of India CPI <a href="#" onclick="changeInflation(${d.assumption});return false" style="color:#a5b4fc">override</a>`
-              : `manual <a href="#" onclick="clearInflation();return false" style="color:#a5b4fc">back to automatic (${d.avg_10y.toFixed(1)}%)</a>`)
-      + ` · <span style="color:#64748b">CPI ${d.latest_year || ''}: ${d.india_cpi.toFixed(1)}%</span>`;
-  } catch { $('cpi-badge').textContent = 'Inflation assumption unavailable'; }
-}
-
-async function _afterInflationChange(msg) {
-  toast(msg);
-  loadCpi(); loadGoals(); loadProjections(); loadRecommendations(); loadHealth();
-}
-
-async function clearInflation() {
-  try {
-    await apiFetch('/api/goals/settings/inflation', { method: 'DELETE' });
-    _afterInflationChange('Inflation follows the 10-year CPI average again — goals recomputed');
-  } catch (e) { toast(e.message, true); }
-}
-
-async function changeInflation(cur) {
-  const v = prompt('Override inflation % per year (used for every goal):', cur);
-  if (v === null) return;
-  const rate = parseFloat(v);
-  if (!isFinite(rate)) { toast('Enter a number, e.g. 6', true); return; }
-  try {
-    await apiFetch('/api/goals/settings/inflation', { method: 'PUT', headers: {'Content-Type': 'application/json'},
-                                                      body: JSON.stringify({ rate }) });
-    _afterInflationChange(`Inflation overridden to ${rate}% — goals recomputed`);
-  } catch (e) { toast(e.message, true); }
+    $('cpi-badge').innerHTML = `Prices rise at a rate worked out for each goal from market data (each card shows it): India CPI ${d.latest_year || ''} ${d.india_cpi.toFixed(1)}%, 10-year average <b>${d.avg_10y.toFixed(1)}%</b>, plus the medical, education and wedding premiums`;
+  } catch { $('cpi-badge').textContent = 'Inflation data unavailable'; }
 }
 
 async function refreshCorpus() {

@@ -146,21 +146,20 @@ def goals_are_one_story(db: Session) -> dict:
 
 
 def goal_corpus_matches_holdings(db: Session) -> dict:
+    """A goal's stored corpus is everything tagged to it (holdings and manual assets: PPF, EPF, FDs, SGBs); the emergency fund is bank + live FDs/RDs."""
     from app.engine.goal_returns import goal_tags
-    from app.engine.holdings_view import latest_holdings
+    from app.engine.goals import _scope
     from app.models.schemas import Goal
-    by_tag = defaultdict(float)
-    for h in latest_holdings(db, owner_ids=_owners(db)):
-        if h.goal_tag:
-            by_tag[h.goal_tag] += float(h.current_value or 0)
+    from app.planning import goal_plan
+    owners = _owners(db)
     bad = {}
-    for g in db.query(Goal).filter(Goal.goal_type.in_(["child_education", "child_marriage"])).all():
-        want = sum(by_tag.get(t, 0.0) for t in goal_tags(g))
+    for g in db.query(Goal).filter(Goal.goal_type.in_(["child_education", "child_marriage", "health", "retirement"])).all():
+        want = sum(v for _o, v, _w in goal_plan.holdings_by_owner(db, goal_tags(g), _scope(g, owners)))
         if want > 0 and abs(want - float(g.current_corpus or 0)) > 1.0:
-            bad[g.name] = {"corpus": float(g.current_corpus or 0), "tagged_holdings": want}
+            bad[g.name] = {"corpus": float(g.current_corpus or 0), "tagged": round(want, 2)}
     return _check("goal_corpus_matches_tagged_holdings", not bad,
-                  "Goal corpus equals the tagged holdings" if not bad else
-                  "Goal corpus is stale versus tagged holdings", differences=bad)
+                  "Goal corpus equals what is tagged to it" if not bad else
+                  "Goal corpus is stale versus what is tagged to it", differences=bad)
 
 
 def epf_balance_is_current(db: Session) -> dict:

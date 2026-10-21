@@ -41,6 +41,9 @@ def _migrate_db() -> None:
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag VARCHAR(30)",
         "ALTER TABLE holdings ADD COLUMN IF NOT EXISTS goal_tag_source VARCHAR(10)",
         "ALTER TABLE manual_assets ADD COLUMN IF NOT EXISTS goal_tag_source VARCHAR(10)",
+        # retirement is one household goal: the old second tag is folded into it
+        "UPDATE holdings SET goal_tag = 'retirement' WHERE goal_tag = 'wife_retirement'",
+        "UPDATE manual_assets SET goal_tag = 'retirement' WHERE goal_tag = 'wife_retirement'",
         # XIRR / returns tracking additions
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS isin VARCHAR(12)",
         "ALTER TABLE bank_alerts ADD COLUMN IF NOT EXISTS category VARCHAR(30)",

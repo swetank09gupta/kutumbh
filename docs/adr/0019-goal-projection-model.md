@@ -64,3 +64,7 @@ Option (C). Specifically:
 ## Addendum: one automatic inflation rate (2026-10)
 
 Inflation is a single app-wide assumption, **automatic**: the 10-year average of India's annual CPI from the World Bank (~4.7%, refreshed daily from cache, last known figures when offline). A long-horizon goal should assume the long-run rate, not last year's print (2025: 2.4%). It replaces the per-goal rate and an earlier shortcut that swapped in the latest print for goals stored at 6.0%. An optional override (`PUT /api/goals/settings/inflation`, from the Goals page) can be set and cleared (`DELETE`); changing either recomputes every goal.
+
+
+## Revisited (2026-10-21, ADR-0046)
+The blended past-XIRR return with category caps and the 4% floor, and the manual inflation override, were retired: planned goals use the planner's market return and derived inflation (ADR-0043); a goal the planner does not cover uses the return typed on it and the 10-year CPI average.

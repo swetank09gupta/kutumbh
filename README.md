@@ -3,7 +3,7 @@
 A self-hosted, private, email-driven personal finance tracking & recommnedation engine for the whole family.
 One `docker-compose up` gives you a live Grafana dashboard fed by your bank & investment statements.
 
-> **Docs:** [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [Parsers](docs/PARSERS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md)
+> **Docs:** [Handover (start here)](docs/HANDOVER.md) · [Planning](docs/PLANNING.md) · [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [Parsers](docs/PARSERS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Decisions](docs/DECISIONS.md) · [ADRs](docs/adr/) · [Benchmarks](docs/BENCHMARKS.md) · [Performance](docs/PERFORMANCE.md) · [Experience](docs/EXPERIENCE.md) · [Production Readiness](docs/PRODUCTION_READINESS.md) · [Setup](SETUP.md)
 >
 > **Legal:** [License (MIT)](LICENSE) · [Disclaimer](DISCLAIMER.md) · [Notices & Trademarks](NOTICE.md) · [Third-Party Licenses](THIRD_PARTY_LICENSES.md) · [Security Policy](SECURITY.md)
 
@@ -113,8 +113,8 @@ flowchart LR
 
 | Input | What it contributes |
 |---|---|
-| **NSE live P/E zones** | Tells the engine *when* to buy / pause / redirect — Midcap150 in EXPENSIVE zone → pause midcap SIPs |
-| **AMFI NAV + ISIN** | Joins your Coin transactions to current scheme NAV; flags scheme overlaps and direct-equity scatter |
+| **NSE live P/E zones** | Market context card (Nifty 50 / Midcap / Smallcap P/E vs their averages, USD/INR, 10-year G-Sec) |
+| **AMFI NAV + ISIN** | Joins your Coin transactions to current scheme NAV, category and scheme name |
 | **Personal loan amortisation × your share%** | Computes real 80C usage from home-loan principal → catches ELSS dead-weight that generic advisors miss |
 | **EPF FY contributions** | Combined with loan principal, gives true 80C headroom — not a guess |
 | **Goal glide-paths** | Inflation-adjusted corpus gaps → SIP amounts that actually close the gap |
@@ -122,7 +122,7 @@ flowchart LR
 | **Ollama (local LLM)** | Turns the structured reasoning into plain-English explanations — no cloud, no data leaves the machine |
 
 **Sample output (from the demo):**
-> _"Midcap 150 P/E 34.8 (EXPENSIVE zone, >1σ above 10yr median). Your portfolio is 42% high-beta (28% midcap + 14% smallcap). **→ Pause ₹ 15k/mo midcap SIP + ₹ 7.5k/mo smallcap SIP, redirect to Nifty 50 index until P/E returns to FAIR zone.**"_
+> _"₹2.2 L sits in silver ETFs: about 34% a year of volatility, so a loss over a goal's years is not a 1-in-20 event for them until roughly 66+ years. **→ Treat it as speculative: do not count it toward a goal.**"_
 
 No SaaS robo-advisor knows your home-loan share, your spouse's PPF balance, or that your EPF already maxed 80C. Kutumb does, because it lives next to your data.
 

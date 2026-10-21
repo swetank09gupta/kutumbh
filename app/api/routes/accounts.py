@@ -94,7 +94,7 @@ def latest_holdings(
         {
             "account_id":      str(h.account_id),
             "snapshot_date":   str(h.snapshot_date),
-            "instrument_name": h.instrument_name,
+            "instrument_name": _amfi_name(h.isin) or h.instrument_name,          # the scheme's own name, not the statement's abbreviation
             "symbol":          h.symbol,
             "isin":            h.isin,
             "units":           float(h.units or 0),
@@ -115,6 +115,11 @@ def latest_holdings(
         }
         for h in holdings
     ]
+
+
+def _amfi_name(isin):
+    from app.engine.amfi_isin import scheme_name
+    return scheme_name(isin) if isin else None
 
 
 class GoalTagUpdate(BaseModel):

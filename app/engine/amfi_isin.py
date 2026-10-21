@@ -361,3 +361,25 @@ def fund_category(isin: str) -> Optional[str]:
         if isin in (e.get("isin"), e.get("isin2")):
             return e.get("category") or None
     return None
+
+
+_NAMES: Optional[dict[str, str]] = None
+_NAMES_LOADED = 0.0
+
+
+def scheme_name(isin: str) -> Optional[str]:
+    """The scheme's own name as AMFI lists it for this ISIN (statements print abbreviations such as "NIP IGMCF DP GR"); None when the cached file lacks it."""
+    global _NAMES, _NAMES_LOADED
+    if not isin or not isin.startswith("INF"):
+        return None
+    if _NAMES is None or time.monotonic() - _NAMES_LOADED > _CACHE_HOURS * 3600:
+        cached = _load_cache()
+        if not cached or not cached.get("entries"):
+            return None
+        _NAMES = {}
+        for e in cached["entries"]:
+            for k in (e.get("isin"), e.get("isin2")):
+                if k and e.get("scheme_name"):
+                    _NAMES[k] = e["scheme_name"]
+        _NAMES_LOADED = time.monotonic()
+    return _NAMES.get(isin)

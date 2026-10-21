@@ -181,7 +181,6 @@ def goal_projections(
             "sip_stepup_pct":       p.sip_stepup_pct,
             "sip_stepup_source":    p.sip_stepup_source,
             "glide_active":         p.glide_active,
-            "blended_components":   p.blended_components,
             **_plan_fields(p),
         }
         for p in projections
@@ -275,43 +274,17 @@ def ai_insights(db: Annotated[Session, Depends(get_db)]):
     return get_ai_insights(db)
 
 
-class InflationBody(BaseModel):
-    rate: float
-
-
 def _inflation_payload(db: Session) -> dict:
     from app.engine.inflation import get_india_cpi_stats
-    from app.engine.settings_store import get_inflation, inflation_override
+    from app.engine.settings_store import get_inflation
     st = get_india_cpi_stats()
-    manual = inflation_override(db)
-    return {"assumption": get_inflation(db), "mode": "manual" if manual is not None else "auto",
+    return {"assumption": get_inflation(db),
             "india_cpi": st["latest"], "latest_year": st["latest_year"], "avg_10y": st["avg_10y"],
             "source": "World Bank Open Data"}
 
 
-@router.get("/inflation", summary="The one inflation assumption used by every goal (auto: 10-year average CPI)")
+@router.get("/inflation", summary="Inflation data behind the goals: India CPI and its 10-year average (each planned goal derives its own rate)")
 def current_inflation(db: Annotated[Session, Depends(get_db)]):
-    return _inflation_payload(db)
-
-
-@router.delete("/settings/inflation", summary="Drop the manual override: inflation follows the 10-year average again")
-def clear_inflation_rate(db: Annotated[Session, Depends(get_db)]):
-    from app.engine.goals import refresh_goals
-    from app.engine.settings_store import clear_inflation_override
-    clear_inflation_override(db)
-    refresh_goals(db)
-    return _inflation_payload(db)
-
-
-@router.put("/settings/inflation", summary="Override the inflation assumption (all goals) and recompute them")
-def set_inflation_rate(body: InflationBody, db: Annotated[Session, Depends(get_db)]):
-    from app.engine.goals import refresh_goals
-    from app.engine.settings_store import set_inflation
-    try:
-        set_inflation(db, body.rate)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
-    refresh_goals(db)
     return _inflation_payload(db)
 
 

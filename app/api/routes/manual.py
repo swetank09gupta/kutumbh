@@ -294,6 +294,22 @@ def _contract_rate(a: ManualAsset):
     return contract_rate_pct(a)
 
 
+def _closes(a: ManualAsset) -> str | None:
+    """When it ends: the lender's schedule for the home loan (prepayments move it), nothing for a home, else what is stored."""
+    if a.asset_type == "real_estate":
+        return None
+    if a.asset_type == "liability" and a.institution == "HDFC":
+        try:
+            from sqlalchemy.orm import object_session
+            from app.engine import loan_report
+            rep = loan_report.report(object_session(a), a.owner_id)
+            if rep and rep.get("payoff"):
+                return rep["payoff"]["ends"]
+        except Exception:
+            pass
+    return str(a.maturity_date) if a.maturity_date else None
+
+
 def _asset_dict(a: ManualAsset, hist=None) -> dict:
     returns = _compute_returns(a)
     return {
@@ -312,7 +328,7 @@ def _asset_dict(a: ManualAsset, hist=None) -> dict:
         "quantity":         float(a.quantity) if a.quantity else None,
         "metal_purity":     a.metal_purity,
         "start_date":       str(a.start_date) if a.start_date else None,
-        "maturity_date":    str(a.maturity_date) if a.maturity_date else None,
+        "maturity_date":    _closes(a),
         "is_liquid":        bool(a.is_liquid),
         "notes":            a.notes,
         "last_updated":     str(a.last_updated) if a.last_updated else None,

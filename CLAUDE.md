@@ -1,5 +1,7 @@
 # Working agreement for this repository
 
+Starting a session? Read `docs/HANDOVER.md` first (state, commands, open items).
+
 This is a family-finance system whose value is that **every page, card and person shows the same, correct numbers**. Most past regressions came from fixing one thing while another page silently changed. So:
 
 0. **Rules first, then plan, then change.** For anything about how an instrument works (PPF, FD/MOD, MF, equity, SGB, loan, EPF, tax), read `docs/INSTRUMENTS.md`; if the rule is missing or stale, research the public/official source and write it there (with link and date) *before* touching code. Work comes from `docs/ROADMAP.md`; a new request goes into its Inbox and is triaged, not coded on the spot (a bug in shipped behaviour is the exception).

@@ -502,13 +502,14 @@ def overlay(db: Session, goal, proj, sip_by_owner: dict[str, float], scope: list
     corpus0 = float(proj.current_corpus or 0)
     typed = float(goal.target_amount or 0)
     use_typed = bool(getattr(goal, "use_manual_return", False))
-    key = (str(goal.id), round(corpus0, -3), tuple(sorted((o, round(v, -2)) for o, v in sip_by_owner.items())), typed, use_typed,
+    items = holdings_by_owner(db, goal_tags(goal), scope)
+    mix = tuple(sorted((o, round(v, -3), tuple(sorted((k, round(x, 2)) for k, x in w.items()))) for o, v, w in items))          # what is held, not only how much: moving a deposit out changes the plan
+    key = (str(goal.id), round(corpus0, -3), mix, tuple(sorted((o, round(v, -2)) for o, v in sip_by_owner.items())), typed, use_typed,
            ctx.stepup, ctx.today, ctx.why.get("scenario"), str(proj.target_date))
     hit = _RESULTS.get(key)
     if hit and time.time() - hit[0] < _TTL:
         res = hit[1]
     else:
-        items = holdings_by_owner(db, goal_tags(goal), scope)
         sip_now = sum(sip_by_owner.values())
         res = None
         if gt == "retirement":

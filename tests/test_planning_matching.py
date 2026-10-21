@@ -35,17 +35,12 @@ SMALL = prof(small=1.0)
 
 class Matching(unittest.TestCase):
     def goals(self):
-        return [goal("education", 13, 10_000_000), goal("retirement", 15, 20_000_000), goal("emergency", 0, 3_000_000, 2_000_000)]
+        return [goal("education", 13, 10_000_000), goal("retirement", 15, 20_000_000)]
 
-    def test_the_emergency_fund_never_takes_a_risky_holding_and_cash_closes_its_gap_first(self):
-        out = M.assign(MODEL, [item("eq", 500_000, EQ), item("fd", 600_000, DEBT)], self.goals())
-        self.assertNotEqual(out["eq"], "emergency")
-        self.assertEqual(out["fd"], "emergency")                                    # its gap is 1,000,000
-
-    def test_once_the_gap_is_closed_further_cash_goes_to_the_long_goals(self):
-        out = M.assign(MODEL, [item("fd1", 900_000, DEBT), item("fd2", 800_000, DEBT)], self.goals())
-        self.assertEqual(out["fd1"], "emergency")
-        self.assertNotEqual(out["fd2"], "emergency")
+    def test_nothing_is_matched_to_the_emergency_fund_and_a_stale_emergency_tag_is_released(self):
+        out = M.assign(MODEL, [item("eq", 500_000, EQ), item("old", 600_000, DEBT, current="emergency")], self.goals())
+        self.assertNotIn("emergency", out.values())
+        self.assertIn(out["old"], ("education", "retirement"))
 
     def test_a_goal_is_not_given_more_risk_than_its_years_allow(self):
         near, far = goal("education", 3, 10_000_000), goal("retirement", 20, 10_000_000)
@@ -74,19 +69,15 @@ class Matching(unittest.TestCase):
         self.assertEqual(out["small"], "retirement")
 
     def test_tags_you_set_are_not_touched(self):
-        self.assertNotIn("mine", M.assign(MODEL, [item("mine", 500_000, EQ, current="emergency", managed=False)], self.goals()))
+        self.assertNotIn("mine", M.assign(MODEL, [item("mine", 500_000, EQ, current="education", managed=False)], self.goals()))
 
-    def test_ppf_is_locked_so_not_for_emergencies_or_short_goals(self):
-        out = M.assign(MODEL, [item("ppf", 300_000, DEBT, "ppf")], [goal("emergency", 0, 3_000_000), goal("education", 3, 5_000_000)])
+    def test_ppf_is_locked_so_not_for_short_goals(self):
+        out = M.assign(MODEL, [item("ppf", 300_000, DEBT, "ppf")], [goal("education", 3, 5_000_000)])
         self.assertIsNone(out["ppf"])
 
     def test_a_goal_only_takes_holdings_of_people_in_its_scope(self):
         g = [goal("retirement", 15, 20_000_000, scope=("wife",)), goal("education", 13, 10_000_000)]
         self.assertEqual(M.assign(MODEL, [item("his", 300_000, EQ, owner="user")], g)["his"], "education")
-
-    def test_the_family_retirement_keeps_whichever_of_its_two_tags_a_holding_had(self):
-        g = [goal("retirement", 15, 20_000_000, tags=["retirement", "wife_retirement"])]
-        self.assertEqual(M.assign(MODEL, [item("e", 300_000, EQ, current="wife_retirement")], g)["e"], "wife_retirement")
 
     def test_a_second_run_changes_nothing(self):
         items = [item("a", 500_000, EQ), item("b", 400_000, GOLD, "bonds"), item("c", 300_000, DEBT), item("d", 200_000, SMALL)]

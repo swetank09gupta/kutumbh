@@ -21,14 +21,13 @@ from app.planning import funds, risk
 logger = logging.getLogger(__name__)
 
 STICK = 0.5                        # keep a holding where it is while its goal wants it at least this share as much as the best goal does
-LOW_RISK_YEARS = 1.0               # a holding whose own 1-in-20 horizon is within this is cash-like: it may close the emergency fund's gap
 PPF_YEARS = 5.0                    # PPF is locked for 15 years, with partial withdrawals after 5
 
 
 @dataclass
 class Goal:
     tag: str                       # the tag written for this goal
-    tags: frozenset                # every tag that already counts for it (family retirement: retirement + wife_retirement)
+    tags: frozenset                # every tag that already counts for it
     kind: str
     years: float
     pv_need: float                 # what must be held today to meet the need (0 or less: nothing to fund)
@@ -36,10 +35,6 @@ class Goal:
     value: float = 0.0             # held now (fixed tags and cash)
     exposure: np.ndarray = field(default_factory=lambda: np.zeros(len(funds.FACTORS)))   # value-weighted factor exposure of what is held
     idio: float = 0.0              # sum of value² × unexplained variance
-
-    @property
-    def priority(self) -> bool:
-        return self.kind in ("emergency", "emergency_fund")
 
 
 @dataclass
@@ -73,7 +68,7 @@ def portfolio_horizon(model: "risk.RiskModel", goal: Goal, extra: Item | None = 
 def eligible(item: Item, goal: Goal) -> bool:
     if item.owner not in goal.scope:
         return False
-    if item.kind == "ppf" and (goal.years < PPF_YEARS or goal.priority):
+    if item.kind == "ppf" and goal.years < PPF_YEARS:
         return False                                   # locked for years
     return True
 
@@ -90,17 +85,12 @@ def score(model: "risk.RiskModel", item: Item, goal: Goal) -> float:
     return deficit * feas
 
 
-def standalone_horizon(model: "risk.RiskModel", item: Item) -> float:
-    mu, sd = model.stats(item.profile.exposure, item.profile.idio)
-    return risk.horizon(mu, sd)
-
-
 def assign(model: "risk.RiskModel", items: list[Item], goals: list[Goal]) -> dict[str, str | None]:
     """{item key: tag} for every managed item (None when nothing fits: it stays untagged). Deterministic: biggest holdings first.
 
     Every managed holding starts in the goal it carries now, so the picture is the real one; each is then offered to all goals with its own weight
-    taken out of its current goal, and it moves only when another goal wants it clearly more (`STICK`). Untagged cash-like holdings first close the
-    emergency fund's gap; everything else untagged goes to the goal that wants it most."""
+    taken out of its current goal, and it moves only when another goal wants it clearly more (`STICK`). Untagged ones go to the goal that wants them most.
+    The emergency fund is not matched: it is the cash in the bank plus every FD / RD (`deposits_to_emergency`)."""
     out: dict[str, str | None] = {}
     todo = sorted((i for i in items if i.managed), key=lambda i: (-i.value, i.key))
     now: dict[str, Goal | None] = {}
@@ -109,24 +99,10 @@ def assign(model: "risk.RiskModel", items: list[Item], goals: list[Goal]) -> dic
         now[it.key] = g
         if g is not None:
             _take(g, it)
-    for g in goals:                                                    # the emergency fund first
-        if not g.priority:
-            continue
-        for it in todo:
-            if now[it.key] is None and standalone_horizon(model, it) <= LOW_RISK_YEARS and eligible(it, g) and g.pv_need - g.value > 0.5 * it.value:
-                _take(g, it)
-                now[it.key] = g
-                out[it.key] = g.tag
     for it in todo:
         cur = now[it.key]
-        if it.key in out:
-            continue
         if cur is not None:
             _take(cur, it, -1.0)
-            if cur.priority and standalone_horizon(model, it) <= LOW_RISK_YEARS and cur.pv_need - cur.value > 0.5 * it.value:
-                _take(cur, it)                                          # the emergency fund still needs it
-                out[it.key] = it.current if it.current in cur.tags else cur.tag
-                continue
         scores = {g.tag: score(model, it, g) for g in goals}
         scores = {t: v for t, v in scores.items() if v > 0}
         if not scores:
@@ -154,6 +130,20 @@ def inherit_tags(db) -> int:
               ORDER BY a.owner_id, x.isin, x.snapshot_date DESC) s, accounts ha
         WHERE h.goal_tag IS NULL AND ha.id = h.account_id AND ha.owner_id = s.owner_id AND h.isin = s.isin"""))
     return res.rowcount or 0
+
+
+def deposits_to_emergency(db) -> int:
+    """Every FD and RD is the emergency fund's (with the bank balance, see engine/goals.refresh_corpus_from_networth); a tag you set yourself stays."""
+    from app.models.schemas import ManualAsset
+    n = 0
+    for m in db.query(ManualAsset).filter(ManualAsset.asset_type.in_(["fd", "rd"])).all():
+        if m.goal_tag_source == "manual" or (m.goal_tag == "emergency" and m.goal_tag_source == "auto"):
+            continue
+        m.goal_tag, m.goal_tag_source = "emergency", "auto"
+        n += 1
+    if n:
+        db.flush()
+    return n
 
 
 def _risk_of(db, owners: list[str]) -> str:
@@ -194,6 +184,8 @@ def run(db, owner_id: str | None = None, apply: bool = True, only_untagged: bool
 
     today = today or date.today()
     inherit_tags(db)
+    if apply:
+        deposits_to_emergency(db)
     ctx = goal_plan.get_context(db)
     if ctx is None or ctx.risk_model is None:
         raise RuntimeError("market data (fund and index histories) is unavailable")
@@ -201,7 +193,7 @@ def run(db, owner_id: str | None = None, apply: bool = True, only_untagged: bool
     owners = [o.id for o in real_owners(db)]
     rows = latest_holdings(db, owner_ids=[owner_id] if owner_id and owner_id != "family" else owners)
     proj = {str(p.goal_id): p for p in project_all_goals(db)}
-    goal_rows = [g for g in db.query(GoalRow).all() if (g.goal_type or "").lower() not in ("custom", "") and str(g.id) in proj]
+    goal_rows = [g for g in db.query(GoalRow).all() if (g.goal_type or "").lower() not in ("custom", "", "emergency", "emergency_fund") and str(g.id) in proj]
 
     items: list[Item] = []
     meta: dict[str, dict] = {}
@@ -218,8 +210,8 @@ def run(db, owner_id: str | None = None, apply: bool = True, only_untagged: bool
         items.append(Item(key, h.owner_id, float(h.current_value), prof, (h.holding_type or "").lower(), h.goal_tag, managed))
         meta[key] = {"name": h.instrument_name, "src": src, "profile": prof.summary()}
     for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(owners)).all():
-        if m.is_liquid or float(m.current_value or 0) <= 0 or (m.asset_type or "").lower() in ("real_estate", "liability", "other", "insurance"):
-            continue                                                  # a liquid FD already counts for the emergency fund; a home is not a corpus
+        if float(m.current_value or 0) <= 0 or (m.asset_type or "").lower() in ("fd", "rd", "real_estate", "liability", "other", "insurance"):
+            continue                                                  # deposits are the emergency fund (deposits_to_emergency); a home is not a corpus
         managed = m.goal_tag is None or getattr(m, "goal_tag_source", None) == "auto"
         if only_untagged and m.goal_tag is not None:
             managed = False

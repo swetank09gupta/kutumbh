@@ -244,11 +244,11 @@ class ManualAsset(Base):
     metal_purity    = Column(String(4))       # '24K' | '22K' | '18K' (gold only)
     start_date           = Column(Date)
     maturity_date        = Column(Date)
-    is_liquid            = Column(Boolean, default=False)  # MOD/sweep FDs count toward emergency fund
+    is_liquid            = Column(Boolean, default=False)  # legacy, unused: every FD/RD counts toward the emergency fund
     notes                = Column(Text)
     source_statement_date = Column(Date)   # date of the statement this record came from
     accrued_interest     = Column(Numeric(15, 2))  # interest earned but not yet added to the principal, at that statement date
-    goal_tag             = Column(String(30))  # emergency | retirement | child_education | child_marriage | health | wife_retirement
+    goal_tag             = Column(String(30))  # emergency | retirement | child_education | child_marriage | health
     goal_tag_source      = Column(String(10))  # 'manual' | 'auto' | NULL (set before the matcher existed: kept as typed)
     last_updated         = Column(DateTime(timezone=True), server_default=func.now(),
                                   onupdate=func.now())

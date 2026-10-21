@@ -207,8 +207,8 @@ goals:
 | `goal_type` | `child_education`, `child_marriage`, `retirement`, `emergency`, `health`, `custom` |
 | `target_amount` | Corpus needed in today's rupees |
 | `target_date` | Overridden by age-based date for `child_*` and `retirement` goals when `children` / `dob` are set |
-| `expected_return_rate` | Assumed annual return on investments (%) |
-| *(inflation)* | Not a goal field any more. One app-wide rate, automatic: the 10-year average of India CPI (World Bank). Override or clear it on the Goals page or with `PUT/DELETE /api/goals/settings/inflation` (ADR-0019). A leftover `inflation_rate` key in a goal is ignored. |
+| `expected_return_rate` | Return typed on the goal (%): used for a custom goal, or while market data is unavailable, and with "use my figures"; planned goals use the market return |
+| *(inflation)* | Not a goal field and not overridable. Planned goals derive their own rates (ADR-0043); the 10-year average of India CPI (World Bank) is only the fallback for goals the planner does not cover (ADR-0046). A leftover `inflation_rate` key in a goal is ignored. |
 
 Goals can be created / edited after startup via the API:
 

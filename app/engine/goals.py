@@ -34,11 +34,10 @@ class GoalProjection:
     current_monthly_sip: float    # what they're actually investing (estimated)
     # ── New: projection inputs surfaced for UI ─────────────────────────────
     effective_return_pct:   Optional[float] = None   # final return used (after blend + cap)
-    return_source:          str = "manual"           # "manual" | "blended" | "default"
+    return_source:          str = "typed"            # "market" (the planner) | "typed" (the return on the goal)
     sip_stepup_pct:         Optional[float] = None   # step-up applied to current SIP
     sip_stepup_source:      str = "none"             # "manual" | "auto" | "none"
     glide_active:           bool = False             # glide path applied
-    blended_components:     Optional[list] = None    # for tooltip in UI
     # ── From the planner (app/planning): chance, derived target, inflation used. None while market history is unavailable.
     chance:                 Optional[float] = None   # share of simulated futures in which the plan covers the goal
     sip_for_90:             Optional[float] = None
@@ -299,34 +298,13 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
             target_date=None, inflation_adj_target=round(target_nom, 2), current_corpus=pv,
             monthly_sip_needed=round(shortfall / 12, 2), projected_corpus=round(pv, 2),
             gap=round(pv - target_nom, 2), months_to_goal=0, on_track=shortfall <= 0,
-            current_monthly_sip=current_monthly_sip, effective_return_pct=round(manual_ret, 2),
-            return_source="manual", sip_stepup_pct=0.0, sip_stepup_source="none", glide_active=False,
+            current_monthly_sip=current_monthly_sip, effective_return_pct=None,          # cash earns what it earns: no return is projected
+            return_source="typed", sip_stepup_pct=0.0, sip_stepup_source="none", glide_active=False,
         )
 
-    # ── Pick effective return (manual override vs blended from tagged holdings) ─
-    use_manual = bool(getattr(goal, "use_manual_return", False))
-    blended_info = None
-    return_source = "manual"
+    # ── Return: only goals the market plan does not cover reach here (custom goals, or no market data), so it is the return typed on the goal ──
+    return_source = "typed"
     effective_return = manual_ret
-
-    if not use_manual and db is not None and owner_ids:
-        try:
-            from app.engine.goal_returns import (
-                compute_blended_return, DEFAULT_RETURN_PCT,
-            )
-            blended_info = compute_blended_return(db, goal, owner_ids, today)
-            if blended_info.get("blended_pct") is not None:
-                effective_return = blended_info["blended_pct"]
-                return_source = "blended"
-            else:
-                # No reliable return history for the tagged holdings: use the return the goal
-                # itself is configured with (12% for equity goals, 8% health, 6.5% emergency…),
-                # not one global default.
-                effective_return = manual_ret
-                return_source = "manual"
-        except Exception:
-            effective_return = manual_ret
-            return_source = "manual"
 
     # ── Step-up (manual value wins; else auto-detected; else 0) ──────────────
     stored_stepup = getattr(goal, "sip_stepup_pct", None)
@@ -385,7 +363,6 @@ def project_goal(goal: Goal, current_monthly_sip: float = 0,
         sip_stepup_pct=round(stepup_pct, 2) if stepup_pct else 0.0,
         sip_stepup_source=stepup_source,
         glide_active=glide_active,
-        blended_components=(blended_info or {}).get("components") if blended_info else None,
     )
 
 
@@ -398,8 +375,8 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
       2. Untagged holdings are split proportionally by target_amount across goals of
          the same asset class (retirement vs child goals), preventing double-counting.
 
-    Liquid assets for emergency_fund:
-      bank_balance  +  manual_assets where is_liquid=True  (MOD/sweep FDs, liquid bonds)
+    The emergency fund is the cash you can reach: bank balances + every live FD / RD (net-worth snapshot). Everything else (stocks, funds, bonds, gold,
+    PPF, EPF) is matched to the other goals (app/planning/matching.py).
 
     Custom goals: corpus is never auto-updated (user manages manually).
     Returns number of goals updated.
@@ -417,37 +394,7 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
         return 0
 
     bank  = float(nw.bank_balance or 0)
-    ppf   = float(nw.ppf_value    or 0)   # family-aggregated; used only for legacy fallback
-    fd    = float(nw.fd_value     or 0)
-    other = float(nw.other_assets or 0)
-
-    # ── Per-owner latest net-worth snapshots ──────────────────────────────────
-    # Used so each owner's retirement goal adds ONLY that owner's PPF, instead
-    # of every retirement goal double-counting the family-aggregated total.
-    from sqlalchemy import func as _f
-    per_owner_nw: dict[str, NetWorthSnapshot] = {}
-    sub = (
-        db.query(NetWorthSnapshot.owner_id, _f.max(NetWorthSnapshot.snapshot_date).label("d"))
-        .group_by(NetWorthSnapshot.owner_id)
-        .subquery()
-    )
-    rows = (
-        db.query(NetWorthSnapshot)
-        .join(sub, (NetWorthSnapshot.owner_id == sub.c.owner_id) &
-                   (NetWorthSnapshot.snapshot_date == sub.c.d))
-        .all()
-    )
-    for r in rows:
-        per_owner_nw[r.owner_id] = r
-
-    def _ppf_for(owner: str) -> float:
-        nwr = per_owner_nw.get(owner)
-        return float(nwr.ppf_value or 0) if nwr else 0.0
-
-    def _epf_for(owner: str) -> float:
-        """The Provident Fund balance behind a retirement goal (rolled forward from the balance you shared; app/engine/epf.py)."""
-        from app.engine import epf as _epf
-        return _epf.total_for(db, all_owner_ids if owner in ("family", "", None) else [owner])
+    fd    = float(nw.fd_value     or 0)            # live FDs and RDs
 
     # When owner_id is "family" we want all individual owners, not just rows
     # literally tagged "family" (which don't exist on the accounts table).
@@ -457,17 +404,6 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
     else:
         all_owner_ids = [owner_id]
 
-    # ── Liquid FDs / sweep deposits count toward emergency fund ───────────────
-    liquid_extra = float(
-        db.query(func.sum(ManualAsset.current_value))
-        .filter(
-            ManualAsset.owner_id.in_(all_owner_ids),
-            ManualAsset.is_liquid == True,         # noqa: E712
-            ManualAsset.current_value.isnot(None),
-        )
-        .scalar() or 0
-    )
-
     # ── Tagged holdings: sourced from the deduped latest-holdings VIEW ────────
     # The view already handles per-account latest snapshot and dedups the same
     # ISIN appearing in multiple accounts (CDSL + Zerodha mirror each other).
@@ -476,14 +412,11 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
     from app.engine.holdings_view import latest_holdings as _latest_holdings
     holdings_rows = _latest_holdings(db, owner_ids=all_owner_ids)
 
-    tagged_corpus: dict[str, float] = {}
     untagged_equity = 0.0
     untagged_mf     = 0.0
     for h in holdings_rows:
         val = float(h.current_value or 0)
-        if h.goal_tag:
-            tagged_corpus[h.goal_tag] = tagged_corpus.get(h.goal_tag, 0.0) + val
-        else:
+        if not h.goal_tag:
             ht = (h.holding_type or "").lower()
             if ht == "equity":
                 untagged_equity += val
@@ -512,31 +445,21 @@ def refresh_corpus_from_networth(db: Session, owner_id: str) -> int:
 
     from app.engine.goal_returns import goal_tags as _candidate_tags
 
+    from app.planning import goal_plan
+
     updated = 0
     for g in goals:
         gt = g.goal_type
         if gt == "custom":
             continue  # user manages manually
-
-        tags = _candidate_tags(g)
-        tag_sum = sum(tagged_corpus.get(t, 0.0) for t in tags)
-
-        if tag_sum > 0:
-            base = tag_sum
-            if gt == "retirement":
-                # Per-owner PPF — your retirement gets your PPF, wife's gets
-                # hers. If goal is family-owned (uncommon), use family total.
-                base += _ppf_for(g.owner_id or "family") + _epf_for(g.owner_id or "family")
+        if gt in ("emergency_fund", "emergency"):
+            new_corpus = Decimal(str(round(bank + fd, 2)))          # cash in the bank and every live FD / RD, nothing else
+        elif gt in ("retirement", "child_education", "child_marriage", "health"):
+            # everything tagged to the goal, holdings and manual assets alike (PPF, EPF, FDs, SGBs): the planner's own list, one definition
+            base = sum(v for _o, v, _w in goal_plan.holdings_by_owner(db, _candidate_tags(g), _scope(g, all_owner_ids)))
+            if base == 0 and gt != "health":
+                base = _untagged_share(g)
             new_corpus = Decimal(str(round(base, 2)))
-        elif gt in ("retirement", "child_education", "child_marriage"):
-            base = _untagged_share(g)
-            if gt == "retirement":
-                base += _ppf_for(g.owner_id or "family") + _epf_for(g.owner_id or "family")
-            new_corpus = Decimal(str(round(base, 2)))
-        elif gt in ("emergency_fund", "emergency"):
-            new_corpus = Decimal(str(round(bank + liquid_extra, 2)))
-        elif gt == "health":
-            new_corpus = Decimal(str(round(fd + other, 2)))
         else:
             continue
 

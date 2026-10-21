@@ -27,9 +27,9 @@ ISIN_GOAL_MAP: dict[str, str | None] = {
 
     # ── Wife's Retirement → Balanced ELSS ────────────────────────────────────
     # Balanced equity allocation with tax efficiency; wife's long-horizon corpus.
-    "INF769K01DM9": "wife_retirement",  # Mirae Asset ELSS Tax Saver Fund
-    "INF209K01UN8": "wife_retirement",  # Aditya Birla SL ELSS Tax Saver Fund
-    "INF966L01986": "wife_retirement",  # Quant ELSS Tax Saver Fund
+    "INF769K01DM9": "retirement",  # Mirae Asset ELSS Tax Saver Fund
+    "INF209K01UN8": "retirement",  # Aditya Birla SL ELSS Tax Saver Fund
+    "INF966L01986": "retirement",  # Quant ELSS Tax Saver Fund
 
     # ── Child Higher Education → Flexi Cap + Mid Cap ─────────────────────────
     # 10–15 yr horizon; higher growth needed for education inflation.
@@ -81,8 +81,8 @@ _NAME_RULES: list[tuple[re.Pattern, str | None]] = [
     (re.compile(r"FLEXI\s*CAP|FLEXICAP|\bFCF\b", re.I),                   "child_education"),
     # Large & Mid Cap (before standalone Mid Cap) → retirement
     (re.compile(r"LARGE\s*&?\s*MID|L&?M\s*CAP|LGMD|L&MCF", re.I),        "retirement"),
-    # Balanced / Hybrid → wife_retirement
-    (re.compile(r"BALANCED|HYBRID|AGGRESS.*HYBRID|EQUITY.*HYBRID", re.I), "wife_retirement"),
+    # Balanced / Hybrid → retirement
+    (re.compile(r"BALANCED|HYBRID|AGGRESS.*HYBRID|EQUITY.*HYBRID", re.I), "retirement"),
     # Mid Cap → child_education
     (re.compile(r"\bMID\s*CAP\b|MIDCAP|MID30|MIDOP|IGMCF", re.I),        "child_education"),
     # Small Cap → child_marriage (long horizon, high growth)

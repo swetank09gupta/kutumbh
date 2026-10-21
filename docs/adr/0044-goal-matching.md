@@ -30,3 +30,7 @@ The first version read a fund's contents from its returns only. Funds publish th
 `funds.holdings_exposure` now places each share and the regression is the fallback and cross-check (an ETF is not on Groww: regression only). On the owner's funds: ICICI Large Cap 86% large, HDFC ELSS 80% large, Mid-cap funds 66-72% mid with 6-13% small, Large & Mid Cap 29/38/29,
 PPFAS 66% large with 28% debt and cash. Silver became its own factor (it had been read as gold; its volatility is about 34% a year against 16%): silver ETFs fit no goal (1-in-20 horizon about 65 years) and are reported as a bet. Also fixed: Yahoo's `range=max` thins daily data to monthly
 (use period1/period2), futures months with no bar, and gold-ETF unit splits (a month that doubles a NAV is dropped). Groww's endpoint is public but not a published API: it can change, so every use is optional and the output says which source stood (`source`).
+
+
+## Revisited (2026-10-21, ADR-0046)
+The emergency fund no longer takes cash-like holdings in a priority pass: it is the bank balance plus every FD/RD, set outside the matcher (`deposits_to_emergency`); the matcher serves the other goals only.

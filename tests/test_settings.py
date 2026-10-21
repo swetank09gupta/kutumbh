@@ -1,4 +1,4 @@
-"""Inflation is one app-wide setting. Needs a scratch Postgres (TEST_DATABASE_URL)."""
+"""Inflation fallback is derived from CPI data. Needs a scratch Postgres (TEST_DATABASE_URL)."""
 import os
 import unittest
 
@@ -21,33 +21,18 @@ class Inflation(unittest.TestCase):
 
     STATS = {"latest": 2.4, "latest_year": "2025", "avg_10y": 4.74}
 
-    def test_inflation_follows_the_ten_year_average_until_overridden(self):
+    def test_inflation_follows_the_ten_year_average(self):
         from unittest import mock
-        from app.engine.settings_store import clear_inflation_override, get_inflation, set_inflation
-        db = self.S()
-        clear_inflation_override(db)
+        from app.engine.settings_store import get_inflation
         with mock.patch("app.engine.inflation.get_india_cpi_stats", return_value=self.STATS):
-            self.assertEqual(get_inflation(db), 4.7)                 # automatic, not last year's 2.4
-            set_inflation(db, 5.5)
-            self.assertEqual(get_inflation(self.S()), 5.5)           # another session sees the override
-            clear_inflation_override(db)
-            self.assertEqual(get_inflation(db), 4.7)                 # back to automatic
-        db.close()
-
-    def test_nonsense_override_is_refused(self):
-        from app.engine.settings_store import set_inflation
-        for bad in (-1, 25):
-            with self.assertRaises(ValueError):
-                set_inflation(self.S(), bad)
+            self.assertEqual(get_inflation(), 4.7)                   # the 10-year average, not last year's 2.4
 
     def test_goal_target_grows_at_the_automatic_rate_not_the_goals_own(self):
         from datetime import date
         from types import SimpleNamespace
         from unittest import mock
         from app.engine.goals import project_goal
-        from app.engine.settings_store import clear_inflation_override
         db = self.S()
-        clear_inflation_override(db)
         g = SimpleNamespace(id=1, owner_id="user", name="g", goal_type="retirement", target_amount=1_000_000,
                             target_date=date(date.today().year + 10, 1, 1), current_corpus=0,
                             expected_return_rate=10.0, inflation_rate=2.0, use_manual_return=True,

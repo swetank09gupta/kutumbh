@@ -87,7 +87,7 @@ Five containers, all on one Docker network:
 | `holding_tagger.py` | Tags untagged holdings through `app/planning/matching.py` (measured fund profiles from `funds.py` against each goal's risk budget from `risk.py`, plus funding gap); the old per-ISIN map/regex only recognises pre-matcher tags and is the fallback. Every sync, plus a daily 00:15 IST sweep that re-checks the automatic ones. |
 | `ppf_from_transfers.py` | Synthesises PPF as a `ManualAsset` from bank-savings debits matching PPF-transfer patterns (Union Bank etc.). |
 | `metal_prices.py` | Live gold/silver spot via Yahoo Finance, used to mark SGB holdings to market. |
-| `recommendations.py` | Rule-based nudges. Originally: emergency-fund gap, EMI-to-income, asset allocation drift, PPF top-up. Extended (see §3.10) with portfolio-quality checks (midcap overweight, international gap, scattered direct equity, ELSS 80C dead-weight) and market-aware investment-timing recs (where + how much + when, given current Nifty P/E zones). |
+| `recommendations.py` | Rule-based nudges that do not repeat the goal cards: emergency fund (reads the goal), spending shares, allocation vs the market-derived share, speculative holdings (silver), EMI burden, PPF top-up, ELSS 80C dead weight (old regime only), a typed retirement figure far under the derived one. The fixed-target checks (goal shortfall, midcap, international, direct-equity scatter, market timing with a curated fund list) were removed on 2026-10-21 (ADR-0046). |
 | `market_signals.py` | Live Nifty 50 / Midcap 150 / Smallcap 250 / Nifty 500 P/Es from NSE daily-close CSV (`archives.nseindia.com`), USD/INR + Nasdaq 100 from Yahoo. 12-hour cached. Zones (`cheap`/`fair`/`expensive`) computed vs 5-yr rolling averages; midcap premium % over Nifty 50 derived. Drives the timing language in market-aware recs. |
 | `recommendation_memory.py` | Persists rec snapshots (`recommendation_snapshots` table) once per (fingerprint, date). Diffs today vs the most-recent snapshot 7-35 days ago to surface 🆕 new, ✅ resolved, 🔄 persisting buckets. Numeric metrics (e.g. `midcap_pct`) are snapshotted so the UI shows trend arrows over months. |
 
@@ -107,8 +107,8 @@ Both are owner-scoped (PPF lands in the owner whose bank account funds it; SGB i
 ### 3.7 Goal engine specifics
 
 - **Age-derived target dates.** For `retirement` goals, `target_date = owner.birth_date + owner.retirement_age`. For `child_education` / `child_marriage` goals, `target_date = child.dob + education_age|marriage_age` from the optional `children:` block in `config/accounts.yml`. The stored `goal.target_date` is a fallback used only when the relevant profile data is missing.
-- **Per-owner corpus.** Retirement corpus = owner's tagged-holdings sum + that owner's PPF. Earlier the family-aggregated PPF was added to every retirement goal — fixed in [ADR-0015](adr/0015-synthetic-cashflows.md).
-- **Per-goal effective return.** A goal's projection uses a *blended* return: the value-weighted XIRR of holdings + manual assets tagged to that goal, capped at a long-run category benchmark (equity 13.5%, MF 13%, FD 7%, gold 9%, …) so a fund that ran 28% in a 3-yr bull market doesn't extrapolate at 28% for 30 years. If the blended figure is implausibly low (< 4%, e.g. fresh holdings sitting at a paper loss) the engine falls back to the conservative default. The user can override with a manual `expected_return_rate` per goal. Implementation lives in `app/engine/goal_returns.compute_blended_return`. See [ADR-0019](adr/0019-goal-projection-model.md).
+- **One corpus definition.** A goal's corpus = everything tagged to it, holdings and manual assets (PPF, EPF, SGBs), from `goal_plan.holdings_by_owner` (the planner uses the same list); the **emergency fund = bank balances + every live FD/RD**, nothing else ([ADR-0046](adr/0046-audit-emergency-fund-and-retired-fixed-rules.md)). Earlier the stored corpus ignored tagged manual assets other than PPF/EPF.
+- **Per-goal return.** Planned goals (all but `custom`) take the planner's market return (`return_source: market`). Only a custom goal, or any goal while market data is unavailable, uses the return typed on the goal (`typed`). The old blend of tagged holdings' past XIRR capped by category benchmarks, with its 4% floor, was retired in ADR-0046 (it raised or dropped the return with a holding's age). See [ADR-0019](adr/0019-goal-projection-model.md), revisited.
 - **SIP step-up.** Per-goal `sip_stepup_pct` lets the projected SIP grow annually. If left blank, the engine auto-detects from the owner's last 24 months of investing activity (ratio of months [-11..0] / [-23..-12]), clamped to 0–12%. The math compounds the step-up each completed 12 months inside the FV-of-annuity calculation.
 - **Glide path.** For long-horizon goals, the return tapers linearly from the start-rate to `glide_end_return_pct` (default 8%) over the last `glide_start_years_before` years (default 3). Implemented as a per-month return schedule (`_monthly_return_schedule`); the same schedule drives both lump-sum and SIP future-value computations, and the SIP-needed solver does a binary search across it.
 - **Actual investing rate.** "On track" is computed against the family's real recent investing — but only *recurring SIPs* count, not lumpsums. A broker-account flow qualifies as a SIP when it has ≥3 hits in the lookback window AND its per-txn amounts have CV < 15% (i.e. amounts are tight). The rate reported is the per-txn average (current monthly SIP rate), not `total / months` — so SIPs that started recently aren't under-counted. SIP amounts are snapped to the nearest ₹100 to absorb NAV-rounding paisa. SIPs that ride on the **bank statement** (NACH mandates to Zerodha/Coin at `YESB00709000028661`) are also detected by description-match, so an owner whose Coin emails aren't ingested still contributes to the goal SIP totals. See [ADR-0020](adr/0020-sip-detection.md).
@@ -120,18 +120,14 @@ All checks are pure functions of the DB + (optionally) `market_signals`. Each re
 
 | Check | Fires when | Key metric |
 |---|---|---|
-| `_emergency_fund_check` | Liquid savings < 6× monthly expenses | `liquid_months` |
-| `_goal_shortfall_check` | Projection < inflation-adjusted target | `gap` |
+| `_emergency_fund_check` | Bank + FD/RD (the goal's corpus) below the derived target or under 6× monthly spending | `liquid_months` |
 | `_high_expense_check` | Any non-EMI category > 30% of monthly expenses | `share` |
 | `_asset_allocation_check` | Equity < 40% or Debt > 60% of net worth | `equity_pct`, `debt_pct` |
 | `_emi_burden_check` | Recurring monthly EMI > 40% of monthly income. EMI is detected from `category=emi` debits via amount-grouping (≥3 hits, σ/μ < 10%) so one-off prepayments and statement duplicates don't inflate the burden. | `emi_ratio` |
 | `_ppf_nudge` | PPF contributions this FY < ₹1.5 L | `ppf_contrib` |
 | `_80c_dead_weight_check` (per owner) | 80C consumed ≥ ₹1.5 L cap **AND** ELSS holdings exist. Consumed = PPF (this FY) + EPF × 12 + owner's share of home-loan principal. Principal uses real amortisation when loan params exist on the liability row (EMI − outstanding × rate / 12), else falls back to 30% of total `emi` category. | `total_80c_consumed`, `elss_value` |
-| `_midcap_concentration_check` | Mid/small-cap funds ≥ 25% of equity book | `midcap_pct` |
-| `_international_gap_check` | International equity < 5% of equity book (equity ≥ ₹5 L) | `intl_pct` |
-| `_direct_equity_fragmentation_check` | > 5 distinct stocks, avg position < ₹1.5 L | (positions, avg) |
-| `_retirement_target_sanity_check` | Combined household retirement target < 70% of (annual lifestyle expense × 25) | (target_sum, rule_of_thumb) |
-| `_market_timing_recommendations` | Per-gap timing advice. Drops specific fund shortlists (curated quarterly) + timing ("lump-sum now" / "standard SIP" / "STP over 6-12 mo" / "wait") based on Nifty 50 / Midcap 150 zones from `market_signals`. Includes a "Lock In G-Sec Yields" sub-rec when India 10-yr ≥ 7.25% and the household lacks ≥ ₹2 L in long-duration debt MFs. | varies |
+| `_retirement_target_sanity_check` | Only when the typed target is in use and < 80% of the derived one | (typed, derived) |
+| `_speculative_holdings_check` | A holding whose own 1-in-20 horizon exceeds 40 years (silver) | `needs_years` |
 
 ### 3.10 Recommendation memory & change detection
 

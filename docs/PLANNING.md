@@ -93,13 +93,13 @@ Money already held counts toward the goal it is tagged to, and **the matcher cho
 - **What a goal can hold** (`risk.py`). A portfolio with expected return mu and volatility sigma has a loss over h years that is a 1-in-20 event after h = (1.645 σ / μ)² years. σ and the factor covariance are measured
   from the same real returns; μ is the planner's derived expected return (no extra premium for mid or small caps). A goal that is `years` away may hold a portfolio whose h is no larger. The **safe equity share by horizon**
   (the glide path, the recommendations) is the same calculation: the largest Nifty 50 share whose h fits (about 17% at 1 year, 45% at 3, 64% at 5, 81% at 7, the 85% cap from about 8); the old table is only a fallback.
-- **The match.** Each goal has a need today (the planner's required corpus discounted to today; the emergency fund's target). A holding goes to the goal furthest from funded among those whose risk budget it fits (score = gap × fit;
-  fit shrinks to nothing as the portfolio would need twice the years). Gold, which moves against equities, lowers a portfolio's h, so it is welcome where equity is already heavy. Untagged cash-like holdings (h ≤ 1 year: FDs) first
-  close the emergency fund's gap; PPF only goes to goals 5+ years away.
+- **The match.** Each goal but the emergency fund has a need today (the planner's required corpus discounted to today). A holding goes to the goal furthest from funded among those whose risk budget it fits (score = gap × fit;
+  fit shrinks to nothing as the portfolio would need twice the years). Gold, which moves against equities, lowers a portfolio's h, so it is welcome where equity is already heavy. The emergency fund is not matched: it is the bank balance plus every live FD/RD
+  (ADR-0046), and `deposits_to_emergency` tags the deposits so. PPF only goes to goals 5+ years away.
 - **A holding is moved only when its goal would want it under half as much as the best goal** (no churn; a second run changes nothing). Tags you set in Holdings are `manual` and never moved; the matcher's are `auto` (shown); clearing
   a tag hands it back. Tags that predate the matcher count as automatic only if they equal the old fixed rule's answer.
 - **Real time.** Prices and catalogues are cached (a day for the catalogue, a week for prices); it runs after every sync (gaps only) and in the daily sweep (every automatic holding), so a sale, a purchase, a fund changing what it
-  holds, or volatility moving changes the match with nobody there. Liquid FDs stay with the emergency fund; a home is not a corpus. With no market data the matcher does nothing and the old fixed rules fill gaps.
+  holds, or volatility moving changes the match with nobody there. Deposits stay with the emergency fund; a home is not a corpus. With no market data the matcher does nothing and the old fixed rules fill gaps (`holding_tagger`, a legacy fallback).
 - **Used but not guaranteed:** Groww's page is a public web endpoint, not a published API: it can change or vanish (the regression then stands alone, flagged by `source` in the match output). **Not used:** fund-level inflows and who invests (AMFI publishes
   category flows and age-wise folios, quarterly average AUM per scheme and risk parameters through its own site API; nothing that says whether a fund suits a goal; popularity follows the market). They are the next sources to add if a use is found.
 
@@ -113,3 +113,9 @@ smaller, more essential goal), or the order in `goal_priority`. **A saving that 
 
 `params.yml` entries carry `verified_on`; replace a value by adding a newer dated entry. Market inputs refresh with the app (market signals 12 h, CPI 24 h, USD/INR 7 days, AMFI history 30 days).
 When the repo rate, CPI or a cost range moves, re-read its source and add the dated entry; the planner picks the latest.
+
+## 9. What the pages show and where each number comes from (audit of 2026-10-21, ADR-0046)
+
+Goal cards and table: `project_all_goals` only. Corpus = what is tagged (holdings + manual assets), emergency = bank + FD/RD. Return: market (planned goals) or typed (custom). Inflation: derived per goal, the banner only reports CPI. Recommendations: emergency, spending
+shares, allocation vs the market-derived equity share, silver as a bet, EMI burden, PPF, 80C (old regime), a typed retirement figure far under the derived one; nothing with a fixed fund list or fixed allocation target. Not data-driven by design: the term plan and EPF facts
+(config), the typed marriage and health figures (yours, shown beside the derived ones). Known fixed assumptions left, all in `params.yml` with source and date, or named above: the retirement mix (40/5/55), the 80% job-risk haircut on EPF contributions, `RETIRED_GAIN_SHARE` 0.5, the allocation table used only when the market curve is unavailable.
