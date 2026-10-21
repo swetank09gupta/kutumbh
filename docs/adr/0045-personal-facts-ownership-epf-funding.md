@@ -5,7 +5,7 @@
 
 ## Context
 The owner supplied facts no statement carries: his EPF passbook (₹16.3 L; ₹71k a month going in), that his father is a joint holder with 33% of the flat and the loan (so the father's money into his account is his own share of the loan, not a gift),
-his current pay (₹72 L CTC from 3 Aug 2026), family longevity (grandparents 85 and 87+, parents 64 and 61), a return-of-premium term plan (premium for ten years, the total, about ₹61 L, back at 72), and a wish to fund goals by their dates.
+his current pay (₹72 L CTC from 3 Aug 2026), family longevity (grandparents 85 and 87+, parents 64 and 61), a return-of-premium term plan (premium "for ten years", "about ₹61 L back at 72"), and a wish to fund goals by their dates.
 Before this, retirement looked unreachable (15% chance) because it counted only SIPs and the market holdings, and net worth counted the whole flat and loan.
 
 ## Decision
@@ -21,3 +21,7 @@ Before this, retirement looked unreachable (15% chance) because it counted only 
 ## Consequences
 Retirement: chance 79% at today's saving, an 80% chance from retiring at 51 (was 15%, and age 70): EPF contributions of ₹8.5 L a year to 2042 and the return of premium carry most of it. The estimate depends on the salary and EPF assumptions (9% growth at 80%, 7% after tax); the wife's EPF/NPS and the
 exempted employers' PF trusts are unknown and not counted. Tests: `tests/test_ownership_epf_db.py`, `tests/test_planning_plan.py::PersonalFacts`, `tests/test_planning_funds.py`.
+
+## Correction (2026-10-21, from the policy document)
+HDFC Life Click 2 Protect Super, policy 28077956: premium for **12 years** (last due 16 Sep 2036, ₹41,369 a month with riders), 40-year term, **return of premium ₹53,55,900 at maturity (16 Oct 2064, age 72)**, death cover ₹13.76 cr, riders: cancer ₹30 L, accidental
+disability income ₹10 L, waiver of premium on critical illness. The plan used ₹61 L and ten years from memory; it now reads the document's figures (`final_premium_date`, `maturity_date`, `return_amount` in the config). The retired-employer PF is inside the shared EPF balance.

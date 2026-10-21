@@ -117,7 +117,9 @@ def capacity(db: Session, today: date | None = None, term_policies: list[dict] |
     for t in term_policies or []:
         first = db.execute(text("SELECT MIN(date), COALESCE(AVG(amount) FILTER (WHERE date >= :s), 0) FROM v_cashflow WHERE flow = 'expense' AND category = 'insurance' "
                                 "AND subcategory = 'term_insurance' AND owner_id = :o AND amount > 5000"), {"s": start, "o": t["owner"]}).first()
-        if first and first[0] and t.get("premium_term_years"):
+        if t.get("final_premium_date"):                                  # the policy's own last due date beats counting years from the first debit
+            out["rises"].append({"what": "the term-plan premium ends", "when": t["final_premium_date"].replace(day=1).isoformat(), "monthly": float(first[1] or 0) if first else 0.0})
+        elif first and first[0] and t.get("premium_term_years"):
             fy = first[0].year + t["premium_term_years"]
             out["rises"].append({"what": "the term-plan premium ends", "when": date(fy, first[0].month, 1).isoformat(), "monthly": float(first[1] or 0)})
     out["rises"].sort(key=lambda r: r["when"])

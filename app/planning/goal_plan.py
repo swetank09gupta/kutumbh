@@ -284,11 +284,12 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
     rop = []
     for t in ctx.term:
         v = ctx.owners.get(t["owner"])
-        if v and v["dob"] and t["return_age"] and t["return_amount"] > 0:
-            m_pay = _months(today, _add_years(v["dob"], t["return_age"]))
+        if v and v["dob"] and (t.get("maturity_date") or t["return_age"]) and t["return_amount"] > 0:
+            pay_date = t.get("maturity_date") or _add_years(v["dob"], t["return_age"])
+            m_pay = _months(today, pay_date)
             if m_pay < n:
                 fixed_in[m_pay] += t["return_amount"]
-                rop.append({"owner": t["owner"], "age": t["return_age"], "amount": t["return_amount"]})
+                rop.append({"owner": t["owner"], "age": t["return_age"] or round((pay_date - v["dob"]).days / 365.25), "amount": t["return_amount"], "date": pay_date.isoformat()})
 
     def outflow(infl, n_paths):
         o = np.zeros((n_paths, n + 1))
@@ -465,11 +466,11 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
         for o, e in (res.get("epf") or {}).items():
             parts.append(f"EPF ₹{e['balance'] / 100000:.1f} L now, ₹{e['monthly'] / 1000:.0f}k a month until you stop (counted at 80% for job risk; interest above ₹2.5 L of contributions taxed)")
         for r in res.get("return_of_premium") or []:
-            parts.append(f"term plan returns ₹{r['amount'] / 100000:.0f} L at {r['age']}")
+            parts.append(f"term plan returns ₹{r['amount'] / 100000:.1f} L at maturity ({r['date'][:7]})")
         for o, y in (res.get("family_shift") or {}).items():
             parts.append(f"a long-lived family adds {y:+.1f} years to the horizon")
         if parts:
-            txt += " Counted: " + "; ".join(parts) + ". Not counted: the other spouse's EPF/NPS and PF held by exempted employers (no data)."
+            txt += " Counted: " + "; ".join(parts) + ". Not counted: the other spouse's EPF/NPS (no data)."
         if res.get("age_for_80"):
             txt += f" At today's saving an 80% chance needs retiring at {res['age_for_80']}."
         elif res.get("chance") is not None and res["chance"] < CONFIDENCE and "age_for_80" in res:

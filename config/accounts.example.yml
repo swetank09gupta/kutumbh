@@ -160,6 +160,6 @@ family_names: []
 # family_history:           # ancestors only: died_at / alive_at ages; nudges the planning horizon a little (heritability of lifespan is about 25%)
 #   user: [{relation: grandfather, died_at: 85}]
 # term_insurance:           # return-of-premium plan: premium_term_years, the age the total is paid back, and the amount
-#   - {owner: user, premium_term_years: 10, return_age: 72, return_amount: 0}
+#   - {owner: user, premium_term_years: 12, final_premium_date: 2036-09-16, maturity_date: 2064-10-16, return_age: 72, return_amount: 0}   # dates optional
 # goal_priority: [emergency, child_education, retirement, health, child_marriage]   # funding order; default is by date
 
