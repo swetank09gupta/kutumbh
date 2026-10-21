@@ -19,10 +19,10 @@ Family finance on FastAPI + SQLAlchemy + Postgres (docker compose), one-page UI 
 - Never bump `_CACHE_SCHEMA` (hours to re-parse); bump the parser's own `_PARSER_VERSION`.
 
 ## State on 2026-10-21
-Family net worth ₹3.25 cr. Emergency ₹36.35 L vs ₹33.91 L derived (covered). Retirement 78% chance at ₹27.5k SIP (EPF and return of premium carry it); education, health and marriage far from funded; capacity ₹1.66 L/month (loan ends 2033-05). Silver ETFs flagged as a bet. Health 0 failing.
+Family net worth ₹3.10 cr. Emergency ₹21.14 L (bank ₹4.66 L + FD/RD ₹16.48 L) vs ₹33.91 L derived (short ₹12.8 L). Retirement 78% chance at ₹27.5k SIP (EPF and return of premium carry it); education, health and marriage far from funded; capacity ₹1.66 L/month (loan ends 2033-05). Silver ETFs flagged as a bet. Health 0 failing.
 
 ## Open items (also in `docs/ROADMAP.md` Inbox)
-1. Owner to approve deleting four empty accounts (HDFC 4841, 2414, 4935; wife's CDSL "unknown").
+1. SBI savings balance = alert print minus the owner's live SBI deposits (ADR-0046 correction); a new statement should confirm it. The wife's SBI 1636 row duplicates 9132 (not deleted).
 2. Wife's EPF/NPS: no data. EPF balance needs a refresh about yearly (warning after 13 months).
 3. A derived diversification insight to replace the removed fixed-target recommendations.
 4. Goal priority between marriage and health: default is date order; set `goal_priority` to change.

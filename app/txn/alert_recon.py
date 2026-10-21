@@ -234,11 +234,31 @@ def account_alerts(db: Session, account: Account) -> list[BankAlertRow]:
             if (a.bank, a.account_last4) in last4]
 
 
+def _linked_deposits(db: Session, account: Account) -> Decimal:
+    """What SBI's alert "available balance" holds besides the savings account: the owner's live SBI deposits (sweep / MOD), which are Manual Assets of their
+    own, so counting the whole print would count them twice. Checked against the statements: the print sat above the statement balance by 11,48,579 on every
+    date for one owner and 5,12,284 for the other, equal to the sum of their SBI deposits then listed (to within the one deposit that had just closed).
+    A matured or closed deposit is out of the sum: its money is in the savings account. 0 for HDFC and Axis, whose alerts print the account's own balance."""
+    if (account.institution or "").upper() != "SBI":
+        return Decimal(0)
+    from datetime import date as _d
+    from app.engine.deposits import deposit_history, is_live
+    from app.models.schemas import ManualAsset
+    hist, newest = deposit_history(db)
+    total = Decimal(0)
+    for m in db.query(ManualAsset).filter(ManualAsset.owner_id == account.owner_id, ManualAsset.institution == "SBI",
+                                          ManualAsset.asset_type.in_(["fd", "rd"])).all():
+        if m.current_value is None or not is_live(m, hist, newest) or (m.maturity_date and m.maturity_date < _d.today()):
+            continue
+        total += Decimal(m.current_value)
+    return total
+
+
 def alert_balance(db: Session, account: Account):
     """
     The bank account's balance as the alerts last told it: (balance, as_of date, alerts applied) or None.
 
-    The newest alert that prints a balance is the base; alerts after it that print none (HDFC UPI
+    The newest alert that prints a balance is the base, less the owner's live SBI deposits that SBI's print includes (`_linked_deposits`); alerts after it that print none (HDFC UPI
     alerts) are applied as credits/debits. SBI alerts show the real account number while statements
     show a masked reference, so an alert account belongs to this account once one of its alerts
     matched a statement row of it; HDFC alerts carry the same last four digits as the account.
@@ -256,7 +276,7 @@ def alert_balance(db: Session, account: Account):
         return None
     later = [a for a in rows if a is not base and (a.txn_date, when(a)) > (base.txn_date, when(base))
              and a.balance_after is None]
-    bal = Decimal(base.balance_after)
+    bal = Decimal(base.balance_after) - _linked_deposits(db, account)
     for a in later:
         bal += Decimal(a.amount) if a.direction == "credit" else -Decimal(a.amount)
     return bal, max([base.txn_date] + [a.txn_date for a in later]), len(later)
