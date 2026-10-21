@@ -132,10 +132,42 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
                 a.provisional_expense = False                  # the statement (or a copy of the alert) now carries it
     if apply:
         db.commit()
+        stats["deposits_aligned"] = len(align_deposits_to_alerts(db))
     return stats
 
 
 SILENT_DEPOSIT_DAYS = 135
+
+
+def align_deposits_to_alerts(db: Session) -> list[dict]:
+    """A deposit that pays its interest out has no statement of its own; the bank's alert on it prints its balance. When that alert is newer than the
+    statement the asset came from, the bank's balance is today's (the same rule as bank accounts: the newer of statement and alert wins), so the
+    asset's principal takes it. The interest accrued since the last payout stays as the statement gave it. A newer statement overrides it again; a
+    cumulative deposit (it compounds to a maturity value) is left to the contract arithmetic. Returns what was changed."""
+    from app.engine.deposits import is_cumulative
+    from app.models.schemas import ManualAsset
+    latest: dict[tuple, BankAlertRow] = {}
+    for a in (db.query(BankAlertRow).filter(BankAlertRow.balance_after.isnot(None), BankAlertRow.status == "untracked")
+              .order_by(BankAlertRow.txn_date, BankAlertRow.sent_at).all()):
+        latest[(a.owner_id, a.bank, a.account_last4)] = a
+    changed = []
+    for (o, b, last4), a in latest.items():
+        mine = [m for m in db.query(ManualAsset).filter(ManualAsset.owner_id == o, ManualAsset.asset_type == "fd").all()
+                if last4 and (m.name or "").endswith(last4) and (m.institution or "").upper().startswith(b.upper()[:3])]
+        for m in mine:
+            if is_cumulative(m) or (m.source_statement_date and a.txn_date < m.source_statement_date):
+                continue
+            bal = a.balance_after
+            if abs(float(m.current_value or 0) - float(bal)) <= 0.5:
+                continue
+            old = m.current_value
+            m.current_value, m.source_statement_date = bal, a.txn_date
+            tag = f"Balance from bank alert {a.txn_date.isoformat()}"
+            m.notes = ((m.notes or "").split(" | Balance from bank alert")[0] + f" | {tag}: ₹{float(bal):,.0f} (statement had ₹{float(old or 0):,.0f})").strip(" |")
+            changed.append({"asset": m.name, "from": float(old or 0), "to": float(bal), "alert_date": a.txn_date.isoformat()})
+    if changed:
+        db.commit()
+    return changed
 
 
 def alert_summary(db: Session, recent: int = 40) -> dict:
