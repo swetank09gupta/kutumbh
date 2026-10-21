@@ -112,7 +112,7 @@ def holdings_by_owner(db: Session, tags: list[str], scope: list[str]) -> list[tu
     for h in latest_holdings(db, owner_ids=scope):
         if h.goal_tag in tags and float(h.current_value or 0) > 0:
             out.append((h.owner_id, float(h.current_value), allocation.classify(h.instrument_name, h.holding_type)))
-    for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(scope), ManualAsset.goal_tag.in_(tags)).all():
+    for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(scope), ManualAsset.goal_tag.in_(tags), ManualAsset.is_liquid == True).all():  # noqa: E712  (a home you live in is not a corpus: the goal's own corpus leaves it out too)
         if float(m.current_value or 0) > 0:
             out.append((m.owner_id, float(m.current_value), allocation.classify(m.name, None, m.asset_type)))
     return out
