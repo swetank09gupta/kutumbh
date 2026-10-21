@@ -35,10 +35,23 @@ cp config/accounts.example.yml config/accounts.yml
 | `WIFE_YAHOO_APP_PASSWORD` | optional | — | Yahoo app password for second owner |
 | `EMAIL_CHECK_INTERVAL_HOURS` | no | `6` | How often to poll email (hours) |
 | `OLLAMA_PARSE_MODEL` | no | `llama3.2` | Ollama model for PDF fallback parsing |
+| `ACCEPTED_GAPS_FILE` | no | `config/accepted_gaps.json` | Statement months you have confirmed the bank never issued (see below) |
 
 **Getting app passwords (not your login password):**
 - Gmail: myaccount.google.com → Security → 2-Step Verification → App passwords
 - Yahoo: security.yahoo.com → Generate app password → Mail
+
+---
+
+## `config/accepted_gaps.json` (private, git-ignored, optional)
+
+A statement month the bank never issued cannot be filled and nothing is invented; the balance today is the newest statement or alert. List it here and the balance-chain check stops warning about it (ADR-0040). Only an exact owner + account + month counts:
+
+```json
+[{"owner": "user", "account": "SBI 8660", "month": "2024-10", "note": "No Oct 2024 statement exists at the bank"}]
+```
+
+`account` is as the check prints it (`/api/health/continuity`: institution and account ref).
 
 ---
 

@@ -61,7 +61,7 @@ Five containers, all on one Docker network:
 
 ## 3. Data Flow
 
-### 3.1 Ingestion (every 6h via APScheduler; one pipeline, `app/etl/pipeline.py`: statements, bank alerts, loan letters, public rules, rebuild)
+### 3.1 Ingestion (every 6h via APScheduler; one pipeline, `app/etl/pipeline.py`: statements, bank alerts, loan letters, public rules, rebuild). Jobs missed while the laptop slept run once on wake, and a 10-minute watchdog starts an overdue update (ADR-0039).
 
 1. `email_fetcher` connects to each configured mailbox over IMAPS using **app passwords** (never the real login).
 2. Each new message is checked against `email_seen(uid, mailbox)` — UIDs already processed are skipped.
