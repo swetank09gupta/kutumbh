@@ -302,9 +302,13 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
                 fixed_in[m_pay] += t["return_amount"]
                 rop.append({"owner": t["owner"], "age": t["return_age"] or round((pay_date - v["dob"]).days / 365.25), "amount": t["return_amount"], "date": pay_date.isoformat()})
 
+    health_m = [(_months(today, d), amt, cat) for d, amt, cat in health_schedule(ctx) if n_acc <= _months(today, d) < n]      # senior health, each person from their own retirement
+
     def outflow(infl, n_paths):
         o = np.zeros((n_paths, n + 1))
         o[:, n_acc:n] = np.maximum(spend_today / 12 * household[None, n_acc:n] * infl["basket"][:, n_acc:n] - offset[None, n_acc:n], 0.0)
+        for m, amt, cat in health_m:
+            o[:, m] += amt * infl[cat][:, m]
         return o - fixed_in[None, :]
 
     res = simulate.simulate_plan(corpus0=corpus0, n_months=n, shape=shape, scale_now=total_sip, outflow_fn=outflow, weights=w,
@@ -317,7 +321,7 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
     ideal_today = req80 / deflate
     target_today = typed_today if use_typed else ideal_today
     extra = {"expected_return_pct": _expected(a, start), "required_at_start_nominal": req80, "start_date": start_date.isoformat(), "horizon_end": horizon_end.isoformat(),
-             "spend_today": spend_today, "spouse_offset_today_monthly": {o: ctx.salary.get(o, 0.0) * haircut / 12 for o in owners if o != first},
+             "spend_today": spend_today, "health_per_person_year": senior_health_per_year() if health_m else 0.0, "spouse_offset_today_monthly": {o: ctx.salary.get(o, 0.0) * haircut / 12 for o in owners if o != first},
              "tax": tax_note, "first_retiree": first, "retire_dates": {o: d.isoformat() for o, d in ret_dates.items()},
              "mix_start": {k: round(v, 3) for k, v in start.items()}, "step_date": life["step"].isoformat() if life["step"] else None,
              "step_factor": life["factor"], "survivor_chance": life["chance"], "epf": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in epf.items()}, "nps": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in nps.items()},
@@ -412,11 +416,17 @@ def plan_staged(db: Session, ctx: Context, goal, corpus0: float, sip_now: float,
     return out
 
 
+def senior_health_per_year() -> float:
+    """One person's senior health cost a year in today's money: an individual Rs 10 lakh health policy's premium plus the out-of-pocket bills the
+    hospitalisation rate implies (app/planning/params.yml, each with its source)."""
+    p = lambda k: float(param("health", k)["value"])
+    return p("senior_premium_per_person") + p("senior_hospitalisation_rate") * p("out_of_pocket_per_hospitalisation")
+
+
 def health_schedule(ctx: Context) -> list[tuple[date, float, str]]:
     """Senior health cost (today's money): from each person's retirement (the employer's cover ends) to their own life-table horizon, a year at a
     time: an individual Rs 10 lakh policy plus the bills the NSS hospitalisation rate and LASI out-of-pocket cost imply (app/planning/params.yml)."""
-    p = lambda k: float(param("health", k)["value"])
-    per_year = p("senior_premium_per_person") + p("senior_hospitalisation_rate") * p("out_of_pocket_per_hospitalisation")
+    per_year = senior_health_per_year()
     out = []
     for oid, o in ctx.owners.items():
         if not o["dob"] or not o["retirement_age"]:
@@ -471,7 +481,7 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
         off = res.get("spouse_offset_today_monthly") or {}
         txt = (f"Household retirement from {res['start_date']}; money lasts to {res['horizon_end'][:4]} (until the chance either of you is alive falls to "
                f"{res['survivor_chance'] * 100:.0f}%, official life table)" + (f", spending {int((1 - res['step_factor']) * 100)}% lower from {res['step_date'][:4]}" if res.get("step_date") else "")
-               + f". Living cost ₹{res['spend_today'] / 100000:.1f} L/yr (today's money, health is in its own goal)"
+               + f". Living cost ₹{res['spend_today'] / 100000:.1f} L/yr (today's money)"
                + (f"; a working spouse's income (₹{sum(off.values()) / 1000:.0f}k/mo after a job-risk haircut) offsets it until their own retirement." if off else "."))
         parts = []
         for o, e in (res.get("epf") or {}).items():
@@ -484,6 +494,12 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
             parts.append(f"term plan returns ₹{r['amount'] / 100000:.1f} L at maturity ({r['date'][:7]})")
         for o, y in (res.get("family_shift") or {}).items():
             parts.append(f"a long-lived family adds {y:+.1f} years to the horizon")
+        if res.get("health_per_person_year"):
+            txt += (f" Senior health is part of it: ₹{res['health_per_person_year'] / 1000:.0f}k a person a year in today's prices (an individual ₹10 L health policy plus the bills hospital stays imply), "
+                    "from each person's own retirement, rising faster than prices at first.")
+            cover = [t for t in ctx.term if t.get("cancer_cover")]
+            if cover:
+                txt += f" Not in it: a cancer diagnosis, which his term plan's rider covers (₹{cover[0]['cancer_cover'] / 100000:.0f} L to {cover[0]['maturity_date'].year if cover[0].get('maturity_date') else 'maturity'})."
         if parts:
             txt += " Counted: " + "; ".join(parts) + ". Not counted: any pension (no data) or NPS growth beyond the contributions."
         if res.get("age_for_80"):

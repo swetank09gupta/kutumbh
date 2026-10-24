@@ -184,6 +184,16 @@ class GoalPlans(unittest.TestCase):
             to95 = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
         self.assertLess(full["ideal_target_today"], to95["ideal_target_today"])
 
+    def test_senior_health_is_part_of_the_retirement_plan_and_raises_what_it_needs(self):
+        from unittest import mock
+        kw = (None, 3_700_000.0, {"user": 11_000.0}, ITEMS, 1.0, False)
+        with_health = goal_plan.plan_retirement(None, context(), None, *kw[1:], search=False)
+        with mock.patch.object(goal_plan, "health_schedule", return_value=[]):
+            without = goal_plan.plan_retirement(None, context(), None, *kw[1:], search=False)
+        self.assertGreater(with_health["required_at_start_nominal"], without["required_at_start_nominal"])
+        self.assertGreater(with_health["health_per_person_year"], 0)
+        self.assertEqual(without["health_per_person_year"], 0.0)
+
     def test_when_todays_saving_falls_short_the_earliest_workable_retirement_age_is_named(self):
         r = goal_plan.plan_retirement(None, context(), None, 3_700_000.0, {"user": 11_000.0, "wife": 10_000.0}, ITEMS, 1.0, False)
         self.assertLess(r["chance"], 0.8)

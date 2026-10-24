@@ -68,7 +68,7 @@ They run after every sync (`/api/health/consistency` → `product_invariants`, s
 | PPF uses the notified rate and the 5th-to-month-end rule | `tests/test_small_savings.py` |
 | Bank alerts are evidence, never cashflow; each gets exactly one status | `tests/test_alert_recon.py`, `tests/test_bank_alert.py` |
 | Every ledger trade with a cashflow link points at a cashflow row that exists (0 orphans after any re-key, re-read or duplicate removal); a contract note and its tradebook row dedupe to one trade and one cashflow | `tests/test_ledger_shared_cashflow_db.py` |
-| Retirement living cost excludes medical bills (the Health goal plans them); the retirement horizon comes from the life table, not a typed age | `tests/test_planning_plan.py` |
+| Retirement living cost excludes medical bills (senior health is its own stream inside the retirement plan; there is no separate Health goal); the retirement horizon comes from the life table, not a typed age | `tests/test_planning_plan.py` |
 | A holding tagged by the owner (`goal_tag_source = manual`) is never moved by the matcher; a second matching run changes nothing; a goal is never given a holding that needs more years than it has; the emergency fund is never matched (bank + every live FD/RD) and no FD/RD is tagged to another goal | `tests/test_planning_matching.py`, `tests/test_planning_funds.py` |
 | An SBI alert balance never includes the owner's live SBI deposits (they are Manual Assets): bank balance = print − those deposits | `tests/test_alert_balance_sbi_db.py` |
 | A returned cheque ("CHQ DEP RET") is a transfer that undoes the deposit, never spending; only its fee ("CHQ DEP RET CHGS") is a charge | `tests/test_txn_layer.py` |

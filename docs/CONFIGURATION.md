@@ -205,7 +205,7 @@ goals:
 | Field | Description |
 |---|---|
 | `owner_id` | `user`, `wife`, or `family` |
-| `goal_type` | `child_education`, `child_marriage`, `retirement`, `emergency`, `health`, `custom` |
+| `goal_type` | `child_education`, `child_marriage`, `retirement` (one household goal; senior health is part of it), `emergency`, `custom` (`health` still plans a separate senior-health goal but is not used) |
 | `target_amount` | Corpus needed in today's rupees |
 | `target_date` | Overridden by age-based date for `child_*` and `retirement` goals when `children` / `dob` are set |
 | `expected_return_rate` | Return typed on the goal (%): used for a custom goal, or while market data is unavailable, and with "use my figures"; planned goals use the market return |

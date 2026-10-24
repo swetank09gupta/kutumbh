@@ -117,20 +117,13 @@ goals:
     target_date:          "2047-01-01"
     expected_return_rate: 10.0
 
-  - owner_id:             "user"
-    name:                 "Your Retirement"
+  - owner_id:             "family"
+    name:                 "Retirement & Senior Health"
     goal_type:            "retirement"
-    target_amount:        50000000       # ₹5 crore — sustains 25 years @ 4% withdrawal
-    target_date:          "2050-01-01"
+    target_amount:        100000000      # your own figure (today's money); the planner derives the target from spending unless you tick "use my figures"
+    target_date:          "2050-01-01"   # replaced by the first earner's retirement date from the owner profiles
     expected_return_rate: 12.0
-    notes:                "Target: retire at 60, corpus to last till 85"
-
-  - owner_id:             "wife"
-    name:                 "Wife's Retirement"
-    goal_type:            "retirement"
-    target_amount:        30000000       # ₹3 crore
-    target_date:          "2052-01-01"
-    expected_return_rate: 12.0
+    notes:                "One household retirement including senior health costs"
 
   - owner_id:             "family"
     name:                 "Emergency Fund"
@@ -139,14 +132,6 @@ goals:
     target_date:          "2025-12-31"
     expected_return_rate: 6.5            # liquid MF / savings account
     notes:                "Keep in liquid mutual fund or FD with instant redemption"
-
-  - owner_id:             "family"
-    name:                 "Health & Senior Care Fund"
-    goal_type:            "health"
-    target_amount:        2000000        # ₹20 lakhs
-    target_date:          "2040-01-01"
-    expected_return_rate: 8.0
-    notes:                "Covers parents' senior care + major medical events"
 
 # Family members whose money moves in or out of the household accounts (parents etc.): labelled transfer / family, never income or spending.
 family_names: []
@@ -162,6 +147,6 @@ family_names: []
 # family_history:           # ancestors only: died_at / alive_at ages; nudges the planning horizon a little (heritability of lifespan is about 25%)
 #   user: [{relation: grandfather, died_at: 85}]
 # term_insurance:           # return-of-premium plan: premium_term_years, the age the total is paid back, and the amount
-#   - {owner: user, premium_term_years: 12, final_premium_date: 2036-09-16, maturity_date: 2064-10-16, return_age: 72, return_amount: 0}   # dates optional
-# goal_priority: [emergency, child_education, retirement, health, child_marriage]   # funding order; default is by date
+#   - {owner: user, premium_term_years: 12, final_premium_date: 2036-09-16, maturity_date: 2064-10-16, return_age: 72, return_amount: 0, cancer_cover: 0}   # dates optional; cancer_cover: the policy's cancer rider
+# goal_priority: [emergency, child_education, retirement, child_marriage]   # funding order; default is by date
 

@@ -58,7 +58,8 @@ def income(owner: str, cfg: dict | None = None) -> dict | None:
 
 def term_policies(cfg: dict | None = None) -> list[dict]:
     return [{"owner": t.get("owner"), "premium_term_years": int(t.get("premium_term_years") or 0), "return_age": int(t.get("return_age") or 0),
-             "return_amount": float(t.get("return_amount") or 0), "final_premium_date": _d(t.get("final_premium_date")), "maturity_date": _d(t.get("maturity_date"))}
+             "return_amount": float(t.get("return_amount") or 0), "final_premium_date": _d(t.get("final_premium_date")), "maturity_date": _d(t.get("maturity_date")),
+             "cancer_cover": float(t.get("cancer_cover") or 0)}
             for t in (cfg if cfg is not None else config()).get("term_insurance") or [] if t.get("owner")]
 
 

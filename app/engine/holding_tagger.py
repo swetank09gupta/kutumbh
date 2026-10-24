@@ -22,8 +22,8 @@ ISIN_GOAL_MAP: dict[str, str | None] = {
 
     # ── Health & Senior Care → Large Cap ELSS + Large Cap funds ──────────────
     # Large-cap stability; funds the parents' senior care + medical emergency corpus.
-    "INF179K01YS4": "health",        # HDFC ELSS Tax Saver Fund (large-cap biased)
-    "INF109K016L0": "health",        # ICICI Prudential Large Cap Fund
+    "INF179K01YS4": "retirement",        # HDFC ELSS Tax Saver Fund (large-cap biased)
+    "INF109K016L0": "retirement",        # ICICI Prudential Large Cap Fund
 
     # ── Wife's Retirement → Balanced ELSS ────────────────────────────────────
     # Balanced equity allocation with tax efficiency; wife's long-horizon corpus.
@@ -72,8 +72,8 @@ _NAME_RULES: list[tuple[re.Pattern, str | None]] = [
     # SGB / Gold / Silver → child_marriage (capital preservation + inflation hedge)
     (re.compile(r"\bSGB\b|SOVEREIGN\s*GOLD|GOI\s*SGB|\bSILVER\s*ETF\b"
                 r"|\bGOLD\s*ETF\b|\bGOLD\b|\bSILVER\b", re.I),           "child_marriage"),
-    # ELSS / Tax Saver — tagged by sub-category below; generic fallback → health
-    (re.compile(r"\bELSS\b|TAX\s*SAV|TAX\s*PLAN|ETSF|ELSTSAV", re.I),   "health"),
+    # ELSS / Tax Saver — tagged by sub-category below; generic fallback → retirement
+    (re.compile(r"\bELSS\b|TAX\s*SAV|TAX\s*PLAN|ETSF|ELSTSAV", re.I),   "retirement"),
     # Large Cap / Index → retirement
     (re.compile(r"\bLARGE\s*CAP\b|NIFTY\s*50\b|SENSEX\b|NIFTY100|NF100"
                 r"|BLUE\s*CHIP|BLUECHIP|\bINDEX\b|\bSNF\b|\bLCF\b", re.I), "retirement"),

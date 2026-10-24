@@ -10,10 +10,9 @@ It gives **ranges and probabilities, never a promise**: 15–20 years of history
 
 | Goal | Target | Basis |
 |---|---|---|
-| Family retirement (one goal) | **derived**: the corpus that lasts with 80% chance | spending, inflation, ages, spouse income |
+| Retirement & senior health (one goal) | **derived**: the corpus that lasts with 80% chance. Senior health is a stream inside it: for each of you from your own retirement (the employer's cover ends) to your own life-table horizon, an assumed individual ₹10 L health policy's premium plus the bills hospital stays imply | spending, inflation, ages, spouse income; public premium and NSS/LASI cost figures (`params.yml`) |
 | Child higher education | **derived**: abroad undergraduate + postgraduate, paid by the child's age | cost ladder, education inflation + rupee |
 | Emergency fund | **derived**: months of spending (9 with one earner and a loan, else 6) | spending |
-| Health & senior care | **derived**: a ₹10 L individual policy plus expected bills for each of you from your own retirement (the employer's cover ends) to your own life-table horizon | public premium and NSS/LASI cost figures |
 | Child marriage | **your figure**, grown at a derived inflation (the child's age then is after postgraduate study) | no data to derive from |
 
 Tick **"use my figures"** on a goal to plan on the target (and return) you typed; the derived value is still shown beside it. Your typed target, date,
@@ -22,7 +21,7 @@ retirement age, risk appetite and tax regime are never overwritten.
 ## 2. Inputs, all from the app
 
 - **Spending** (last 12 complete months, `v_cashflow`). Retirement living cost = spending minus loan EMI, term-insurance premium, child costs, family support and medical bills
-  (they end, or other goals fund them; health is the Health goal's). School fees stay in today's cash flow until class 12; college starts the education goal's payments.
+  (they end, or other goals fund them; medical is the senior-health stream of the retirement goal). School fees stay in today's cash flow until class 12; college starts the education goal's payments.
 - **Own spending trend**: core spending in the last three 12-month windows. If it grew faster than prices the excess (at most 3 points) is carried forward, otherwise nothing; a fall is never counted on.
   Only about two clean years of statements exist, so today it reads *falling* (₹22.7 L → ₹18.0 L → ₹18.6 L) and adds nothing. Family money (parents) is a transfer, never income or spending: names in `config/accounts.yml` → `family_names`.
 - **People** (`owners`, `config/accounts.yml`): dates of birth, retirement ages (you 50, your wife 60), risk appetite, tax regime; the child's date of birth.
@@ -42,7 +41,7 @@ CPI module and FRED. Scenarios shift the market together: *cautious* (equity −
 | Education, India | general + 4 points (10–12% in [RetireWise](https://www.retirewise.in/?p=5782); an 8% modelling assumption elsewhere) |
 | Education, abroad | US tuition inflation 3.5% (College Board 2025-26: +2.9 to +4.0%, [report](https://research.collegeboard.org/media/pdf/Trends-in-College-Pricing-and-Student-Aid-2025-final_0.pdf)) + the rupee's 10-year fall against the dollar (FRED USD/INR, live) |
 | Wedding | general + 2 points (judgement: no published index) |
-| Retirement spending | general inflation plus the own-spending drift above (0 today); medical is in the Health goal, not here |
+| Retirement spending | general inflation plus the own-spending drift above (0 today); medical is the senior-health stream, added to the retirement outflows |
 | Long-run fade | a category's premium over general inflation (medical, education, wedding) applies in full for 10 years, then fades to a quarter of it at year 40 (judgement: medical at 10.9% for 46 years would be a 130-fold rise, more than any income grows) |
 | Debt return | 10-year G-sec yield (live) less 0.3 fund cost |
 | Equity return | debt + the **net equity premium** the real history paid over gilts (about 20 years, from AMFI NAVs), scaled by valuation ((long-run P/E ÷ today's P/E)^0.5, between 0.7 and 1.25), at least 1.5 points |
@@ -79,7 +78,7 @@ path is closed-form and the **SIP for p-confidence is its p-quantile**: no searc
 - Education costs are today's published ranges (undergraduate abroad ₹60 L, postgraduate abroad ₹1.1 cr, India ₹20 L + ₹27 L); `params.yml` holds them with their ranges.
 - Family history (parents' and grandparents' ages at death, heart disease, diabetes, cancer, hypertension) is not in any data: the life table is the population's, for urban women, with no improvement in medicine. A long-lived family should lift it.
 - Spending in retirement is flat in real terms (no extra for travel) apart from the one step when a spouse is probably gone. Mortality of the two is treated as independent.
-- Health: one flat cost per person-year from retirement (age bands within 50-85 are not modelled); a catastrophic uninsured illness is not in the number: keep part of the emergency fund for it.
+- Health: one flat cost per person-year from retirement (age bands within 50-85 are not modelled); a catastrophic illness is not in the number: his term plan's cancer rider (₹30 L, `cancer_cover` in the config, to 2064) is the cover for that, for him only; nothing covers her.
 - Only the last ~2 years of spending are clean (statement coverage before 2024 is partial), so a five-year trend cannot be read from the data yet; it will be as years accumulate.
 
 ## 6. Which holding serves which goal (`app/planning/matching.py`, `funds.py`, `risk.py`)
@@ -105,7 +104,7 @@ Money already held counts toward the goal it is tagged to, and **the matcher cho
 
 ## 7. Funding order (the existing goal cards say it)
 
-Capacity (§3) is spread over the goals in the order money should reach them: the **emergency fund** first (a one-off top-up from savings), then by the **date money is first needed** (education, then health and retirement, then marriage; a tie goes to the
+Capacity (§3) is spread over the goals in the order money should reach them: the **emergency fund** first (a one-off top-up from savings), then by the **date money is first needed** (education, then retirement, then marriage; a tie goes to the
 smaller, more essential goal), or the order in `goal_priority`. **A saving that already works is kept** (each goal first gets what it is saving now, up to what it needs), then what is left tops goals up in order, each to the saving that gives it an
 80% chance. The card note says "Fund #2: ₹125k a month of your ₹167k → 80% chance", and when the home loan or the term premium ends (dated) the rest can follow. Fields: `funding_rank`, `suggested_sip`, `chance_at_suggested`.
 
@@ -118,4 +117,4 @@ When the repo rate, CPI or a cost range moves, re-read its source and add the da
 
 Goal cards and table: `project_all_goals` only. Corpus = what is tagged (holdings + manual assets), emergency = bank + FD/RD. Return: market (planned goals) or typed (custom). Inflation: derived per goal, the banner only reports CPI. Recommendations: emergency, spending
 shares, allocation vs the market-derived equity share, silver as a bet, EMI burden, PPF, 80C (old regime), a typed retirement figure far under the derived one; nothing with a fixed fund list or fixed allocation target. Not data-driven by design: the term plan and EPF facts
-(config), the typed marriage and health figures (yours, shown beside the derived ones). Known fixed assumptions left, all in `params.yml` with source and date, or named above: the retirement mix (40/5/55), the 80% job-risk haircut on EPF contributions, `RETIRED_GAIN_SHARE` 0.5, the allocation table used only when the market curve is unavailable.
+(config), the typed marriage figure (yours, shown beside the derived ones). Known fixed assumptions left, all in `params.yml` with source and date, or named above: the retirement mix (40/5/55), the 80% job-risk haircut on EPF contributions, `RETIRED_GAIN_SHARE` 0.5, the allocation table used only when the market curve is unavailable.
