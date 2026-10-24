@@ -37,9 +37,11 @@ def classify(kind: str, direction: str, payee: str | None, vpa: str | None, narr
     """(category, subcategory, counted as provisional spending) for one alert."""
     text = " ".join(x for x in (payee, vpa, narration) if x)
     cat = categorise(text)
+    flat = re.sub(r"[^A-Z]", "", f"{payee or ''} {vpa or ''}".upper())
+    if tokens and (payee or vpa) and any(t in flat for t in tokens):               # the household itself (a transfer in either direction, an interest credit from its own deposit)
+        return "transfer", cat.subcategory if cat.category == "transfer" else "own_account", False
     if direction != "debit" or kind != "upi" or not (payee or "").strip():
         return cat.category, cat.subcategory, False
-    flat = re.sub(r"[^A-Z]", "", f"{payee} {vpa or ''}".upper())
-    if any(t in flat for t in tokens) or cat.category in _NOT_SPENDING:
+    if cat.category in _NOT_SPENDING:
         return cat.category, cat.subcategory, False
     return cat.category, cat.subcategory, True

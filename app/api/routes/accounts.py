@@ -34,17 +34,39 @@ def list_accounts(
     q = db.query(Account).filter_by(is_active=True)
     if owner_id:
         q = q.filter_by(owner_id=owner_id)
-    return [
-        {
-            "id":           str(a.id),
-            "owner_id":     a.owner_id,
-            "institution":  a.institution,
-            "account_type": a.account_type,
-            "account_ref":  a.account_ref,
-            "is_active":    a.is_active,
-        }
-        for a in q.all()
-    ]
+    return [_account_row(db, a) for a in q.all()]
+
+
+def _account_row(db: Session, a: Account) -> dict:
+    """An account with what it holds and how current our data on it is: the newest statement row or balance, the newest bank alert, and today's balance
+    for a bank account (statement or alert chain, as the net worth uses it) or the value of what a demat / fund account holds."""
+    from sqlalchemy import func
+    from app.engine.networth import _latest_balance, _latest_holdings_value
+    from app.models.schemas import Balance, BankAlertRow, Holding, Transaction
+    from app.txn.alert_recon import account_alerts
+    from app.txn.pipeline import account_label
+    row = {"id": str(a.id), "owner_id": a.owner_id, "institution": a.institution, "account_type": a.account_type, "account_ref": a.account_ref,
+           "is_active": a.is_active, "label": account_label(a), "value": None, "statement_through": None, "alerts_through": None}
+    try:
+        if a.account_type == "bank":
+            row["value"] = float(_latest_balance(db, a.id))
+            dates = [d for d in (db.query(func.max(Transaction.date)).filter(Transaction.account_id == a.id).scalar(),
+                                 db.query(func.max(Balance.snapshot_date)).filter(Balance.account_id == a.id).scalar()) if d]
+            row["statement_through"] = str(max(dates)) if dates else None
+            alerts = [x.txn_date for x in account_alerts(db, a)]
+            row["alerts_through"] = str(max(alerts)) if alerts else None
+        else:
+            row["value"] = float(_latest_holdings_value(db, a.id))
+            d = db.query(func.max(Holding.snapshot_date)).filter(Holding.account_id == a.id).scalar()
+            row["statement_through"] = str(d) if d else None
+            if not d:
+                from app.models.schemas import DematMovement
+                t = max([x for x in (db.query(func.max(Transaction.date)).filter(Transaction.account_id == a.id).scalar(),
+                                     db.query(func.max(DematMovement.move_date)).filter(DematMovement.account_id == a.id).scalar()) if x], default=None)
+                row["statement_through"] = str(t) if t else None
+    except Exception:                                      # an account whose figures cannot be read still lists
+        pass
+    return row
 
 
 @router.get("/networth")
@@ -93,6 +115,7 @@ def latest_holdings(
     return [
         {
             "account_id":      str(h.account_id),
+            "owner_id":        getattr(h, "owner_id", None),
             "snapshot_date":   str(h.snapshot_date),
             "instrument_name": _amfi_name(h.isin) or h.instrument_name,          # the scheme's own name, not the statement's abbreviation
             "symbol":          h.symbol,

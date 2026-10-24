@@ -1,6 +1,6 @@
 # Handover: where things stand (updated 2026-10-21)
 
-Read this first, then `CLAUDE.md` (working agreement), `docs/INVARIANTS.md`, `docs/DECISIONS.md`. Latest decisions: ADR-0043 (one calculator), 0044 (matching), 0045 (personal facts), 0046 (audit).
+Read this first, then `CLAUDE.md` (working agreement), `docs/INVARIANTS.md`, `docs/DECISIONS.md`. Latest decisions: ADR-0043 (one calculator), 0044 (matching), 0045 (personal facts), 0046 (audit), 0047 (retirement + senior health), 0048 (SBI renewals), 0049 (UI audit).
 
 ## What the app is
 Family finance on FastAPI + SQLAlchemy + Postgres (docker compose), one-page UI `app/static/index.html`, APScheduler jobs (sync from mail, daily sweep). Every page reads shared definitions: `v_cashflow`, `latest_holdings_deduped`, `build_positions`, `project_all_goals`. Private config in `config/accounts.yml` (git-ignored; never print it).

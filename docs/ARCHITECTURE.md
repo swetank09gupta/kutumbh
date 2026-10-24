@@ -122,7 +122,6 @@ All checks are pure functions of the DB + (optionally) `market_signals`. Each re
 |---|---|---|
 | `_emergency_fund_check` | Bank + FD/RD (the goal's corpus) below the derived target or under 6× monthly spending | `liquid_months` |
 | `_high_expense_check` | Any non-EMI category > 30% of monthly expenses | `share` |
-| `_asset_allocation_check` | Equity < 40% or Debt > 60% of net worth | `equity_pct`, `debt_pct` |
 | `_emi_burden_check` | Recurring monthly EMI > 40% of monthly income. EMI is detected from `category=emi` debits via amount-grouping (≥3 hits, σ/μ < 10%) so one-off prepayments and statement duplicates don't inflate the burden. | `emi_ratio` |
 | `_ppf_nudge` | PPF contributions this FY < ₹1.5 L | `ppf_contrib` |
 | `_80c_dead_weight_check` (per owner) | 80C consumed ≥ ₹1.5 L cap **AND** ELSS holdings exist. Consumed = PPF (this FY) + EPF × 12 + owner's share of home-loan principal. Principal uses real amortisation when loan params exist on the liability row (EMI − outstanding × rate / 12), else falls back to 30% of total `emi` category. | `total_80c_consumed`, `elss_value` |
@@ -178,7 +177,7 @@ The app and Grafana never talk to each other directly — Grafana only reads Pos
 
 Alongside Grafana, `app/static/index.html` is a single-file vanilla-JS SPA served at `/ui/` for the views that don't fit a dashboard (CRUD modals, sync trigger, per-goal projection drill-downs, scenario panel). The SPA:
 - Uses **hash routing** (`#overview`, `#investments`, `#goals`, …) so refresh, back/forward, and bookmarks all land on the active tab. State is held in `location.hash` + `history.pushState`; no client-side router framework.
-- Lazy-loads Grafana iframes per tab — each iframe starts with `src=""` and is populated by `refreshGrafana(section)` only when its tab is visited.
+- Embeds Grafana only where history is the point: **Overview → Portfolio trends** (net worth over time, financial assets over time). Every other page is native and reads the same API as the cards (the embedded Cash Flow, Investments and Goal panels were removed on 2026-10-24: they repeated native cards and, reading older tables, disagreed with them; the dashboards remain in Grafana itself). Iframes load lazily (`refreshGrafana(section)`).
 - Shows **skeleton loaders** (shimmer placeholders) instead of "Loading…" text for tables/cards/lists during async fetches.
 - Modal dismiss is wired uniformly (Esc + click-outside) across all four modals (goal / asset / profile / contribution / scenarios).
 - Page width is fully fluid — no hard `max-width` cap; tables and panels fill the available viewport on any monitor.

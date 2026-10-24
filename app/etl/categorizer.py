@@ -60,7 +60,9 @@ _RULES: list[tuple[re.Pattern, Category]] = [
      Category("income", "interest_dividend")),
     # A deposited cheque that came back ("CHQ DEP RET- FUNDS INSUFFICIENT"): the debit undoes the earlier credit, so it is neither spending nor income;
     # the bank's returned-cheque fee ("CHQ DEP RET CHGS") is a real charge
-    (re.compile(r"chq\s*dep\s*ret\s*chgs", re.I), Category("other", "bank_charges")),
+    (re.compile(r"chq\s*dep\s*ret\s*chgs|insta\s*alert\s*chg|sms\s*alert\s*chg|alertchg", re.I), Category("other", "bank_charges")),
+    # P2P lending (Innofin / LenDenClub): lending out and the repayments that come back are neither spending nor income
+    (re.compile(r"innofin", re.I), Category("transfer", "p2p_lending")),
     (re.compile(r"chq\s*dep\s*ret", re.I), Category("transfer", "cheque_return")),
     (re.compile(r"refund|cashback|reversal", re.I),
      Category("income", "refund")),

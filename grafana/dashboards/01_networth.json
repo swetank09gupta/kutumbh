@@ -1,5 +1,5 @@
 {
-  "title": "\ud83d\udcb0 Net Worth",
+  "title": "💰 Net Worth",
   "uid": "networth",
   "schemaVersion": 38,
   "version": 16,
@@ -255,7 +255,7 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "Asset Class Trend",
+      "title": "Financial assets over time (the home is left out)",
       "gridPos": {
         "x": 10,
         "y": 14,
@@ -284,7 +284,7 @@
           "datasource": {
             "uid": "financedb"
           },
-          "rawSql": "SELECT snapshot_date AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"Mutual Funds\", ppf_value AS \"PPF\", fd_value AS \"FDs\", real_estate_value AS \"Real Estate\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "rawSql": "SELECT snapshot_date AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"Mutual Funds\", ppf_value AS \"PPF\", fd_value AS \"FDs\", other_assets AS \"EPF, NPS & other\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
           "format": "time_series",
           "rawQuery": true
         }

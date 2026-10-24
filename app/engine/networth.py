@@ -238,7 +238,7 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
             val = accrued_value(asset, snap_date)
         if asset.asset_type == "liability" and asset.institution == "HDFC" and snap_date < date.today():
             from app.engine.loan import principal_on             # what was owed THEN, from the lender's letters
-            then = principal_on(db, owner_id, snap_date, asset.invested_amount)
+            then = principal_on(db, asset.owner_id, snap_date, asset.invested_amount)             # the lender's letters are the borrower's, whichever co-owner's share is being added
             if then is not None:
                 val = -then
         if asset.asset_type in ("epf", "nps"):
@@ -317,6 +317,8 @@ def backfill_snapshots(db: Session, force: bool = False) -> int:
         db.execute(text("SELECT DISTINCT snapshot_date FROM net_worth_snapshots")).fetchall()
     }
 
+    if force:                                   # a rebuild covers every stored day, not only the days holdings were dated: a day taken under an older rule is wrong
+        all_dates = sorted(set(all_dates) | existing)
     owners = real_owners(db)
     created = 0
 

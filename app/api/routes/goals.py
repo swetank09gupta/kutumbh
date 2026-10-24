@@ -58,7 +58,8 @@ def _plan_fields(p) -> dict:
     return {"chance": p.chance, "sip_for_90": p.sip_for_90, "ideal_target_today": p.ideal_target_today,
             "typed_target_today": p.typed_target_today, "target_source": p.target_source,
             "inflation_used_pct": p.inflation_used_pct, "plan_note": p.plan_note, "funding_rank": p.funding_rank,
-            "suggested_sip": p.suggested_sip, "chance_at_suggested": p.chance_at_suggested}
+            "suggested_sip": p.suggested_sip, "chance_at_suggested": p.chance_at_suggested,
+            "effective_return_pct": p.effective_return_pct, "return_source": p.return_source, "projected_corpus": p.projected_corpus, "gap": p.gap}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

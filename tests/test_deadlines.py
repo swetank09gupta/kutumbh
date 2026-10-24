@@ -167,12 +167,6 @@ class Engine(unittest.TestCase):
         self.assertIn("₹1,852", out[("wife", "2026-12-27")]["detail"])                      # 25 g x 5,926 x 1.25%
         self.assertEqual(out[("wife", "2026-12-27")]["rules"], ["sgb.coupon_rate"])
 
-    def test_repo_change_is_flagged_against_the_loan_letter(self):
-        (i,) = self.items("loan_repo_change")
-        self.assertEqual(i["date"], "2026-10-07")
-        self.assertIn("(7.1% in the lender", i["detail"])
-        self.assertEqual(i["rules"], ["rbi.repo_rate"])
-
     def test_every_item_cites_a_resolvable_rule_or_evidence(self):
         payload = self.build(horizon_days=1830)
         self.assertGreater(len(payload["items"]), 10)

@@ -38,6 +38,11 @@ def snapshot_recommendations(
     """
     snapshot_date = snapshot_date or date.today()
     n_written = 0
+    recs = list(recs)
+    keep = {r.fingerprint for r in recs}
+    for row in db.query(RecommendationSnapshot).filter_by(snapshot_date=snapshot_date, owner_id=owner_id).all():
+        if row.fingerprint not in keep:                         # today's snapshot says what is true now: a rule that no longer fires leaves it
+            db.delete(row)
     for r in recs:
         existing = (
             db.query(RecommendationSnapshot)
@@ -74,6 +79,15 @@ def snapshot_recommendations(
         logger.warning("snapshot commit failed: %s", exc)
         return 0
     return n_written
+
+
+# Recommendations whose rule was removed (ADR-0046): old snapshots of them are history, not something that "resolved"
+RETIRED_TITLES = ("Goal at Risk", "Midcap", "Redirect Midcap", "Scattered Direct", "Add International", "No International", "Build Large-Cap",
+                  "Low Equity Allocation", "High Equity Allocation", "Heavy Debt Allocation", "Lock In G-Sec")
+
+
+def is_retired(title: str | None) -> bool:
+    return any((title or "").startswith(p) for p in RETIRED_TITLES)
 
 
 def recommendation_changes(
@@ -142,7 +156,7 @@ def recommendation_changes(
         }
 
     new       = [_to_dict(r) for fp, r in today_map.items() if fp not in prior_map]
-    resolved  = [_to_dict(r) for fp, r in prior_map.items() if fp not in today_map]
+    resolved  = [_to_dict(r) for fp, r in prior_map.items() if fp not in today_map and not is_retired(r.title)]
 
     persisting = []
     for fp, r_today in today_map.items():

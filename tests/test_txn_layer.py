@@ -174,6 +174,10 @@ class MerchantRules(unittest.TestCase):
         self.assertEqual(self.cat("352702010716026:Int.Pd:01-07- 2026 to 15-09-2026"), ("income", "interest_dividend"))   # SBI FD interest, was 'other'
         self.assertEqual(self.cat("UPIAR/655950598885/DR/Shopper s/YESB/shopperstophar")[0], "shopping")
 
+    def test_p2p_repayments_and_sms_alert_charges(self):
+        self.assertEqual(self.cat("IMPS-629315369275-INNOFINSOLUTIONSPRIVATELIMITEDBORROWERESCROWA-UTIB-XXXXXXXXXXX1124-REPAY"), ("transfer", "p2p_lending"))   # was 'transport'
+        self.assertEqual(self.cat("SEPSEP26 INSTAALERTCHG 33 SMS-EPR2728963158674"), ("other", "bank_charges"))
+
     def test_a_returned_cheque_is_neither_spending_nor_income_but_its_fee_is_a_charge(self):
         self.assertEqual(self.cat("CHQ DEP RET- FUNDS INSUFFICIENT"), ("transfer", "cheque_return"))                  # was 'other': ₹17 L of "spending"
         self.assertEqual(self.cat("CHQ DEP RET- PAPER NOT RECEIVED"), ("transfer", "cheque_return"))

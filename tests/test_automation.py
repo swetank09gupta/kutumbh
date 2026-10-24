@@ -316,16 +316,6 @@ class WithDatabase(unittest.TestCase):
         self.assertEqual(live.load_observations(self.db), 1)
         self.assertEqual(rules.value("rbi.repo_rate", date(2026, 12, 6)), D("5.75"))
 
-    def test_the_deadlines_card_notices_a_change_by_itself(self):
-        from app.engine import deadlines
-        self.db.add(self.m.Owner(id="user", name="u"))
-        self.db.add(self.m.LoanAnchor(owner_id="user", lender="HDFC", loan_no="1", as_on=date(2026, 10, 1), prepaid=D(0),
-                                      principal_after=D(10000000), emi=D(170000), rate=D("7.1"), natural_key="k"))
-        self.db.commit()
-        live.refresh(self.db, self._fetch(D("5.75")), today=date(2026, 12, 5))
-        (item,) = [i for i in deadlines.build(self.db, today=date(2026, 12, 10))["items"] if i["kind"] == "loan_repo_change"]
-        self.assertEqual((item["date"], item["title"]), ("2026-12-05", "Repo rate now 5.75%"))
-
     # ── re-confirming rules from their pages ──
     def _pages(self, miss=(), down=()):
         def fetch(url):

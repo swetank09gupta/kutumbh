@@ -208,7 +208,7 @@ def alert_summary(db: Session, recent: int = 40) -> dict:
     def rows(status, limit):
         q = db.query(BankAlertRow).filter(BankAlertRow.status == status)
         return [{"date": a.txn_date.isoformat(), "owner": a.owner_id, "bank": a.bank, "account": a.account_last4,
-                 "direction": a.direction, "amount": float(a.amount), "payee": a.payee, "ref": a.ref, "kind": a.kind}
+                 "direction": a.direction, "amount": float(a.amount), "payee": a.payee, "ref": a.ref, "kind": a.kind, "category": a.category}
                 for a in q.order_by(BankAlertRow.txn_date.desc()).limit(limit).all()]
 
     counts = dict(db.query(BankAlertRow.status, func.count(BankAlertRow.id)).group_by(BankAlertRow.status).all())

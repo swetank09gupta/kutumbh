@@ -38,7 +38,6 @@ def generate(db: Session, owner_id: str = "family") -> list[Recommendation]:
 
     recs += _emergency_fund_check(db, owner_id)
     recs += _high_expense_check(db, owner_id)
-    recs += _asset_allocation_check(db, owner_id)
     recs += _speculative_holdings_check(db)
     recs += _emi_burden_check(db, owner_id)
     recs += _ppf_nudge(db, owner_id)
@@ -140,50 +139,6 @@ def _high_expense_check(db: Session, owner_id: str) -> list[Recommendation]:
     return recs
 
 
-def _asset_allocation_check(db: Session, owner_id: str) -> list[Recommendation]:
-    """Equity share of *financial* assets: real estate is not something SIPs can rebalance."""
-    nw = _latest_networth(db, "family")
-    if not nw:
-        return []
-    financial = (nw.bank_balance + nw.equity_value + nw.mf_value + nw.ppf_value + nw.fd_value
-                 + nw.other_assets)
-    if not financial or financial == 0:
-        return []
-
-    equity_pct = float((nw.equity_value + nw.mf_value) / financial * 100)
-    debt_pct   = float((nw.ppf_value + nw.fd_value) / financial * 100)
-    rec = _equity_share_for_goals(db, owner_id)            # what the goals' horizons suggest (docs/PLANNING.md), in percent
-    lo, hi = max(0.0, rec - 10), rec + 10
-
-    recs = []
-    if equity_pct < lo:
-        recs.append(Recommendation(
-            priority="medium",
-            category="investment",
-            title="Low Equity Allocation",
-            detail=(f"Equity and funds are {equity_pct:.0f}% of financial assets "
-                    f"(bank, equity, MF, PPF, FD; real estate excluded). Your goals' horizons and today's market risk suggest about {rec:.0f}%."),
-            action="Increase equity SIPs gradually. Consider index funds for low-cost exposure.",
-        ))
-    if equity_pct > hi:
-        recs.append(Recommendation(
-            priority="medium",
-            category="investment",
-            title="High Equity Allocation for Your Horizons",
-            detail=f"Equity and funds are {equity_pct:.0f}% of financial assets; your goals' horizons suggest about {rec:.0f}%.",
-            action="Direct new savings to debt/PPF for the nearer goals, or rebalance when a goal is within five years.",
-        ))
-    if debt_pct > max(60.0, 100 - rec + 20):
-        recs.append(Recommendation(
-            priority="low",
-            category="investment",
-            title="Heavy Debt Allocation",
-            detail=f"Debt instruments (PPF+FD) are {debt_pct:.0f}% of financial assets.",
-            action="Rebalance: shift some FD maturity proceeds to equity mutual funds.",
-        ))
-    return recs
-
-
 def _speculative_holdings_check(db: Session) -> list[Recommendation]:
     """Holdings so volatile that no goal's horizon covers them (app.planning.matching.speculative): silver, in practice."""
     try:
@@ -200,15 +155,6 @@ def _speculative_holdings_check(db: Session) -> list[Recommendation]:
         detail=(f"₹{total / 100000:.1f} L sits in {names}: about {max(r['volatility_pct'] for r in rows)}% a year of volatility, so a loss over a goal's years is not a 1-in-20 event "
                 f"for them until roughly {min(r['needs_years'] for r in rows)}+ years. The planner's expected return for silver is gold's (no extra reward for the risk)."),
         action="Treat it as speculative: do not count it toward a goal, do not add to it, and size it so a 35% fall changes nothing in the plan.")]
-
-
-def _equity_share_for_goals(db: Session, owner_id: str) -> float:
-    """Percent of equity the goals' horizons call for (app.planning.allocation.goals_equity_share), for the household's risk appetite."""
-    from app.models.schemas import Owner
-    from app.planning import allocation
-    risk = next((o.risk_appetite for o in db.query(Owner).filter(Owner.id == "user")), None)
-    items = [(float(p.current_corpus or 0), p.months_to_goal / 12, p.goal_type) for p in project_all_goals(db, owner_id)]
-    return round(allocation.goals_equity_share(items, risk) * 100, 1)
 
 
 def _emi_burden_check(db: Session, owner_id: str) -> list[Recommendation]:
@@ -351,7 +297,7 @@ def _80c_dead_weight_check(db: Session, owner_id: str) -> list[Recommendation]:
     If ≥ ₹1.5 L AND there are ELSS holdings present, fresh ELSS SIPs add a
     3-yr lock-in for zero tax benefit — flag them.
     """
-    from datetime import date as dt
+    from datetime import date as dt, timedelta
     from app.models.schemas import Owner as _Owner
     # Prefer DB values (UI-editable); fall back to yaml only if DB has no row.
     owners_db = {o.id: o for o in db.query(_Owner).all()}
@@ -432,7 +378,11 @@ def _80c_dead_weight_check(db: Session, owner_id: str) -> list[Recommendation]:
             if any(p in name for p in _ELSS_NAME_PATTERNS):
                 elss_value += Decimal(str(h.current_value or 0))
 
-        if consumed >= cap and elss_value > 0:
+        from app.models.schemas import InstrumentTrade
+        bought = db.query(InstrumentTrade.instrument_name).filter(InstrumentTrade.owner_id == oid, InstrumentTrade.side == "B",
+                                                                    InstrumentTrade.trade_date >= dt.today() - timedelta(days=365)).all()
+        buying_elss = any(any(p_ in (n or "").upper() for p_ in _ELSS_NAME_PATTERNS) for (n,) in bought)       # nothing to stop if no ELSS was bought this year
+        if consumed >= cap and elss_value > 0 and buying_elss:
             recs.append(Recommendation(
                 priority="medium",
                 category="investment",

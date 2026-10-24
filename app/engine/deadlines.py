@@ -19,7 +19,6 @@ from app.ledger.sgb import tranche
 
 HORIZON_DAYS = 365
 LOOKBACK_DAYS = 30          # a deposit that matured this recently and is still listed is worth a look
-REPO_WATCH_DAYS = 90
 
 
 # ── pure date rules ──────────────────────────────────────────────────────────
@@ -185,16 +184,6 @@ def build(db: Session, today: date | None = None, horizon_days: int = HORIZON_DA
                                f"{float(units):g} g are redeemed at the IBJA average price of the three business days before; "
                                "interest is paid half-yearly until then.", rule_ids=(tenor_rule.id,),
                                evidence=f"issued {t.issue_date.isoformat()} ({t.series})"))
-    # Home loan: a repo change reaches the loan at its next reset
-    repo = rules.rule("rbi.repo_rate", today)
-    anchor = (db.query(LoanAnchor).order_by(LoanAnchor.as_on.desc()).first())
-    if anchor and anchor.rate and 0 <= (today - repo.effective_from).days <= REPO_WATCH_DAYS:
-        items.append(_item(
-            repo.effective_from, today, "loan_repo_change", anchor.owner_id, f"Repo rate now {_pct(repo.value)}%",
-            f"The loan rate is linked to the repo ({_pct(anchor.rate)}% in the lender's letter of {anchor.as_on.strftime('%d %b %Y')}) and moves at "
-            "the lender's next reset, whose date is not in the letters. Check the next letter for the new rate and EMI.",
-            rule_ids=("rbi.repo_rate",), evidence=f"HDFC letter of {anchor.as_on.isoformat()}", status="info"))
-
     items.sort(key=lambda i: (i["date"], i["owner"], i["kind"]))
     return {"as_of": today.isoformat(), "horizon_days": horizon_days, "items": items, "gaps": gaps}
 
