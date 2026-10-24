@@ -153,8 +153,8 @@ family_names: []
 #  - "Parent Full Name"
 
 # ── Optional blocks the planner reads (all private, all optional) ───────────────────────────────────────────────────────────────────────
-# epf:                      # EPFO balance on a date and this month's contribution; rolled forward at the declared rate
-#   - {owner: user, as_of: 2026-01-31, balance: 0, employee_monthly: 0, employer_monthly: 0}
+# epf:                      # EPFO balance on a date and this month's contribution; rolled forward at the declared rate (voluntary_monthly = VPF: counted in the balance, not in the retirement plan)
+#   - {owner: user, as_of: 2026-01-31, balance: 0, employee_monthly: 0, employer_monthly: 0, voluntary_monthly: 0}
 # income:                   # current CTC, for the tax slab (bank credits are after TDS and EPF)
 #   user: {ctc_annual: 0, from: 2026-01-01, employer: ""}
 # family_history:           # ancestors only: died_at / alive_at ages; nudges the planning horizon a little (heritability of lifespan is about 25%)

@@ -28,13 +28,14 @@ def _d(v: Any) -> date | None:
 
 
 def epf_entries(cfg: dict | None = None) -> list[dict]:
-    """[{owner, as_of, balance, employee_monthly, employer_monthly}] with numbers as floats; entries without a date or owner are dropped."""
+    """[{owner, as_of, balance, employee_monthly, employer_monthly, voluntary_monthly}] with numbers as floats; entries without a date or owner are dropped."""
     out = []
     for e in (cfg if cfg is not None else config()).get("epf") or []:
         as_of = _d(e.get("as_of"))
         if e.get("owner") and as_of:
             out.append({"owner": e["owner"], "as_of": as_of, "balance": float(e.get("balance") or 0),
-                        "employee_monthly": float(e.get("employee_monthly") or 0), "employer_monthly": float(e.get("employer_monthly") or 0)})
+                        "employee_monthly": float(e.get("employee_monthly") or 0), "employer_monthly": float(e.get("employer_monthly") or 0),
+                        "voluntary_monthly": float(e.get("voluntary_monthly") or 0)})
     return out
 
 

@@ -61,7 +61,7 @@ def sync(db, today: date | None = None, entries: list[dict] | None = None) -> in
     from app.planning import personal
     n = 0
     for e in entries if entries is not None else personal.epf_entries():
-        monthly = e["employee_monthly"] + e["employer_monthly"]
+        monthly = e["employee_monthly"] + e["employer_monthly"] + e.get("voluntary_monthly", 0.0)      # all that really goes in (the balance grows by it)
         a = db.query(ManualAsset).filter(ManualAsset.owner_id == e["owner"], ManualAsset.asset_type == "epf").first()
         if a is None:
             db.add(ManualAsset(owner_id=e["owner"], asset_type="epf", institution="EPFO", name="EPF (EPFO)", current_value=Decimal(str(e["balance"])),

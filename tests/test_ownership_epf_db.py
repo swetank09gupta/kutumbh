@@ -81,6 +81,17 @@ class Ownership(unittest.TestCase):
         self.assertEqual((a.current_value, a.monthly_payment, a.goal_tag), (D(700_000), D(58_000), "retirement"))
         self.assertEqual(epf.stale(db, today=date(2028, 1, 1)), ["user"])                   # over a year old
 
+    def test_voluntary_contributions_grow_the_balance_but_the_plan_counts_only_the_committed_part(self):
+        from app.models.schemas import ManualAsset
+        from app.engine import epf
+        db = self.db
+        db.query(ManualAsset).delete(); db.commit()
+        epf.sync(db, entries=[{"owner": "wife", "as_of": date(2025, 3, 31), "balance": 3_500_000.0, "employee_monthly": 13_000.0, "employer_monthly": 13_000.0, "voluntary_monthly": 8_000.0}])
+        a = db.query(ManualAsset).filter_by(asset_type="epf").one()
+        self.assertEqual(a.monthly_payment, D(34_000))                                      # everything that really goes in
+        from app.planning import personal
+        self.assertEqual(personal.epf_entries({"epf": [{"owner": "wife", "as_of": "2025-03-31", "balance": 1, "voluntary_monthly": 8000}]})[0]["voluntary_monthly"], 8000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

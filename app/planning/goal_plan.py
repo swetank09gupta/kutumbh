@@ -99,9 +99,10 @@ def build_context(db: Session, today: date | None = None, scenario: str = "base"
     except Exception as exc:
         logger.warning("EPF not read: %s", exc)
         epf_now = {}
-    for e in personal.epf_entries(cfg):                         # the employee's share decides how much EPF interest is taxable
+    for e in personal.epf_entries(cfg):                         # the employee's share (VPF included) decides how much EPF interest is taxable
         if e["owner"] in epf_now:
-            epf_now[e["owner"]]["employee_monthly"] = e["employee_monthly"]
+            epf_now[e["owner"]]["employee_monthly"] = e["employee_monthly"] + e["voluntary_monthly"]
+            epf_now[e["owner"]]["monthly"] = e["employee_monthly"] + e["employer_monthly"]      # the plan counts the committed part only: VPF is a choice she changes
     shift = {o: personal.family_shift_years((cfg.get("family_history") or {}).get(o)) for o in owners}
     return Context(today=today, macro=snap, data=data, base=base, why=why, epf=epf_now, term=personal.term_policies(cfg), family_shift=shift,
                    profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
@@ -464,13 +465,14 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
                + (f"; a working spouse's income (₹{sum(off.values()) / 1000:.0f}k/mo after a job-risk haircut) offsets it until their own retirement." if off else "."))
         parts = []
         for o, e in (res.get("epf") or {}).items():
-            parts.append(f"EPF ₹{e['balance'] / 100000:.1f} L now, ₹{e['monthly'] / 1000:.0f}k a month until you stop (counted at 80% for job risk; interest above ₹2.5 L of contributions taxed)")
+            who = (ctx.owners.get(o, {}).get("name") or o).split()[0]
+            parts.append(f"{who}'s EPF ₹{e['balance'] / 100000:.1f} L now, ₹{e['monthly'] / 1000:.0f}k a month until they stop (counted at 80% for job risk; interest above ₹2.5 L of contributions taxed)")
         for r in res.get("return_of_premium") or []:
             parts.append(f"term plan returns ₹{r['amount'] / 100000:.1f} L at maturity ({r['date'][:7]})")
         for o, y in (res.get("family_shift") or {}).items():
             parts.append(f"a long-lived family adds {y:+.1f} years to the horizon")
         if parts:
-            txt += " Counted: " + "; ".join(parts) + ". Not counted: the other spouse's EPF/NPS (no data)."
+            txt += " Counted: " + "; ".join(parts) + ". Not counted: any NPS or pension (no data) and voluntary PF (a choice that changes)."
         if res.get("age_for_80"):
             txt += f" At today's saving an 80% chance needs retiring at {res['age_for_80']}."
         elif res.get("chance") is not None and res["chance"] < CONFIDENCE and "age_for_80" in res:

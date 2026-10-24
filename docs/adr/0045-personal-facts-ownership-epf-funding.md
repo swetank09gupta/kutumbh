@@ -25,3 +25,9 @@ exempted employers' PF trusts are unknown and not counted. Tests: `tests/test_ow
 ## Correction (2026-10-21, from the policy document)
 HDFC Life Click 2 Protect Super, policy 28077956: premium for **12 years** (last due 16 Sep 2036, ₹41,369 a month with riders), 40-year term, **return of premium ₹53,55,900 at maturity (16 Oct 2064, age 72)**, death cover ₹13.76 cr, riders: cancer ₹30 L, accidental
 disability income ₹10 L, waiver of premium on critical illness. The plan used ₹61 L and ten years from memory; it now reads the document's figures (`final_premium_date`, `maturity_date`, `return_amount` in the config). The retired-employer PF is inside the shared EPF balance.
+
+## Addendum (2026-10-24): the wife's EPF
+From her PF statement for FY 2023-24 (opening April 2023: member ₹16,45,166 + company ₹7,70,101; employee 12% of basic+DA, company the same, VPF on top in some months) and the April 2025 balance she shared (member ₹23,37,216 + company ₹11,80,778 = ₹35,17,994), rolling the 2023 opening forward at the declared 8.25% with the statement's contributions
+lands at ₹35.3 L, within 0.4% of what she shared: the roll-forward model holds. `config/accounts.yml` now has her entry (anchor 31 Mar 2025; this year's 93,137 member + 93,137 company + 59,170 VPF read as seven months: ₹13,305 / ₹13,305 / ₹8,453 a month; contributions assumed flat, her 3% yearly rise and DA changes are not modelled in the roll-forward).
+`voluntary_monthly` (new) grows the balance and counts toward the ₹2.5 L taxable limit, but the plan counts only the committed part (VPF is a choice she changes). Rolled to today her EPF is about ₹46 L; the warning "EPF balance over a year old" stays until she shares a newer balance (once a year is enough).
+

@@ -174,6 +174,11 @@ class MerchantRules(unittest.TestCase):
         self.assertEqual(self.cat("352702010716026:Int.Pd:01-07- 2026 to 15-09-2026"), ("income", "interest_dividend"))   # SBI FD interest, was 'other'
         self.assertEqual(self.cat("UPIAR/655950598885/DR/Shopper s/YESB/shopperstophar")[0], "shopping")
 
+    def test_a_returned_cheque_is_neither_spending_nor_income_but_its_fee_is_a_charge(self):
+        self.assertEqual(self.cat("CHQ DEP RET- FUNDS INSUFFICIENT"), ("transfer", "cheque_return"))                  # was 'other': ₹17 L of "spending"
+        self.assertEqual(self.cat("CHQ DEP RET- PAPER NOT RECEIVED"), ("transfer", "cheque_return"))
+        self.assertEqual(self.cat("CHQ DEP RET CHGS 24-09-2026-EPR2726879624874"), ("other", "bank_charges"))
+
     def test_a_bare_lic_no_longer_matches_public_policy_or_click(self):
         self.assertEqual(self.cat("UPI-GDGOENKAPUBLICSCHOOL-GDGOENKAPUB")[0], "child_expenses")                  # was insurance
         self.assertEqual(self.cat("UPI/DR/1/DAV PUBL/HDFC/davpublics/ATOM")[0], "child_expenses")

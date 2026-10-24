@@ -58,6 +58,10 @@ _RULES: list[tuple[re.Pattern, Category]] = [
     # SBI FD internal interest transfers (INT TRF FRM <acct> TO <acct>)
     (re.compile(r"int\s+trf\s+frm\s+\d+\s+to\s+\d+", re.I),
      Category("income", "interest_dividend")),
+    # A deposited cheque that came back ("CHQ DEP RET- FUNDS INSUFFICIENT"): the debit undoes the earlier credit, so it is neither spending nor income;
+    # the bank's returned-cheque fee ("CHQ DEP RET CHGS") is a real charge
+    (re.compile(r"chq\s*dep\s*ret\s*chgs", re.I), Category("other", "bank_charges")),
+    (re.compile(r"chq\s*dep\s*ret", re.I), Category("transfer", "cheque_return")),
     (re.compile(r"refund|cashback|reversal", re.I),
      Category("income", "refund")),
 
