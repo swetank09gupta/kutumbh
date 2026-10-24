@@ -68,3 +68,47 @@ class Align(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(URL, "TEST_DATABASE_URL not set")
+class Renewal(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.engine = Align.engine
+        cls.db = Align.db
+
+    def world(self, credit=None, stmt_date=date(2026, 9, 30)):
+        from app.models.schemas import BankAlertRow, ManualAsset
+        db = self.db
+        db.query(BankAlertRow).delete(); db.query(ManualAsset).delete()
+        db.add(ManualAsset(owner_id="user", asset_type="fd", institution="SBI", name="SBI FD ...6925", current_value=D(139970), start_date=date(2024, 10, 11),
+                           maturity_date=date(2026, 10, 11), source_statement_date=stmt_date))
+        if credit:
+            db.add(BankAlertRow(owner_id="user", bank="SBI", account_last4="3316", direction="credit", amount=D(credit), txn_date=date(2026, 10, 12), kind="transfer",
+                                status="pending", natural_key=f"c{credit}"))
+        db.commit()
+
+    def run_renew(self):
+        from app.txn.alert_recon import renew_matured_deposits
+        out = renew_matured_deposits(self.db, today=date(2026, 10, 24))
+        from app.models.schemas import ManualAsset
+        self.db.expire_all()
+        return out, self.db.query(ManualAsset).one()
+
+    def test_a_matured_deposit_with_no_payout_is_renewed_one_year_on_and_says_so(self):
+        self.world()
+        out, a = self.run_renew()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(a.maturity_date, date(2027, 10, 11))
+        self.assertIn("Auto-renewed", a.notes)
+        self.assertEqual(self.run_renew()[0], [])                                          # a second run changes nothing
+
+    def test_a_credit_of_its_size_into_savings_means_it_was_paid_out_and_stays_matured(self):
+        self.world(credit=141000)
+        out, a = self.run_renew()
+        self.assertEqual((out, a.maturity_date), ([], date(2026, 10, 11)))
+
+    def test_a_statement_dated_after_the_maturity_is_left_alone(self):
+        self.world(stmt_date=date(2026, 10, 31))
+        self.assertEqual(self.run_renew()[0], [])
+

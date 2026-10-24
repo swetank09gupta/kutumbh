@@ -47,6 +47,7 @@ Each ADR captures one decision: the context, the options considered, the choice,
 | [0041](0041-tradebook-import-and-cashflow-links.md) | Console tradebooks fill what notes and mails miss; a trade's cashflow link must survive re-keying | Accepted |
 | [0044](0044-goal-matching.md) | Holdings are matched to goals from the goals' horizons and gaps | Accepted |
 | [0045](0045-personal-facts-ownership-epf-funding.md) | Personal facts the data cannot show (EPF, home ownership, pay, family history, a term plan) and a funding order | Accepted |
+| [0048](0048-sbi-deposits-renew-themselves.md) | SBI deposits that renew themselves are kept live | Accepted |
 | [0047](0047-retirement-and-senior-health-one-goal.md) | Retirement and senior health are one goal | Accepted |
 | [0046](0046-audit-emergency-fund-and-retired-fixed-rules.md) | Audit: emergency fund = bank + FD/RD, one corpus definition, fixed rules retired | Accepted |
 | [0042](0042-planning-from-data.md) | Goal numbers are derived from spending, real history and simulation (superseded in form by 0043) | Accepted |

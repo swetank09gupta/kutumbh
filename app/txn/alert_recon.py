@@ -133,6 +133,7 @@ def reconcile_alerts(db: Session, apply: bool = True) -> dict:
     if apply:
         db.commit()
         stats["deposits_aligned"] = len(align_deposits_to_alerts(db))
+        stats["deposits_renewed"] = len(renew_matured_deposits(db))
     return stats
 
 
@@ -168,6 +169,38 @@ def align_deposits_to_alerts(db: Session) -> list[dict]:
     if changed:
         db.commit()
     return changed
+
+
+RENEW_TERM_YEARS = 1          # until the next statement shows the real term, an auto-renewed deposit is dated one year on
+
+
+def renew_matured_deposits(db: Session, today: date | None = None) -> list[dict]:
+    """An SBI deposit left on its default maturity instruction renews itself, and the bank sends no mail for it. The evidence is what did NOT happen: a
+    deposit past its maturity date (the newest statement still lists it, and is not dated after the maturity) whose owner's SBI savings account received no
+    credit of at least half of its balance since that date was not paid out. It stays a live deposit with its maturity moved one year on (the real term and
+    rate come with the next statement, which replaces both). A payout is the opposite evidence: the credit alert, and the deposit stays matured. Returns the
+    deposits renewed."""
+    from app.engine.deposits import deposit_history, is_live
+    from app.models.schemas import ManualAsset
+    today = today or date.today()
+    hist, newest = deposit_history(db)
+    out = []
+    for m in db.query(ManualAsset).filter(ManualAsset.asset_type == "fd", ManualAsset.institution == "SBI", ManualAsset.maturity_date.isnot(None)).all():
+        if m.maturity_date >= today or not is_live(m, hist, newest) or (m.source_statement_date and m.source_statement_date > m.maturity_date):
+            continue
+        bal = float(m.current_value or 0)
+        paid = (db.query(BankAlertRow).filter(BankAlertRow.owner_id == m.owner_id, BankAlertRow.bank == "SBI", BankAlertRow.direction == "credit",
+                                              BankAlertRow.txn_date >= m.maturity_date, BankAlertRow.amount >= Decimal(str(max(bal, 1.0) * 0.5))).first())
+        if bal <= 0 or paid is not None:
+            continue
+        old = m.maturity_date
+        new = old.replace(year=old.year + RENEW_TERM_YEARS) if not (old.month == 2 and old.day == 29) else old.replace(year=old.year + RENEW_TERM_YEARS, day=28)
+        m.maturity_date = new
+        m.notes = ((m.notes or "").split(" | Auto-renewed")[0] + f" | Auto-renewed on {old.isoformat()} (no payout seen): maturity dated {new.isoformat()} until the next statement shows the real term").strip(" |")
+        out.append({"asset": m.name, "matured": old.isoformat(), "maturity_now": new.isoformat()})
+    if out:
+        db.commit()
+    return out
 
 
 def alert_summary(db: Session, recent: int = 40) -> dict:
