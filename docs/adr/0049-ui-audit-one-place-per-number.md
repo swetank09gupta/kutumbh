@@ -18,3 +18,8 @@ how current each account is, and the Sync page said "no sync has run" although t
 
 ## Consequences
 Fewer cards, one definition per figure. Net worth history is smooth (≈₹3.5 cr now, ₹3.2 cr in September). Bonds (demat) and SGB (outside the demat) stay two return tiles: the invariants compare them with the Investments table separately.
+
+## Addendum (2026-10-24): history depth and the flat
+Net worth history starts on 31 Mar 2021, the first dated holdings statement; bank balances go back to May 2019 and trades to 2018, but without dated holdings and prices there is no honest earlier value (rebuilding it from trades, NAV and share-price history is possible and not built).
+The flat counted in history from the beginning (it had no start date) while its loan began on 15 Jan 2024, which made 2021-23 look ₹1.6 cr richer and produced a fake drop in January 2024. A flat that comes with a home loan is now owned from the loan's start date; before it the chart shows the true, smaller figure, and the purchase appears as a step (its down payment came from outside the tracked accounts).
+EPF/NPS before their anchor date still show the anchor balance (no dated evidence), so early years are overstated by that part. The Overview chips end with **All**, reaching back to the first stored day.

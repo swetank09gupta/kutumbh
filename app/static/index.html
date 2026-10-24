@@ -402,6 +402,7 @@
               <button class="gs-tbtn pf-btn active" data-pf="overview" data-preset="now-1y" onclick="setGTime('overview','now-1y')">1Y</button>
               <button class="gs-tbtn pf-btn" data-pf="overview" data-preset="now-2y" onclick="setGTime('overview','now-2y')">2Y</button>
               <button class="gs-tbtn pf-btn" data-pf="overview" data-preset="now-5y" onclick="setGTime('overview','now-5y')">5Y</button>
+              <button class="gs-tbtn pf-btn" data-pf="overview" data-preset="all" onclick="setOverviewAll()">All</button>
             </div>
           </div>
         </div>
@@ -1127,7 +1128,8 @@ function _presetDates(preset) {
   return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
 }
 function _gUrl(uid, panelId, from, to, owner) {
-  const varRange = encodeURIComponent(PRESET_TO_GRVAR[from] || '1 year');
+  const days = /^now-(\d+)d$/.exec(from);
+  const varRange = encodeURIComponent(PRESET_TO_GRVAR[from] || (days ? `${days[1]} days` : '1 year'));
   let u = `${G_HOST}/d-solo/${uid}?orgId=1&panelId=${panelId}&from=${from}&to=${to}&theme=dark&var-timeRange=${varRange}`;
   if (owner) u += `&var-owner=${encodeURIComponent(owner)}`;
   return u;
@@ -1139,7 +1141,7 @@ function refreshGrafana(section) {
     f.src = _gUrl(f.dataset.uid, f.dataset.panel, s.from, s.to, s.owner);
   });
   document.querySelectorAll(`[data-pf="${section}"].pf-btn`).forEach(b => {
-    b.classList.toggle('active', b.dataset.preset === s.from);
+    b.classList.toggle('active', b.dataset.preset === s.from || (b.dataset.preset === 'all' && /^now-\d+d$/.test(s.from)));
   });
 }
 
@@ -1148,6 +1150,18 @@ function setGTime(section, range) {
   refreshGrafana(section);
   if (section === 'transactions') _applyTxPageFilter();
   if (section === 'investments')  loadHoldings();
+}
+
+let _firstSnapshotDays = null;
+async function setOverviewAll() {            // "All" reaches back to the first stored day, not a fixed twenty years of empty axis
+  try {
+    if (_firstSnapshotDays === null) {
+      const rows = await apiFetch('/api/accounts/networth?owner_id=family&limit=5000');
+      const first = rows.length ? new Date(rows.map(r => r.date).sort()[0]) : null;
+      _firstSnapshotDays = first ? Math.ceil((Date.now() - first) / 864e5) + 10 : 1825;
+    }
+  } catch (_) { _firstSnapshotDays = 1825; }
+  setGTime('overview', `now-${_firstSnapshotDays}d`);
 }
 
 function setGOwner(section, owner) {

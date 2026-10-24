@@ -110,3 +110,13 @@ if __name__ == "__main__":
         db.refresh(a)
         self.assertEqual(a.monthly_payment, D(9_000))
 
+    def test_the_flat_is_not_owned_before_its_loan_began(self):
+        from app.models.schemas import ManualAsset
+        self.world()
+        self.db.query(ManualAsset).filter_by(asset_type="liability").update({"start_date": date(2024, 1, 15)})
+        self.db.commit()
+        from app.engine.networth import compute_for_owner
+        before, after = compute_for_owner(self.db, "user", date(2023, 6, 30)), compute_for_owner(self.db, "user", date(2024, 6, 30))
+        self.assertEqual((before["real_estate_value"], before["total_liabilities"]), (D(0), D(0)))
+        self.assertEqual(after["real_estate_value"], D(13_200_000))                      # his 33% of the flat once it exists
+

@@ -226,11 +226,13 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
     manual = _manual_with_shares(db, owner_id)
     from app.engine.deposits import deposit_history, is_live, table_date
     hist, newest = deposit_history(db)
+    loan_start = min((a.start_date for a, _s in manual if a.asset_type == "liability" and a.start_date), default=None)
     for asset, share in manual:
         if not is_live(asset, hist, newest) and snap_date >= (table_date(newest, asset) or snap_date):
             continue                                   # the newest statement no longer lists this deposit: it is closed
         # History has no dated values for manual assets; at least do not show one before it existed.
-        if snap_date < date.today() and asset.start_date and asset.start_date > snap_date:
+        began = asset.start_date or (loan_start if _is_home(asset) else None)          # the flat came with its loan: before that day it was not owned
+        if snap_date < date.today() and began and began > snap_date:
             continue
         val = asset.current_value or ZERO
         if asset.asset_type in ("fd", "rd"):
