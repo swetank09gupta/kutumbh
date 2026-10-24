@@ -193,7 +193,8 @@
           "unit": "currencyINR",
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 10
+            "fillOpacity": 15,
+            "showPoints": "never"
           }
         }
       },
@@ -211,7 +212,7 @@
           "datasource": {
             "uid": "financedb"
           },
-          "rawSql": "SELECT snapshot_date AS time, net_worth AS \"Net Worth\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "rawSql": "SELECT DISTINCT ON (date_trunc('week', snapshot_date)) snapshot_date AS time, net_worth AS \"Net Worth\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY date_trunc('week', snapshot_date), snapshot_date DESC",
           "format": "time_series",
           "rawQuery": true
         }
@@ -269,8 +270,14 @@
         "defaults": {
           "unit": "currencyINR",
           "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 2
+            "fillOpacity": 55,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "drawStyle": "line"
           }
         }
       },
@@ -284,7 +291,7 @@
           "datasource": {
             "uid": "financedb"
           },
-          "rawSql": "SELECT snapshot_date AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"Mutual Funds\", ppf_value AS \"PPF\", fd_value AS \"FDs\", other_assets AS \"EPF, NPS & other\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY snapshot_date",
+          "rawSql": "SELECT DISTINCT ON (date_trunc('week', snapshot_date)) snapshot_date AS time, bank_balance AS \"Bank\", equity_value AS \"Equity\", mf_value AS \"Mutual Funds\", ppf_value AS \"PPF\", fd_value AS \"FDs\", other_assets AS \"EPF, NPS & other\" FROM net_worth_snapshots WHERE owner_id='${owner}' AND snapshot_date >= NOW() - INTERVAL '${timeRange}' ORDER BY date_trunc('week', snapshot_date), snapshot_date DESC",
           "format": "time_series",
           "rawQuery": true
         }

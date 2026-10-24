@@ -793,7 +793,9 @@ def _fetch_account(acc: dict, since_days: int, until_days: int = 0) -> list[Fetc
             for s in KNOWN_SENDERS.keys()
         ))
         date_part = f'SINCE "{since_date}"' + (f' BEFORE "{until_date}"' if until_date else "")
-        batched = _imap_or_search(mail, date_part, unique_domains)
+        # Yahoo's server answers a nested OR with only some of the matches (a CDSL statement that a plain FROM search finds was missing),
+        # so there each domain is searched on its own.
+        batched = None if "yahoo" in imap_host else _imap_or_search(mail, date_part, unique_domains)
         if batched is not None:
             candidate_ids = batched
         else:
