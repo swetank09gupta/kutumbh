@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
-SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in")
+SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in", "mailer.zerodha.com")
 
 
 @dataclass
@@ -146,10 +146,31 @@ def parse_tds(sender: str, text: str) -> tuple[str, Decimal] | None:
     return (m.group(2)[-4:], _amt(m.group(1))) if m else None
 
 
+UNKNOWN_BANK = "?"          # a Zerodha payment mail names the account's last four digits but not its bank: the fetcher resolves it from the alerts already stored
+_ZERODHA = re.compile(rf"₹\s*{_N} has been deposited to Zerodha (?:equity|commodity) from account X*(\d+) through UPI on (\d{{1,2}} [A-Za-z]{{3}} \d{{4}})\. "
+                      rf"Your transaction Reference number is (\d+)", re.I)
+
+
+def parse_zerodha_payment(text: str) -> BankAlert | None:
+    """Zerodha's "Payment success" mail: money put into the broker by UPI from the account ending ... (SBI sends no mail for a UPI payment, so this is
+    the only same-day trace of it). A debit to the broker: the UPI reference is the key the statement row carries ("UPI/DR/<ref>/ZERODHA ...")."""
+    m = _ZERODHA.search(text)
+    if not m:
+        return None
+    try:
+        when = datetime.strptime(m.group(3), "%d %b %Y").date()
+    except ValueError:
+        return None
+    return BankAlert(bank=UNKNOWN_BANK, account_last4=m.group(2)[-4:], direction="debit", amount=_amt(m.group(1)), txn_date=when, kind="upi",
+                     payee="ZERODHA", ref=m.group(4), narration=text[m.start():m.end()][:300])
+
+
 def parse_alert(sender: str, text: str, sent: date | None = None) -> BankAlert | None:
     """Parse one alert body (already tag-stripped). Returns None for anything that is not a transaction.
     `sent` is the day the mail was sent, used by the one template (YONO NEFT) whose body carries no date."""
     s = (sender or "").lower()
+    if "zerodha" in s:
+        return parse_zerodha_payment(text)
     if "hdfc" in s:
         bank, table = "HDFC", _HDFC
     elif "sbi" in s:

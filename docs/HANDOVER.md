@@ -26,4 +26,5 @@ Family net worth ₹3.10 cr. Emergency ₹21.14 L (bank ₹4.66 L + FD/RD ₹16.
 2. Wife's EPF (anchor 31 Mar 2025, rolled forward) and NPS (contributions only) are in. Share a newer EPF balance for each person about yearly (warning after 13 months).
 3. A derived diversification insight to replace the removed fixed-target recommendations.
 4. Goal priority between education and marriage: default is date order; set `goal_priority` to change.
-5. Fund data sources are public but unofficial (Groww page JSON); the regression is the fallback. AMFI catalogue, mfapi.in, Yahoo, FRED, RBI/World Bank feeds are cached; all failures degrade, none invent numbers.
+5. SBI e-mails no alert for UPI payments or SIP/mandate debits: those rows appear in the Transactions list only when the statement arrives (balances are unaffected: the bank's printed balance less its live deposits). Zerodha payment mails fill in the transfers to the broker.
+6. Fund data sources are public but unofficial (Groww page JSON); the regression is the fallback. AMFI catalogue, mfapi.in, Yahoo, FRED, RBI/World Bank feeds are cached; all failures degrade, none invent numbers.

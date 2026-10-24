@@ -18,14 +18,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.ingestion.email_fetcher import _imap_connect, _parse_imap_fetch
-from app.ingestion.parsers.bank_alert import BankAlert, clean_text, parse_alert, parse_tds
+from app.ingestion.parsers.bank_alert import UNKNOWN_BANK, BankAlert, clean_text, parse_alert, parse_tds
 from app.models.schemas import BankAlertRow, TdsDeduction
 
 logger = logging.getLogger(__name__)
 
-_SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in")
+_SENDERS = ("hdfcbank.bank.in", "hdfcbank.net", "alerts.sbi.bank.in", "alerts.sbi.co.in", "alerts@axisbank.com", "alerts@axis.bank.in", "noreply-cashier@mailer.zerodha.com")
 _SUBJECT_HINTS = ("upi txn", "account update", "deposit alert", "cbssbi", "neft transaction",
-                  "transaction success", "debited", "credited", "transaction alert")
+                  "transaction success", "debited", "credited", "transaction alert", "payment success")
 
 
 def alert_key(owner_id: str, a: BankAlert) -> str:
@@ -104,6 +104,13 @@ def fetch_alerts(since_days: int, tds: list | None = None) -> list[tuple[str, Ba
     return out
 
 
+def _banks_by_last4(db: Session) -> dict[tuple[str, str], set[str]]:
+    out: dict[tuple[str, str], set[str]] = {}
+    for owner_id, bank, last4 in db.query(BankAlertRow.owner_id, BankAlertRow.bank, BankAlertRow.account_last4).filter(BankAlertRow.account_last4.isnot(None)).distinct():
+        out.setdefault((owner_id, last4), set()).add(bank)
+    return out
+
+
 def ingest_alerts(db: Session, since_days: int = 30) -> dict[str, int]:
     tds: list = []
     found = fetch_alerts(since_days, tds)
@@ -114,7 +121,13 @@ def ingest_alerts(db: Session, since_days: int = 30) -> dict[str, int]:
             id=uuid.uuid4(), owner_id=owner_id, account_last4=last4, deducted_on=when, amount=amount, natural_key=key
         ).on_conflict_do_nothing(index_elements=["natural_key"])).rowcount
     rows, keys = [], set()
+    banks = _banks_by_last4(db)
     for owner_id, a, sent in found:
+        if a.bank == UNKNOWN_BANK:                                   # a Zerodha mail: the bank is the one whose alerts carry those last four digits
+            known = banks.get((owner_id, a.account_last4), set())
+            if len(known) != 1:
+                continue
+            a.bank = next(iter(known))
         k = alert_key(owner_id, a)
         if k in keys:
             continue

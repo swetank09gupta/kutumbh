@@ -40,7 +40,7 @@ Amortisation schedule built from each lender letter (rate, EMI, EMIs left) · ev
 
 ## Self-sustaining audit (12 Oct 2026, ADR-0037)
 Updates without a person: statements, alerts, loan letters/certificates, registrar notices (every 6 h, since the last good run); repo rate and 18 rule pages (daily); AMFI NAVs and Yahoo share prices (each rebuild, expiring after 6 h / the day); dividend history; derived trades. Each now has a check that goes to warn when it stops (`prices_are_live`, `rules_are_current`, `automation_is_running`, `bank_balances_chain`, ledger reconciliation).
-**Still not live:** SGB prices (monthly statement rate), the flat's value, FD/RD values (accrued from the statement's contract rate, not a feed), statements the banks never mail (SBI wife Aug 2025, SBI user Oct 2024), accounts that send no alerts (Union, Axis: statements only).
+**Still not live (alerts):** SBI sends no e-mail for UPI payments or mandate (NACH/SIP) debits, so between statements those rows are missing from the Transactions list (the balance is right: it is the bank's own printed balance); the Zerodha payment mails now cover transfers to the broker (21-24 Oct 2026). **Still not live:** SGB prices (monthly statement rate), the flat's value, FD/RD values (accrued from the statement's contract rate, not a feed), statements the banks never mail (SBI wife Aug 2025, SBI user Oct 2024), accounts that send no alerts (Union, Axis: statements only).
 
 ## How each phase is run
 1. Update the rule section in INSTRUMENTS.md (source, date) and the registry.

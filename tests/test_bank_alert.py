@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from app.ingestion.parsers.bank_alert import parse_alert, parse_tds
+from app.ingestion.parsers.bank_alert import UNKNOWN_BANK, parse_alert, parse_tds
 
 HDFC = "alerts@hdfcbank.bank.in"
 SBI = "noreply@alerts.sbi.bank.in"
@@ -130,3 +130,17 @@ class SbiOlderDomainAlerts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZerodhaPayment(unittest.TestCase):
+    MAIL = ("Hi Swetank ₹30000.00 has been deposited to Zerodha equity from account 3316 through UPI on 8 Oct 2026. Your transaction Reference number is "
+            "628110354666. Amount 30000.00 Reference Number 628110354666 Date 8 Oct 2026 This email was sent by Zerodha.")
+
+    def test_a_payment_mail_is_a_debit_to_the_broker_from_the_named_account(self):
+        a = parse_alert("noreply-cashier@mailer.zerodha.com", self.MAIL)
+        self.assertEqual((a.bank, a.account_last4, a.direction, a.amount, a.txn_date, a.kind, a.payee, a.ref),
+                         (UNKNOWN_BANK, "3316", "debit", Decimal("30000.00"), date(2026, 10, 8), "upi", "ZERODHA", "628110354666"))
+
+    def test_other_zerodha_mails_are_not_alerts(self):
+        self.assertIsNone(parse_alert("noreply-cashier@mailer.zerodha.com", "Your Combined Equity Contract Note for MJ9491 is attached."))
+
