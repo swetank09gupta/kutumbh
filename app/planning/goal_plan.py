@@ -44,6 +44,7 @@ class Context:
     stepup: float = DEFAULT_STEPUP
     risk_model: object = None                 # app.planning.risk.RiskModel: measured factor covariance + the derived expected returns
     factors: object = None                    # monthly factor returns (app.planning.funds.factor_frame)
+    nps: dict = field(default_factory=dict)   # {owner: {balance, monthly}} (contributions only: no NAV is known)
     epf: dict = field(default_factory=dict)   # {owner: {balance, monthly, rate_pct}} (app.engine.epf)
     term: list = field(default_factory=list)  # return-of-premium plans (app.planning.personal)
     family_shift: dict = field(default_factory=dict)   # {owner: years} the family's longevity moves the survival curve
@@ -102,10 +103,14 @@ def build_context(db: Session, today: date | None = None, scenario: str = "base"
     for e in personal.epf_entries(cfg):                         # the employee's share (VPF included) decides how much EPF interest is taxable
         if e["owner"] in epf_now:
             epf_now[e["owner"]]["employee_monthly"] = e["employee_monthly"] + e["voluntary_monthly"]
-            epf_now[e["owner"]]["monthly"] = e["employee_monthly"] + e["employer_monthly"]      # the plan counts the committed part only: VPF is a choice she changes
+    try:
+        nps_now = epf_mod.holders(db, list(owners), today, kind="nps")
+    except Exception as exc:
+        logger.warning("NPS not read: %s", exc)
+        nps_now = {}
     shift = {o: personal.family_shift_years((cfg.get("family_history") or {}).get(o)) for o in owners}
     return Context(today=today, macro=snap, data=data, base=base, why=why, epf=epf_now, term=personal.term_policies(cfg), family_shift=shift,
-                   profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
+                   nps=nps_now, profiles=profiles if profiles is not None else taxes.person_profiles(db, today),
                    spending=spending, owners=owners, salary=sal,
                    loan={"outstanding": float(loan.principal_after), "emi": float(loan.emi), "rate_pct": float(loan.rate), "emis_left": int(loan.emis_left)} if loan else None,
                    stepup=stepup, risk_model=model, factors=factors)
@@ -140,7 +145,7 @@ def holdings_by_owner(db: Session, tags: list[str], scope: list[str]) -> list[tu
     from app.engine import epf as epf_mod
     not_a_corpus = ("real_estate", "liability", "insurance", "other")          # a home you live in is not money you can spend
     for m in db.query(ManualAsset).filter(ManualAsset.owner_id.in_(scope), ManualAsset.goal_tag.in_(tags), ManualAsset.asset_type.notin_(not_a_corpus)).all():
-        v = float(epf_mod.value_of(m, date.today())) if m.asset_type == "epf" else float(m.current_value or 0)
+        v = float(epf_mod.value_of(m, date.today())) if m.asset_type in ("epf", "nps") else float(m.current_value or 0)
         if v > 0:
             out.append((m.owner_id, v, allocation.classify(m.name, None, m.asset_type)))
     return out
@@ -282,6 +287,11 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
         m_end = min(_months(today, ret_dates[o]), n)
         mm = np.arange(1, m_end)
         fixed_in[mm] += e["monthly"] * haircut_own * (1 + a.salary_growth) ** (mm // 12)
+    nps = {o: e for o, e in ctx.nps.items() if o in ret_dates}
+    for o, e in nps.items():                                                    # NPS contributions the same way (the money is locked until 60 anyway)
+        m_end = min(_months(today, ret_dates[o]), n)
+        mm = np.arange(1, m_end)
+        fixed_in[mm] += e["monthly"] * haircut_own * (1 + a.salary_growth) ** (mm // 12)
     rop = []
     for t in ctx.term:
         v = ctx.owners.get(t["owner"])
@@ -310,7 +320,7 @@ def plan_retirement(db: Session, ctx: Context, goal, corpus0: float, sip_now_by_
              "spend_today": spend_today, "spouse_offset_today_monthly": {o: ctx.salary.get(o, 0.0) * haircut / 12 for o in owners if o != first},
              "tax": tax_note, "first_retiree": first, "retire_dates": {o: d.isoformat() for o, d in ret_dates.items()},
              "mix_start": {k: round(v, 3) for k, v in start.items()}, "step_date": life["step"].isoformat() if life["step"] else None,
-             "step_factor": life["factor"], "survivor_chance": life["chance"], "epf": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in epf.items()},
+             "step_factor": life["factor"], "survivor_chance": life["chance"], "epf": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in epf.items()}, "nps": {o: {"balance": e["balance"], "monthly": e["monthly"]} for o, e in nps.items()},
              "return_of_premium": rop, "family_shift": {o: round(ctx.family_shift.get(o, 0.0), 1) for o, _d in dated if ctx.family_shift.get(o, 0.0)}}
     out = _result(ctx, a, res, shape, total_sip, corpus0, n_acc, req80, ideal_today, "typed" if use_typed else "derived",
                   a.retirement_inflation, years, w, extra, fixed_in)
@@ -467,12 +477,15 @@ def _note(res: dict, goal_type: str, ctx: Context) -> str:
         for o, e in (res.get("epf") or {}).items():
             who = (ctx.owners.get(o, {}).get("name") or o).split()[0]
             parts.append(f"{who}'s EPF ₹{e['balance'] / 100000:.1f} L now, ₹{e['monthly'] / 1000:.0f}k a month until they stop (counted at 80% for job risk; interest above ₹2.5 L of contributions taxed)")
+        for o, e in (res.get("nps") or {}).items():
+            who = (ctx.owners.get(o, {}).get("name") or o).split()[0]
+            parts.append(f"{who}'s NPS ₹{e['balance'] / 100000:.2f} L (contributions only, no NAV known), ₹{e['monthly'] / 1000:.1f}k a month")
         for r in res.get("return_of_premium") or []:
             parts.append(f"term plan returns ₹{r['amount'] / 100000:.1f} L at maturity ({r['date'][:7]})")
         for o, y in (res.get("family_shift") or {}).items():
             parts.append(f"a long-lived family adds {y:+.1f} years to the horizon")
         if parts:
-            txt += " Counted: " + "; ".join(parts) + ". Not counted: any NPS or pension (no data) and voluntary PF (a choice that changes)."
+            txt += " Counted: " + "; ".join(parts) + ". Not counted: any pension (no data) or NPS growth beyond the contributions."
         if res.get("age_for_80"):
             txt += f" At today's saving an 80% chance needs retiring at {res['age_for_80']}."
         elif res.get("chance") is not None and res["chance"] < CONFIDENCE and "age_for_80" in res:

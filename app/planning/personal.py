@@ -39,6 +39,16 @@ def epf_entries(cfg: dict | None = None) -> list[dict]:
     return out
 
 
+def nps_entries(cfg: dict | None = None) -> list[dict]:
+    """[{owner, as_of, balance, monthly}]: the NPS balance on a date (0 when the account started after it) and what goes in each month."""
+    out = []
+    for e in (cfg if cfg is not None else config()).get("nps") or []:
+        as_of = _d(e.get("as_of"))
+        if e.get("owner") and as_of:
+            out.append({"owner": e["owner"], "as_of": as_of, "balance": float(e.get("balance") or 0), "monthly": float(e.get("monthly") or 0)})
+    return out
+
+
 def income(owner: str, cfg: dict | None = None) -> dict | None:
     v = ((cfg if cfg is not None else config()).get("income") or {}).get(owner)
     if not v or not v.get("ctc_annual"):

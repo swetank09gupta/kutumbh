@@ -241,7 +241,7 @@ def compute_for_owner(db: Session, owner_id: str, snap_date: date | None = None)
             then = principal_on(db, owner_id, snap_date, asset.invested_amount)
             if then is not None:
                 val = -then
-        if asset.asset_type == "epf":
+        if asset.asset_type in ("epf", "nps"):
             from app.engine.epf import value_of
             val = value_of(asset, snap_date)                       # the balance you shared, rolled forward
         val = val * share                                          # a co-owned home and its loan count only the owner's own share

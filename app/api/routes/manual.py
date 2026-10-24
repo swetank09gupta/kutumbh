@@ -282,10 +282,13 @@ def _compute_returns(a: ManualAsset) -> dict:
 
 
 def _value_today(a: ManualAsset, hist=None) -> float:
-    """What it is worth today: deposits grown to today, and 0 for a deposit the newest statement no longer lists."""
+    """What it is worth today: deposits grown to today, EPF/NPS rolled forward, and 0 for a deposit the newest statement no longer lists."""
     from app.engine.deposits import accrued_value, is_live
     if hist is not None and not is_live(a, *hist):
         return 0.0
+    if a.asset_type in ("epf", "nps"):                                  # the shared balance rolled forward with what has gone in since
+        from app.engine.epf import value_of
+        return float(value_of(a, date.today()))
     return float(accrued_value(a, date.today()))
 
 

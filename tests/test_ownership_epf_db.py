@@ -95,3 +95,18 @@ class Ownership(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_nps_is_valued_by_what_has_gone_in_and_a_corrected_contribution_updates_the_anchor(self):
+        from app.models.schemas import ManualAsset
+        from app.engine import epf
+        db = self.db
+        db.query(ManualAsset).delete(); db.commit()
+        entry = {"owner": "wife", "as_of": date(2026, 3, 31), "balance": 0.0, "monthly": 8_413.0}
+        self.assertEqual(epf.sync(db, entries=[], nps=[entry]), 1)
+        self.assertEqual(epf.sync(db, entries=[], nps=[entry]), 0)
+        a = db.query(ManualAsset).filter_by(asset_type="nps").one()
+        self.assertEqual(float(epf.value_of(a, date(2026, 10, 31))), 7 * 8_413.0)            # April to October, no NAV, no return assumed
+        self.assertEqual(epf.sync(db, entries=[], nps=[dict(entry, monthly=9_000.0)]), 1)     # same date, corrected amount
+        db.refresh(a)
+        self.assertEqual(a.monthly_payment, D(9_000))
+

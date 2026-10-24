@@ -19,11 +19,11 @@ Family finance on FastAPI + SQLAlchemy + Postgres (docker compose), one-page UI 
 - Never bump `_CACHE_SCHEMA` (hours to re-parse); bump the parser's own `_PARSER_VERSION`.
 
 ## State on 2026-10-21
-Family net worth ₹3.10 cr. Emergency ₹21.14 L (bank ₹4.66 L + FD/RD ₹16.48 L) vs ₹33.91 L derived (short ₹12.8 L). Retirement 78% chance at ₹27.5k SIP (EPF and return of premium carry it); education, health and marriage far from funded; capacity ₹1.66 L/month (loan ends 2033-05). Silver ETFs flagged as a bet. Health 0 failing.
+Family net worth ₹3.10 cr. Emergency ₹21.14 L (bank ₹4.66 L + FD/RD ₹16.48 L) vs ₹33.91 L derived (short ₹12.8 L). Retirement ~99% chance with no more saving (both EPFs, NPS and the return of premium carry it): its holdings are moved to education and marriage by the matcher; capacity ₹2.1 L/month (loan ends 2033-05); suggested SIPs education ₹1.18 L, health ₹35k, marriage ₹33k, retirement 0, emergency a one-off ₹12.8 L; actual SIPs today education ₹39.5k, retirement ₹10k, health ₹10k (the app only suggests; the mandates are yours). Silver ETFs flagged as a bet. Health 0 failing.
 
 ## Open items (also in `docs/ROADMAP.md` Inbox)
 1. SBI savings balance = alert print minus the owner's live SBI deposits (ADR-0046 correction); a new statement should confirm it. (The wife's duplicate SBI 1636 row was deleted.)
-2. Wife's EPF is in (anchor 31 Mar 2025, rolled forward); NPS: no data. Share a newer EPF balance for each person about yearly (warning after 13 months).
+2. Wife's EPF (anchor 31 Mar 2025, rolled forward) and NPS (contributions only) are in. Share a newer EPF balance for each person about yearly (warning after 13 months).
 3. A derived diversification insight to replace the removed fixed-target recommendations.
 4. Goal priority between marriage and health: default is date order; set `goal_priority` to change.
 5. Fund data sources are public but unofficial (Groww page JSON); the regression is the fallback. AMFI catalogue, mfapi.in, Yahoo, FRED, RBI/World Bank feeds are cached; all failures degrade, none invent numbers.

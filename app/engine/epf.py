@@ -46,17 +46,24 @@ def rolled_value(balance: float, as_of: date, monthly: float, today: date, rate_
 
 
 def value_of(asset, on: date) -> Decimal:
-    """A Manual Asset of type 'epf' on `on` (the anchor itself on or before its date)."""
+    """A Manual Asset of type 'epf' (or 'nps', contributions only: its NAV is not known) on `on` (the anchor itself on or before its date)."""
     base = Decimal(str(asset.current_value or 0))
     as_of = asset.source_statement_date
     if not as_of or on <= as_of:
         return base
-    rate = float(asset.interest_rate) if asset.interest_rate else None
+    rate = 0.0 if asset.asset_type == "nps" else (float(asset.interest_rate) if asset.interest_rate else None)      # NPS: contributions only, no NAV is known
     return Decimal(str(rolled_value(float(base), as_of, float(asset.monthly_payment or 0), on, rate)))
 
 
-def sync(db, today: date | None = None, entries: list[dict] | None = None) -> int:
-    """Create or refresh the EPF Manual Asset of each configured entry. A newer `as_of` in the config replaces the anchor; an older one is ignored."""
+def _changed(a, as_of: date, balance: float, monthly: float) -> bool:
+    """A newer anchor replaces the stored one; the same date takes a corrected balance or contribution from the config; an older one is ignored."""
+    if a.source_statement_date is None or as_of > a.source_statement_date:
+        return True
+    return as_of == a.source_statement_date and (Decimal(str(balance)) != (a.current_value or 0) or Decimal(str(monthly)) != (a.monthly_payment or 0))
+
+
+def sync(db, today: date | None = None, entries: list[dict] | None = None, nps: list[dict] | None = None) -> int:
+    """Create or refresh the EPF (and NPS) Manual Asset of each configured entry. A newer `as_of` in the config replaces the anchor; an older one is ignored."""
     from app.models.schemas import ManualAsset
     from app.planning import personal
     n = 0
@@ -67,25 +74,34 @@ def sync(db, today: date | None = None, entries: list[dict] | None = None) -> in
             db.add(ManualAsset(owner_id=e["owner"], asset_type="epf", institution="EPFO", name="EPF (EPFO)", current_value=Decimal(str(e["balance"])),
                                monthly_payment=Decimal(str(monthly)), source_statement_date=e["as_of"], goal_tag="retirement"))
             n += 1
-        elif a.source_statement_date is None or e["as_of"] > a.source_statement_date:
+        elif _changed(a, e["as_of"], e["balance"], monthly):
             a.current_value, a.monthly_payment, a.source_statement_date = Decimal(str(e["balance"])), Decimal(str(monthly)), e["as_of"]
+            n += 1
+    for e in nps if nps is not None else (personal.nps_entries() if entries is None else []):
+        a = db.query(ManualAsset).filter(ManualAsset.owner_id == e["owner"], ManualAsset.asset_type == "nps").first()
+        if a is None:
+            db.add(ManualAsset(owner_id=e["owner"], asset_type="nps", institution="NPS", name="NPS", current_value=Decimal(str(e["balance"])),
+                               monthly_payment=Decimal(str(e["monthly"])), source_statement_date=e["as_of"], goal_tag="retirement"))
+            n += 1
+        elif _changed(a, e["as_of"], e["balance"], e["monthly"]):
+            a.current_value, a.monthly_payment, a.source_statement_date = Decimal(str(e["balance"])), Decimal(str(e["monthly"])), e["as_of"]
             n += 1
     if n:
         db.commit()
     return n
 
 
-def holders(db, owner_ids: list[str] | None = None, today: date | None = None) -> dict[str, dict]:
-    """{owner: {balance (rolled to today), monthly (employee + employer), as_of, rate_pct}} for every EPF asset."""
+def holders(db, owner_ids: list[str] | None = None, today: date | None = None, kind: str = "epf") -> dict[str, dict]:
+    """{owner: {balance (rolled to today), monthly (what goes in), as_of, rate_pct}} for every EPF (or `kind="nps"`) asset."""
     from app.models.schemas import ManualAsset
     today = today or date.today()
-    q = db.query(ManualAsset).filter(ManualAsset.asset_type == "epf")
+    q = db.query(ManualAsset).filter(ManualAsset.asset_type == kind)
     if owner_ids is not None:
         q = q.filter(ManualAsset.owner_id.in_(owner_ids))
     out = {}
     for a in q.all():
         out[a.owner_id] = {"balance": float(value_of(a, today)), "monthly": float(a.monthly_payment or 0), "as_of": a.source_statement_date,
-                           "rate_pct": float(a.interest_rate) if a.interest_rate else float(rules.value("epf.interest_rate", today))}
+                           "rate_pct": (0.0 if kind == "nps" else float(a.interest_rate) if a.interest_rate else float(rules.value("epf.interest_rate", today)))}
     return out
 
 
