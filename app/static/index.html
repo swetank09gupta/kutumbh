@@ -2125,7 +2125,7 @@ async function loadGoals() {
           <div class="progress-fill" style="width:${pct}%;background:${barColor}"></div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px">
-          <span style="color:#64748b" title="Monthly amount that gives an 80% chance across simulated futures">SIP for 80% chance: <span style="color:#a5b4fc;font-weight:600">${sip}</span></span>
+          <span style="color:#64748b" title="${isEm ? 'Monthly amount that closes the gap to the target within a year' : 'Monthly amount that gives an 80% chance across simulated futures'}">${isEm ? 'To close the gap in a year' : 'SIP for 80% chance'}: <span style="color:#a5b4fc;font-weight:600">${sip}</span></span>
           <span style="color:#475569">${g.target_date ? 'by ' + fmtDate(g.target_date) : 'keep topped up'}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:6px">
