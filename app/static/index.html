@@ -2932,7 +2932,8 @@ async function loadReview() {
       return `<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1e2738;flex-wrap:wrap">
         <div style="flex:1;min-width:220px">
           <div style="font-size:13px;color:#e2e8f0;font-weight:600">${_esc(r.payee_key.replace('|', ' · '))}</div>
-          <div style="font-size:11px;color:#64748b">${r.count}× · ${money} · last ${_esc(r.last_date)}</div>
+          <div style="font-size:11px;color:#64748b">${r.count}× · ${money} · last ${_esc(r.last ? r.last.date + (r.last.time ? ' ' + r.last.time : '') : r.last_date)}${r.last ? ` · ₹${fmt(r.last.amount)} ${r.last.direction === 'debit' ? 'out' : 'in'}` : ''}</div>
+          <div style="font-size:11px;color:#94a3b8">${r.accounts && r.accounts.length ? _esc(r.accounts[0]) + (r.accounts.length > 1 ? ` +${r.accounts.length - 1} more (${_esc(r.accounts.slice(1).join(', '))})` : '') : ''}</div>
           <div style="font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px">${_esc(r.sample)}</div>
         </div>
         <select id="review-sel-${i}" style="font-size:12px;min-width:200px" onchange="$('review-apply-${i}').disabled = !this.value">

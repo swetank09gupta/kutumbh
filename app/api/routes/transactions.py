@@ -26,11 +26,7 @@ def _owner_ids(db: Session, owner_id: Optional[str]) -> list[str] | None:
     return [owner_id]
 
 
-def _account_label(a: Account) -> str:
-    """"HDFC …1632 (user)": what a person recognises, not the row id."""
-    ref = (a.account_ref or "")
-    ref = ref[-4:] if ref.isdigit() or ref.replace("X", "").isdigit() else ""            # "unknown" or a client code is not a number to show
-    return f"{a.institution or a.account_type}{' …' + ref if ref else ''} ({a.owner_id})"
+from app.txn.pipeline import account_label as _account_label
 
 
 @router.get("/")

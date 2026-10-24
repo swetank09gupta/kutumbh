@@ -167,20 +167,38 @@ def retag(db: Session, use_llm: bool = True, llm_limit: int = 60) -> dict:
 
 
 # ── Review list ──────────────────────────────────────────────────────────────
+def account_label(a: Account) -> str:
+    """"HDFC …1632 (user)": what a person recognises, not the row id."""
+    ref = (a.account_ref or "")
+    ref = ref[-4:] if ref.isdigit() or ref.replace("X", "").isdigit() else ""            # "unknown" or a client code is not a number to show
+    return f"{a.institution or a.account_type}{' …' + ref if ref else ''} ({a.owner_id})"
+
+
 def review_list(db: Session, limit: int = 50) -> list[dict]:
+    """Payees nobody has labelled, biggest first. Each says when it last happened (date; the time too when a bank alert confirmed that payment),
+    for how much, and from which account, so it can be recognised without opening the transaction list."""
+    from app.models.schemas import BankAlertRow
     mem = {m.payee_key: m for m in db.query(PayeeMemory).all()}
     groups: dict[str, dict] = {}
-    for t in db.query(Transaction).filter(Transaction.needs_review.is_(True)):
+    for t, acc in db.query(Transaction, Account).join(Account, Transaction.account_id == Account.id).filter(Transaction.needs_review.is_(True)):
         key = payee_key(t.raw_description or t.description)
         if not key:
             continue
         g = groups.setdefault(key, {"payee_key": key, "sample": (t.raw_description or t.description or "")[:100],
-                                    "count": 0, "debit_total": 0.0, "credit_total": 0.0, "last_date": None})
+                                    "count": 0, "debit_total": 0.0, "credit_total": 0.0, "last_date": None, "accounts": {}, "_last": None})
         g["count"] += 1
         g["debit_total" if t.transaction_type == "debit" else "credit_total"] += float(t.amount)
+        g["accounts"][account_label(acc)] = g["accounts"].get(account_label(acc), 0) + 1
         g["last_date"] = max(filter(None, [g["last_date"], t.date]))
+        if g["_last"] is None or (t.date, str(t.created_at)) > (g["_last"].date, str(g["_last"].created_at)):
+            g["_last"] = t
     out = []
     for key, g in groups.items():
+        last = g.pop("_last")
+        alert = db.query(BankAlertRow).filter(BankAlertRow.matched_txn_id == last.id).order_by(BankAlertRow.sent_at.desc()).first()
+        g["last"] = {"date": str(last.date), "time": alert.sent_at.astimezone().strftime("%H:%M") if alert is not None and alert.sent_at else None,
+                     "amount": float(last.amount), "direction": last.transaction_type, "account": account_label(db.get(Account, last.account_id))}
+        g["accounts"] = sorted(g["accounts"], key=lambda a: -g["accounts"][a])
         m = mem.get(key)
         g["suggestion"] = ({"category": m.category, "subcategory": m.subcategory,
                             "confidence": float(m.confidence or 0)} if m else None)
